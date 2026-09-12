@@ -1,0 +1,342 @@
+name: Release
+
+# Push a tag to cut a release:
+#
+#   git tag v1.0.0 && git push origin v1.0.0
+#
+# That builds the app on Windows and attaches four installers to a
+# GitHub Release: an .msi and an .exe that bundle .NET, and an .msi
+# and an .exe that expect the .NET Desktop Runtime on the machine.
+#
+# Running this workflow manually instead builds the same installers
+# and leaves them as workflow artifacts without publishing a release,
+# which is the safe way to test a change to the packaging.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build, without the leading v (e.g. 1.0.0)'
+        required: true
+        default: '0.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build installers
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      # A release must not ship from a red commit. The live Firebird
+      # tests skip here, as they do in CI.
+      - name: Test
+        shell: pwsh
+        run: dotnet test tests/ByteBridge.Tests/ByteBridge.Tests.csproj -c Release
+
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $version = $env:GITHUB_REF_NAME -replace '^v', ''
+          } else {
+            $version = '${{ inputs.version }}'
+          }
+
+          # An MSI ProductVersion has to be purely numeric, so a
+          # pre-release suffix (1.2.3-beta.1) is trimmed for the MSI
+          # while the artifact file names keep the full version.
+          $msiVersion = ($version -split '-')[0]
+
+          if ($msiVersion -notmatch '^\d+(\.\d+){0,3}$') {
+            throw "Version '$version' does not begin with a numeric version."
+          }
+
+          "version=$version"       >> $env:GITHUB_OUTPUT
+          "msiVersion=$msiVersion" >> $env:GITHUB_OUTPUT
+
+          Write-Host "Building $version (MSI ProductVersion $msiVersion)"
+
+      - name: Publish both distributions
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+
+          # publish    -> .NET bundled, runs on a bare machine
+          # publish-fx -> needs the .NET Desktop Runtime installed
+          dotnet publish ByteBridge.csproj `
+            -c Release -r win-x64 --self-contained true `
+            -p:Version=${{ steps.version.outputs.msiVersion }} `
+            -o publish
+
+          dotnet publish ByteBridge.csproj `
+            -c Release -r win-x64 --self-contained false `
+            -p:Version=${{ steps.version.outputs.msiVersion }} `
+            -o publish-fx
+
+          # The service goes into the same folders as the control panel.
+          # They share the core library, and the per-app files are named
+          # after their assembly, so nothing collides.
+          dotnet publish service/ByteBridge.Service.csproj `
+            -c Release -r win-x64 --self-contained true `
+            -p:Version=${{ steps.version.outputs.msiVersion }} `
+            -o publish
+
+          dotnet publish service/ByteBridge.Service.csproj `
+            -c Release -r win-x64 --self-contained false `
+            -p:Version=${{ steps.version.outputs.msiVersion }} `
+            -o publish-fx
+
+          foreach ($dir in 'publish', 'publish-fx') {
+            # Both must be there. An installer carrying the window but
+            # not the service would register a service whose executable
+            # does not exist, and fail on first start.
+            foreach ($needed in 'ByteBridge.exe', 'ByteBridge.Service.exe') {
+              if (-not (Test-Path "$dir/$needed")) {
+                throw "$dir/$needed is missing; that publish produced nothing to package."
+              }
+            }
+
+            $mb = [math]::Round((Get-ChildItem $dir -Recurse -File |
+              Measure-Object Length -Sum).Sum / 1MB, 1)
+
+            Write-Host "$dir : $((Get-ChildItem $dir -Recurse -File).Count) files, $mb MB"
+          }
+
+      - name: Build MSIs
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version 6.0.2
+
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "wix install exited $LASTEXITCODE; checking whether it is already available."
+            $global:LASTEXITCODE = 0
+          }
+
+          $env:PATH += ";$env:USERPROFILE\.dotnet\tools"
+
+          # Fails the step with a clear message if the tool is not usable.
+          wix --version
+
+          # -wx8600 and -wx8601 turn "zero files harvested" and "missing
+          # directory for harvesting" from warnings into errors. Left as
+          # warnings they build a valid but empty .msi, which is exactly
+          # what 1.0.0 shipped. -pdbtype none keeps the .wixpdb, which is
+          # a build-time symbol file, out of the release.
+          wix build installer/Package.wxs -arch x64 -wx8600 -wx8601 `
+            -pdbtype none `
+            -d Version=${{ steps.version.outputs.msiVersion }} `
+            -d PublishDir=publish `
+            -o artifacts/ByteBridge-${{ steps.version.outputs.version }}-x64.msi
+
+          wix build installer/Package.wxs -arch x64 -wx8600 -wx8601 `
+            -pdbtype none `
+            -d Version=${{ steps.version.outputs.msiVersion }} `
+            -d PublishDir=publish-fx `
+            -o artifacts/ByteBridge-${{ steps.version.outputs.version }}-x64-framework.msi
+
+      # The .exe installers fetch these on the customer's machine, so a
+      # URL that has moved must fail here, not there. HEAD only; the
+      # point is that the vendor still serves it, not to download it.
+      - name: Check the prerequisite download URLs
+        shell: pwsh
+        run: |
+          $urls = @{
+            '.NET 10 Desktop Runtime' =
+              'https://aka.ms/dotnet/10.0/windowsdesktop-runtime-win-x64.exe'
+            'cloudflared'             =
+              'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.msi'
+          }
+
+          $failed = @()
+
+          foreach ($name in $urls.Keys) {
+            $url = $urls[$name]
+
+            try {
+              $head = Invoke-WebRequest -Uri $url -Method Head -MaximumRedirection 10
+
+              if ($head.StatusCode -ne 200) {
+                $failed += "$name returned HTTP $($head.StatusCode) from $url"
+                continue
+              }
+
+              # Reaching the vendor is the check that matters. Size is a
+              # bonus, and only when offered: a redirect chain ending at a
+              # CDN need not answer a HEAD with Content-Length, and missing
+              # it is not a broken URL. Index with [] so an absent header
+              # is null rather than an exception.
+              $length = $head.Headers['Content-Length']
+              if ($length -is [array]) { $length = $length[0] }
+
+              if ($length) {
+                $mb = [math]::Round([int64]$length / 1MB, 1)
+                Write-Host "ok   $name : $mb MB"
+
+                # A few hundred KB back means an error page, not an installer.
+                if ($mb -lt 5) {
+                  $failed += "$name returned only $mb MB from $url"
+                }
+              } else {
+                Write-Host "ok   $name : reachable (no Content-Length on the HEAD)"
+              }
+            } catch {
+              $failed += "$name is unreachable at $url ($($_.Exception.Message))"
+            }
+          }
+
+          if ($failed) {
+            throw ("Prerequisite downloads are broken:`n  " + ($failed -join "`n  ") +
+              "`n`nUpdate the URL in installer/EasyFbSoft.iss.")
+          }
+
+      - name: Build EXE installers
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+
+          if (-not (Test-Path $iscc)) {
+            throw "ISCC.exe not found at $iscc"
+          }
+
+          & $iscc /DAppVersion=${{ steps.version.outputs.version }} `
+            installer\EasyFbSoft.iss
+
+          & $iscc /DAppVersion=${{ steps.version.outputs.version }} `
+            /DPublishDir=publish-fx /DVariant=-framework /DRequireRuntime=1 `
+            installer\EasyFbSoft.iss
+
+      - name: Checksums
+        shell: pwsh
+        run: |
+          $msi = @(Get-ChildItem artifacts -Filter *.msi)
+          $exe = @(Get-ChildItem artifacts -Filter *-setup.exe)
+
+          if ($msi.Count -ne 2) { throw "Expected two .msi files in artifacts, found $($msi.Count)." }
+          if ($exe.Count -ne 2) { throw "Expected two setup .exe files in artifacts, found $($exe.Count)." }
+
+          # An installer cannot be much smaller than the tree it carries.
+          # 1.0.0 shipped a 48 KB .msi because a bad harvest glob left the
+          # payload out and WiX only warned, so every artifact is measured
+          # against the folder it is supposed to package. A quarter is well
+          # under what these actually compress to -- the .NET-bundled
+          # setup.exe manages about a third -- and still catches an
+          # installer that carries nothing at all.
+          $payload = @{}
+
+          foreach ($dir in 'publish', 'publish-fx') {
+            $payload[$dir] = (Get-ChildItem $dir -Recurse -File |
+              Measure-Object Length -Sum).Sum
+          }
+
+          foreach ($file in $msi + $exe) {
+            $dir = if ($file.Name -like '*-framework*') { 'publish-fx' } else { 'publish' }
+            $floor = $payload[$dir] * 0.25
+
+            if ($file.Length -lt $floor) {
+              # The concatenation needs its own parentheses: -f binds
+              # looser than +, so without them it formats only the
+              # second half of the message.
+              throw (("{0} is {1:N1} MB but packages {2} ({3:N1} MB), " +
+                "so it should be at least {4:N1} MB. Its payload is missing.") -f
+                $file.Name, ($file.Length / 1MB), $dir,
+                ($payload[$dir] / 1MB), ($floor / 1MB))
+            }
+          }
+
+          $lines = Get-ChildItem artifacts -File | ForEach-Object {
+            "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
+          }
+
+          $lines | Set-Content artifacts/SHA256SUMS.txt -Encoding ascii
+
+          Get-ChildItem artifacts -File |
+            Select-Object Name, @{ n = 'MB'; e = { [math]::Round($_.Length / 1MB, 1) } } |
+            Format-Table -AutoSize | Out-String | Write-Host
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: installers
+          path: artifacts/*
+          if-no-files-found: error
+
+      - name: Compose release notes
+        shell: pwsh
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+
+          # The section for this version runs from its heading to the
+          # next version heading or the link block at the foot of the
+          # file, whichever comes first.
+          $pattern = '(?ms)^##\s*\[' + [regex]::Escape($version) +
+            '\][^\r\n]*\r?\n(.*?)(?=^##\s*\[|^\[[^\]]+\]:\s*http|\z)'
+
+          $found = [regex]::Match((Get-Content CHANGELOG.md -Raw), $pattern)
+
+          if ($found.Success) {
+            $section = $found.Groups[1].Value.Trim()
+          } else {
+            $section = ''
+          }
+
+          if (-not $section) {
+            $message = "CHANGELOG.md has no notes under '## [$version]'. " +
+              "Run scripts/new-release.ps1 -Version $version before tagging."
+
+            # A tagged release without notes is a mistake worth stopping
+            # for; a manual run is a packaging test, so it only warns.
+            if ($env:GITHUB_REF_TYPE -eq 'tag') { throw $message }
+
+            Write-Host "::warning::$message"
+          }
+
+          $install = (Get-Content .github/release-notes-template.md -Raw).
+            Replace('{{VERSION}}', $version).
+            Replace('{{TAG}}', "v$version")
+
+          if ($section) {
+            $notes = "## What changed`n`n$section`n`n---`n`n$install"
+          } else {
+            $notes = $install
+          }
+
+          Set-Content release-notes.md $notes -Encoding utf8
+
+          Write-Host "----- release body -----"
+          Get-Content release-notes.md | Write-Host
+
+      - name: Publish GitHub Release
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $files = (Get-ChildItem artifacts -File).FullName
+
+          gh release view $tag *> $null
+
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "Release $tag already exists; replacing its assets."
+            gh release upload $tag $files --clobber
+          } else {
+            gh release create $tag $files `
+              --title "ByteBridge $tag" `
+              --notes-file release-notes.md
+          }

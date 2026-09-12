@@ -1,0 +1,28 @@
+# Build output
+bin/
+obj/
+
+# Publish / packaging output
+# publish-fx is the framework-dependent tree the release path builds
+# beside publish/. A pattern for one does not cover the other.
+publish/
+publish-fx/
+artifacts/
+
+# Test output
+TestResults/
+*.trx
+
+# Built installers
+*.msi
+*.exe
+
+# User-specific
+.vs/
+.vscode/
+*.user
+*.suo
+
+# OS
+Thumbs.db
+.DS_Store

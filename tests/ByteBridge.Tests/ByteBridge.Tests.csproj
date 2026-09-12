@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>ByteBridge.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <!--
+    A real reference now that the shared code is its own library. It
+    used to link the sources directly, because referencing the app would
+    have dragged in WPF and stopped these tests running on Linux; the
+    library targets net10.0, so that problem is gone.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="../../core/ByteBridge.Core.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,127 @@
+name: CI
+
+# Builds the app and runs the test suite on Windows, which is the only
+# platform it ships on: the app is WPF, and the gateway's HttpListener
+# error handling is written against Windows error codes.
+#
+# The live Firebird tests are skipped in that job -- there is no server on
+# a Windows runner -- so a second job runs them on Linux against Firebird
+# in a service container. The test project targets plain net10.0, not
+# net10.0-windows, so it runs there unchanged.
+#
+# To run them on your own machine, point BYTEBRIDGE_TEST_FIREBIRD at a
+# server:
+#
+#   $env:BYTEBRIDGE_TEST_FIREBIRD = "127.0.0.1:3050:SYSDBA:masterkey:C:\db\test.fdb"
+#   dotnet test tests/ByteBridge.Tests
+#
+# Packaging is not built here; it takes minutes to compress. Run the
+# Release workflow manually to check that.
+
+on:
+  push:
+    branches: [ '**' ]
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same ref makes the older run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build and test (Windows)
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore ByteBridge.slnx
+
+      - name: Build
+        run: dotnet build ByteBridge.slnx -c Release --no-restore
+
+      - name: Test
+        run: >
+          dotnet test tests/ByteBridge.Tests/ByteBridge.Tests.csproj
+          -c Release
+          --no-build
+          --logger "trx;LogFileName=results.trx"
+          --results-directory artifacts/tests
+
+      # Kept even when the run fails, since that is when it is wanted.
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results
+          path: artifacts/tests/*.trx
+          if-no-files-found: warn
+
+  firebird:
+    name: Live Firebird tests (Linux)
+    runs-on: ubuntu-latest
+
+    services:
+      firebird:
+        image: firebirdsql/firebird:4
+        ports:
+          - 3050:3050
+        env:
+          FIREBIRD_ROOT_PASSWORD: masterkey
+          FIREBIRD_DATABASE: test.fdb
+          # Without this the database is created with charset NONE and
+          # the non-ASCII assertions come back mangled.
+          FIREBIRD_DATABASE_DEFAULT_CHARSET: UTF8
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Wait for Firebird
+        run: |
+          for attempt in $(seq 1 30); do
+            if (echo > /dev/tcp/127.0.0.1/3050) 2>/dev/null; then
+              echo "Firebird is accepting connections after ${attempt}s."
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "Firebird never opened port 3050."
+          exit 1
+
+      # Only the test project: the WPF app cannot build on Linux.
+      - name: Test
+        env:
+          BYTEBRIDGE_TEST_FIREBIRD: 127.0.0.1:3050:SYSDBA:masterkey:/var/lib/firebird/data/test.fdb
+        run: >
+          dotnet test tests/ByteBridge.Tests/ByteBridge.Tests.csproj
+          -c Release
+          --filter "Category=Firebird"
+          --logger "trx;LogFileName=firebird.trx"
+          --results-directory artifacts/tests
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: firebird-test-results
+          path: artifacts/tests/*.trx
+          if-no-files-found: warn
