@@ -207,10 +207,7 @@ file is the single source of truth for what shipped.
 
 ### Notes
 
-- Settings live in `C:\ProgramData\ByteBridge\bytebridge.db`. Files
-  written by earlier builds, under `C:\ProgramData\EasyFbSoft` or
-  `C:\ProgramData\FbGateway`, are carried over automatically on first
-  start; the old files are left behind as backups.
+- Settings live in `C:\ProgramData\ByteBridge\bytebridge.db`.
 
 [Unreleased]: https://github.com/kenanwahbeh/ByteBridge/compare/v1.1.0...HEAD
 [1.1.0]: https://github.com/kenanwahbeh/ByteBridge/compare/v1.0.0...v1.1.0
