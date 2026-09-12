@@ -141,7 +141,7 @@ tunnel: <tunnel-uuid>
 credentials-file: C:\Users\<you>\.cloudflared\<tunnel-uuid>.json
 
 ingress:
-  - hostname: fbgateway.example.com
+  - hostname: bytebridge.example.com
     service: http://127.0.0.1:8080
   - service: http_status:404
 ```
@@ -149,7 +149,7 @@ ingress:
 Then confirm the whole path end to end:
 
 ```bash
-curl https://fbgateway.example.com/health
+curl https://bytebridge.example.com/health
 ```
 
 ```json

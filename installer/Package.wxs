@@ -32,7 +32,7 @@
 
     <MediaTemplate EmbedCab="yes" />
 
-    <Icon Id="AppIcon" SourceFile="installer/EasyFbSoft.ico" />
+    <Icon Id="AppIcon" SourceFile="installer/ByteBridge.ico" />
 
     <Property Id="ARPPRODUCTICON" Value="AppIcon" />
     <Property Id="ARPHELPLINK" Value="https://github.com/kenanwahbeh/ByteBridge" />

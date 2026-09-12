@@ -200,7 +200,7 @@ jobs:
 
           if ($failed) {
             throw ("Prerequisite downloads are broken:`n  " + ($failed -join "`n  ") +
-              "`n`nUpdate the URL in installer/EasyFbSoft.iss.")
+              "`n`nUpdate the URL in installer/ByteBridge.iss.")
           }
 
       - name: Build EXE installers
@@ -215,11 +215,11 @@ jobs:
           }
 
           & $iscc /DAppVersion=${{ steps.version.outputs.version }} `
-            installer\EasyFbSoft.iss
+            installer\ByteBridge.iss
 
           & $iscc /DAppVersion=${{ steps.version.outputs.version }} `
             /DPublishDir=publish-fx /DVariant=-framework /DRequireRuntime=1 `
-            installer\EasyFbSoft.iss
+            installer\ByteBridge.iss
 
       - name: Checksums
         shell: pwsh

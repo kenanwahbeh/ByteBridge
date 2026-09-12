@@ -21,6 +21,10 @@ Nothing listens on your LAN and no inbound port is opened: `cloudflared`
 dials out to Cloudflare, and the gateway itself only ever binds to
 loopback.
 
+**Requirements:** a Firebird database server (tested against Firebird
+4; the default port is 3050). Other database engines may be added in
+future versions.
+
 ## Install
 
 Grab an installer from the
@@ -46,6 +50,25 @@ see [GATEWAY.md](GATEWAY.md).
 
 Requires 64-bit Windows 8.1 or later. All installers are per-machine
 and ask for administrator rights once.
+
+### Silent install
+
+Both `.exe` installers accept Inno Setup's standard silent switches:
+
+```
+ByteBridge-<version>-x64-setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+```
+
+The `.msi` files install unattended the standard MSI way:
+
+```
+msiexec /i ByteBridge-<version>-x64.msi /quiet /norestart
+```
+
+In silent mode, missing prerequisites (the .NET Desktop Runtime,
+`cloudflared`) are downloaded and installed automatically instead of
+prompting — there is nobody to answer a prompt during an unattended
+rollout.
 
 ## It runs as a service
 

@@ -4,11 +4,11 @@
 ; distributions:
 ;
 ;   ; .NET bundled
-;   iscc /DAppVersion=1.2.3 installer\EasyFbSoft.iss
+;   iscc /DAppVersion=1.2.3 installer\ByteBridge.iss
 ;
 ;   ; .NET required on the machine
 ;   iscc /DAppVersion=1.2.3 /DPublishDir=publish-fx ^
-;        /DVariant=-framework /DRequireRuntime=1 installer\EasyFbSoft.iss
+;        /DVariant=-framework /DRequireRuntime=1 installer\ByteBridge.iss
 ;
 ; PublishDir is named relative to the repo root; the script adds the
 ; ..\ itself.
@@ -79,7 +79,7 @@ MinVersion=6.3
 
 ; Paths here are relative to this .iss file, not to the directory
 ; ISCC was launched from, so the repo root is one level up.
-SetupIconFile=EasyFbSoft.ico
+SetupIconFile=ByteBridge.ico
 UninstallDisplayIcon={app}\{#AppExeName}
 UninstallDisplayName={#AppName}
 
@@ -260,16 +260,25 @@ begin
   Result := True;
 
 #ifdef RequireRuntime
-  { Asked before anything is written, so declining costs nothing. }
+  { Asked before anything is written, so declining costs nothing. A
+    silent run has nobody to ask, so it consents on their behalf --
+    MsgBox blocks forever otherwise, since it is a raw message box,
+    not a wizard page, and /SILENT and /VERYSILENT only suppress
+    those. }
   if not HasDesktopRuntime10() then
-    Result := MsgBox('This build does not include .NET, and the .NET 10 Desktop Runtime (x64)'
-                     + ' was not found on this computer.'
-                     + #13#10#13#10
-                     + 'Setup can download it from Microsoft and install it for you.'
-                     + ' That is roughly a 60 MB download and needs an internet connection.'
-                     + #13#10#13#10
-                     + 'Continue?',
-                     mbConfirmation, MB_YESNO) = IDYES;
+  begin
+    if WizardSilent() then
+      Log('Silent install: .NET 10 Desktop Runtime missing, downloading without prompting.')
+    else
+      Result := MsgBox('This build does not include .NET, and the .NET 10 Desktop Runtime (x64)'
+                       + ' was not found on this computer.'
+                       + #13#10#13#10
+                       + 'Setup can download it from Microsoft and install it for you.'
+                       + ' That is roughly a 60 MB download and needs an internet connection.'
+                       + #13#10#13#10
+                       + 'Continue?',
+                       mbConfirmation, MB_YESNO) = IDYES;
+  end;
 #endif
 end;
 
@@ -287,7 +296,9 @@ begin
   begin
     if not TryDownload('{#DotNetUrl}', 'windowsdesktop-runtime.exe', DotNetSetup) then
     begin
-      if MsgBox('The .NET 10 Desktop Runtime could not be downloaded.'
+      if WizardSilent() then
+        Log('Silent install: the .NET 10 Desktop Runtime could not be downloaded; aborting.')
+      else if MsgBox('The .NET 10 Desktop Runtime could not be downloaded.'
                 + #13#10#13#10
                 + 'Check the internet connection and try again, or install the runtime'
                 + ' yourself and re-run this installer. The build that bundles .NET needs'
@@ -306,11 +317,16 @@ begin
 
   if WizardIsTaskSelected('cloudflared') then
     if not TryDownload('{#CloudflaredUrl}', 'cloudflared.msi', CloudflaredSetup) then
-      MsgBox('cloudflared could not be downloaded, so it will be skipped.'
-             + #13#10#13#10
-             + 'ByteBridge itself will still install. You can add cloudflared later from'
-             + ' https://github.com/cloudflare/cloudflared/releases.',
-             mbInformation, MB_OK);
+    begin
+      if WizardSilent() then
+        Log('Silent install: cloudflared could not be downloaded; skipping it.')
+      else
+        MsgBox('cloudflared could not be downloaded, so it will be skipped.'
+               + #13#10#13#10
+               + 'ByteBridge itself will still install. You can add cloudflared later from'
+               + ' https://github.com/cloudflare/cloudflared/releases.',
+               mbInformation, MB_OK);
+    end;
 end;
 
 { Runs a console tool with no window and hands back its exit code. }
@@ -395,11 +411,18 @@ begin
       if Code = 3010 then
         NeedsRestart := True
       else if Code <> 0 then
-        MsgBox(Format('cloudflared did not install (installer code %d).', [Code])
-               + #13#10#13#10
-               + 'ByteBridge is installed and will work locally; add cloudflared later'
-               + ' to reach it through a tunnel.', mbInformation, MB_OK);
+      begin
+        if WizardSilent() then
+          Log(Format('Silent install: cloudflared did not install (installer code %d).', [Code]))
+        else
+          MsgBox(Format('cloudflared did not install (installer code %d).', [Code])
+                 + #13#10#13#10
+                 + 'ByteBridge is installed and will work locally; add cloudflared later'
+                 + ' to reach it through a tunnel.', mbInformation, MB_OK);
+      end;
     end
+    else if WizardSilent() then
+      Log('Silent install: cloudflared could not be installed; ByteBridge will still work locally.')
     else
       MsgBox('cloudflared could not be installed, but ByteBridge is installed'
              + ' and will work locally.', mbInformation, MB_OK);
