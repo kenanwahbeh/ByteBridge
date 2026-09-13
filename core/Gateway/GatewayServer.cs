@@ -947,10 +947,26 @@ public sealed class GatewayServer : IDisposable
         var redirectUri = _oauthConfig.RedirectUri;
         var teamDomain = _oauthConfig.TeamDomain;
 
+        /*
+         * There used to be a fallback to {_config.BaseUrl}/auth/callback
+         * here, i.e. http://127.0.0.1:<port>/auth/callback. That address
+         * only means anything on this machine's own loopback interface,
+         * so Cloudflare would send the visitor's browser to a host it
+         * can never reach through the tunnel, and login would fail with
+         * no useful error. The public hostname is not something this
+         * process can discover on its own -- cloudflared owns the
+         * tunnel -- so it has to be configured, not guessed.
+         */
         if (string.IsNullOrEmpty(redirectUri))
         {
-            redirectUri =
-                $"{_config.BaseUrl}/auth/callback";
+            await WriteJsonAsync(
+                context,
+                500,
+                new ErrorResponse(
+                    "OAuth is enabled but no public hostname is configured. "
+                    + "Set it in Settings so Cloudflare Access knows where "
+                    + "to send visitors back after they sign in."));
+            return;
         }
 
         var state = Convert

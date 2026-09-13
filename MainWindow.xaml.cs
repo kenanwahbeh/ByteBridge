@@ -34,6 +34,15 @@ public partial class MainWindow : Window
 
     private bool _isClosing = false;
 
+    /*
+     * Created lazily on the first minimize-to-tray, then just shown
+     * and hidden from there on rather than recreated each time --
+     * NotifyIcon holds a live shell notification-area slot, and
+     * disposing and recreating it on every toggle is what makes tray
+     * icons flicker or land in the wrong spot.
+     */
+    private System.Windows.Forms.NotifyIcon? _trayIcon;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -103,8 +112,7 @@ public partial class MainWindow : Window
             case CloseDialogResult.MinimizeToTray:
                 // Minimize to tray instead of closing
                 e.Cancel = true;
-                WindowState = WindowState.Minimized;
-                ShowInTaskbar = false;
+                MinimizeToTray();
                 break;
 
             case CloseDialogResult.Settings:
@@ -138,6 +146,85 @@ public partial class MainWindow : Window
         _refresh.Stop();
 
         _service.Dispose();
+
+        _trayIcon?.Dispose();
+        _trayIcon = null;
+    }
+
+    /*
+     * Hides the window entirely -- not just off the taskbar -- and
+     * shows a notification-area icon in its place. The previous
+     * version set WindowState.Minimized with ShowInTaskbar false and
+     * nothing else: no taskbar entry and no tray icon either, so the
+     * window was simply gone until relaunched from the Start menu.
+     */
+    private void MinimizeToTray()
+    {
+        EnsureTrayIcon();
+
+        Hide();
+
+        _trayIcon!.Visible = true;
+    }
+
+    private void RestoreFromTray()
+    {
+        if (_trayIcon != null)
+        {
+            _trayIcon.Visible = false;
+        }
+
+        Show();
+        WindowState = WindowState.Normal;
+        ShowInTaskbar = true;
+        Activate();
+    }
+
+    private void EnsureTrayIcon()
+    {
+        if (_trayIcon != null)
+        {
+            return;
+        }
+
+        var exePath =
+            Environment.ProcessPath
+            ?? System.Reflection.Assembly.GetExecutingAssembly().Location;
+
+        var icon =
+            System.Drawing.Icon.ExtractAssociatedIcon(exePath);
+
+        var menu = new System.Windows.Forms.ContextMenuStrip();
+
+        var openItem = menu.Items.Add(Strings.Get("TrayOpen"));
+        openItem.Click += (_, _) => RestoreFromTray();
+
+        var exitItem = menu.Items.Add(Strings.Get("ExitApp"));
+        exitItem.Click += (_, _) => ExitFromTray();
+
+        _trayIcon = new System.Windows.Forms.NotifyIcon
+        {
+            Icon = icon,
+            Text = Strings.Get("AppTitle"),
+            ContextMenuStrip = menu
+        };
+
+        _trayIcon.MouseClick += (_, e) =>
+        {
+            if (e.Button == System.Windows.Forms.MouseButtons.Left)
+            {
+                RestoreFromTray();
+            }
+        };
+
+        _trayIcon.DoubleClick += (_, _) => RestoreFromTray();
+    }
+
+    private void ExitFromTray()
+    {
+        _isClosing = true;
+
+        Close();
     }
 
     private void OpenSettings()
@@ -856,6 +943,7 @@ public partial class MainWindow : Window
 
         TeamDomainTextBox.Text = oauthConfig.TeamDomain;
         AudienceTextBox.Text = oauthConfig.Audience;
+        PublicHostnameTextBox.Text = ExtractHostname(oauthConfig.RedirectUri);
 
         if (oauthConfig.Enabled)
         {
@@ -864,6 +952,7 @@ public partial class MainWindow : Window
             OAuthToggleButton.Content = "Disable";
             TeamDomainTextBox.IsEnabled = false;
             AudienceTextBox.IsEnabled = false;
+            PublicHostnameTextBox.IsEnabled = false;
         }
         else
         {
@@ -872,7 +961,21 @@ public partial class MainWindow : Window
             OAuthToggleButton.Content = "Enable";
             TeamDomainTextBox.IsEnabled = true;
             AudienceTextBox.IsEnabled = true;
+            PublicHostnameTextBox.IsEnabled = true;
         }
+    }
+
+    /*
+     * RedirectUri is stored as the full callback URL. The Settings
+     * field only asks for the hostname, since that's the one piece
+     * an admin actually has to look up (the tunnel's public
+     * hostname); the scheme and path are always the same.
+     */
+    private static string ExtractHostname(string redirectUri)
+    {
+        return Uri.TryCreate(redirectUri, UriKind.Absolute, out var uri)
+            ? uri.Host
+            : string.Empty;
     }
 
     private void OAuthToggleButton_Click(
@@ -921,11 +1024,26 @@ public partial class MainWindow : Window
                 return;
             }
 
+            var publicHostname = PublicHostnameTextBox.Text.Trim();
+
+            if (string.IsNullOrEmpty(publicHostname))
+            {
+                MessageBox.Show(
+                    Strings.Get("OAuthPublicHostnameRequired"),
+                    Strings.Get("AppTitle"),
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+
+                return;
+            }
+
             config.Enabled = true;
             config.TeamDomain = teamDomain;
             config.Audience = audience;
             config.JwksUri =
                 $"https://{teamDomain}/cdn-cgi/access/certs";
+            config.RedirectUri =
+                $"https://{publicHostname}/auth/callback";
 
             _database.SaveOAuthConfig(config);
 
@@ -959,6 +1077,7 @@ public partial class MainWindow : Window
         CloudflareLoginTextBlock.Text = Strings.Get("CloudflareLogin");
         TeamDomainTextBlock.Text = Strings.Get("TeamDomain");
         AudienceTextBlock.Text = Strings.Get("Audience");
+        PublicHostnameTextBlock.Text = Strings.Get("PublicHostname");
 
         // Refresh dynamic text
         _ = UpdateGatewayUi();

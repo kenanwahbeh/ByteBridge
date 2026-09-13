@@ -12,6 +12,17 @@ public partial class CloseDialogWindow : Window
     {
         InitializeComponent();
 
+        /*
+         * Arabic labels run noticeably longer than their English
+         * counterparts (this dialog crammed three buttons into one
+         * fixed-width row, which is what made it look broken), so this
+         * also needs to read right-to-left rather than force Arabic
+         * text through a left-to-right layout.
+         */
+        FlowDirection = Strings.CurrentLanguage == "ar"
+            ? FlowDirection.RightToLeft
+            : FlowDirection.LeftToRight;
+
         ApplyLocalization();
     }
 

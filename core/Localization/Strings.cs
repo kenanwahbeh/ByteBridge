@@ -59,6 +59,7 @@ public static class Strings
             ["Enabled"] = "Enabled",
             ["TeamDomain"] = "Team Domain",
             ["Audience"] = "Audience",
+            ["PublicHostname"] = "Public Hostname",
             ["Enable"] = "Enable",
             ["Disable"] = "Disable",
 
@@ -87,6 +88,7 @@ public static class Strings
             ["OAuthEnabled"] = "Cloudflare OAuth login has been enabled.\n\nMake sure you have configured Cloudflare Access\nwith an identity provider and created an application\nfor your gateway hostname.",
             ["OAuthTeamDomainRequired"] = "Please enter your Cloudflare Access team domain.\n\nExample: my-team.cloudflareaccess.com",
             ["OAuthAudienceRequired"] = "Please enter the Access application audience tag.\n\nFind it in Zero Trust → Access → Applications → Settings.",
+            ["OAuthPublicHostnameRequired"] = "Please enter the public hostname your Cloudflare Tunnel exposes.\n\nExample: api.yourcompany.com\n\nThis is where Cloudflare Access sends visitors back after they sign in — without it, login cannot complete.",
 
             // Close dialog
             ["CloseTitle"] = "ByteBridge",
@@ -94,6 +96,9 @@ public static class Strings
             ["MinimizeToTray"] = "Minimize to Tray",
             ["ExitApp"] = "Exit",
             ["Cancel"] = "Cancel",
+
+            // Tray icon
+            ["TrayOpen"] = "Open ByteBridge",
 
             // Settings
             ["AutoStart"] = "Start with Windows",
@@ -147,6 +152,7 @@ public static class Strings
             ["Enabled"] = "مُفعّل",
             ["TeamDomain"] = "نطاق الفريق",
             ["Audience"] = "الجمهور",
+            ["PublicHostname"] = "النطاق العام",
             ["Enable"] = "تفعيل",
             ["Disable"] = "تعطيل",
 
@@ -175,6 +181,7 @@ public static class Strings
             ["OAuthEnabled"] = "تم تفعيل تسجيل الدخول عبر Cloudflare OAuth.\n\nتأكد من إعداد Cloudflare Access\nمزوّد هوية وإنشاء تطبيق\nلنطاق اسم بوابتك.",
             ["OAuthTeamDomainRequired"] = "الرجاء إدخال نطاق فريق Cloudflare Access.\n\nمثال: my-team.cloudflareaccess.com",
             ["OAuthAudienceRequired"] = "الرجاء إدخال علامة جمهور تطبيق Access.\n\nاعثر عليها في Zero Trust → Access → Applications → Settings.",
+            ["OAuthPublicHostnameRequired"] = "الرجاء إدخال النطاق العام الذي يعرضه Cloudflare Tunnel.\n\nمثال: api.yourcompany.com\n\nهذا هو المكان الذي يعيد Cloudflare Access توجيه الزوار إليه بعد تسجيل الدخول — بدونه لا يمكن إتمام تسجيل الدخول.",
 
             // Close dialog
             ["CloseTitle"] = "ByteBridge",
@@ -182,6 +189,9 @@ public static class Strings
             ["MinimizeToTray"] = "تصغير إلى صينية النظام",
             ["ExitApp"] = "خروج",
             ["Cancel"] = "إلغاء",
+
+            // Tray icon
+            ["TrayOpen"] = "فتح ByteBridge",
 
             // Settings
             ["AutoStart"] = "البدء مع Windows",

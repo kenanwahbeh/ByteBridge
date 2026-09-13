@@ -188,6 +188,18 @@
                              VerticalAlignment="Center"
                              ToolTip="Access application audience tag"/>
 
+                    <TextBlock x:Name="PublicHostnameTextBlock"
+                               Text="Public Hostname"
+                               FontSize="13"
+                               VerticalAlignment="Center"
+                               Margin="10,0,8,0"/>
+
+                    <TextBox x:Name="PublicHostnameTextBox"
+                             Width="200"
+                             Padding="8,7"
+                             VerticalAlignment="Center"
+                             ToolTip="The hostname your Cloudflare Tunnel exposes, e.g. api.yourcompany.com — this is where Cloudflare sends visitors back after they sign in"/>
+
                     <Button x:Name="OAuthToggleButton"
                             Content="Enable"
                             Padding="18,7"
