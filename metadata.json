@@ -1,0 +1,6 @@
+{
+  "name": "ByteBridge",
+  "description": "HTTP API Gateway and Control Panel for database connections behind secure tunnels",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
