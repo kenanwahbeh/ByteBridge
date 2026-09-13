@@ -1,4 +1,4 @@
-# Changelog
+﻿# Changelog
 
 Everything worth knowing about each release of ByteBridge.
 
@@ -12,6 +12,8 @@ release workflow copies that section into the GitHub Release, so this
 file is the single source of truth for what shipped.
 
 ## [Unreleased]
+
+## [1.0.0] - 2026-09-13
 
 ### Security
 
@@ -209,6 +211,6 @@ file is the single source of truth for what shipped.
 
 - Settings live in `C:\ProgramData\ByteBridge\bytebridge.db`.
 
-[Unreleased]: https://github.com/kenanwahbeh/ByteBridge/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/kenanwahbeh/ByteBridge/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/kenanwahbeh/ByteBridge/compare/v1.1.0...v1.0.0
 [1.1.0]: https://github.com/kenanwahbeh/ByteBridge/compare/v1.0.0...v1.1.0
-[1.0.0]: https://github.com/kenanwahbeh/ByteBridge/releases/tag/v1.0.0
