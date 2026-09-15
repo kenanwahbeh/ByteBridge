@@ -23,6 +23,58 @@ public static class Strings
             ["Done"] = "Done",
             ["Settings"] = "Settings",
 
+            // Menu bar
+            ["MenuFile"] = "File",
+            ["MenuFileNew"] = "New Database…",
+            ["MenuFileExit"] = "Exit",
+            ["MenuEdit"] = "Edit",
+            ["MenuEditEdit"] = "Edit Selected",
+            ["MenuEditDelete"] = "Delete Selected",
+            ["MenuWebServer"] = "Web Server",
+            ["MenuCloudflareTunnel"] = "Cloudflare Tunnel",
+            ["MenuOptions"] = "Options",
+            ["MenuHelp"] = "Help",
+            ["MenuHelpAbout"] = "About ByteBridge",
+            ["MenuHelpOpenLogs"] = "Open Log Folder",
+
+            // Add/Edit Database wizard
+            ["WizardAddTitle"] = "Add Database",
+            ["WizardEditTitle"] = "Edit Database",
+            ["WizardStep1Title"] = "Connection Name",
+            ["WizardStep1Hint"] = "Give this connection a name you'll recognize.",
+            ["WizardStep2Title"] = "Server Details",
+            ["WizardStep3Title"] = "Credentials",
+            ["WizardStep3Hint"] = "This is the database password.",
+            ["WizardStep4Title"] = "Test & Finish",
+            ["WizardStep4Hint"] = "Run a test before saving, so a typo doesn't turn into a connection that never comes online.",
+            ["WizardConnectionName"] = "Connection Name",
+            ["WizardServer"] = "Server",
+            ["WizardPort"] = "Port",
+            ["WizardUsername"] = "Username",
+            ["WizardPassword"] = "Password",
+            ["WizardDatabase"] = "Database",
+            ["WizardDatabaseHint"] = "Enter the database alias or database path.",
+            ["WizardBack"] = "Back",
+            ["WizardNext"] = "Next",
+            ["WizardTestConnection"] = "Test Connection",
+            ["WizardTestSucceeded"] = "Connection succeeded.",
+            ["WizardTestFailed"] = "Connection failed.\n\n{0}",
+            ["WizardFinish"] = "Finish",
+            ["WizardSave"] = "Save",
+
+            // Web Server / Cloudflare Tunnel / About dialogs
+            ["WebServerWindowTitle"] = "Web Server",
+            ["CloudflareTunnelWindowTitle"] = "Cloudflare Tunnel",
+            ["AboutTitle"] = "About ByteBridge",
+            ["AboutVersion"] = "Version {0}",
+            ["AboutDescription"] = "HTTP gateway for your databases.",
+            ["AboutOpenLogs"] = "Open Log Folder",
+            ["AboutClose"] = "Close",
+
+            // Traffic
+            ["RequestCount"] = "{0} requests",
+            ["RequestCountUnknown"] = "—",
+
             // Gateway
             ["GatewayApi"] = "Gateway API",
             ["Port"] = "Port",
@@ -59,6 +111,7 @@ public static class Strings
             ["Enabled"] = "Enabled",
             ["TeamDomain"] = "Team Domain",
             ["Audience"] = "Audience",
+            ["PublicHostname"] = "Public Hostname",
             ["Enable"] = "Enable",
             ["Disable"] = "Disable",
 
@@ -87,6 +140,7 @@ public static class Strings
             ["OAuthEnabled"] = "Cloudflare OAuth login has been enabled.\n\nMake sure you have configured Cloudflare Access\nwith an identity provider and created an application\nfor your gateway hostname.",
             ["OAuthTeamDomainRequired"] = "Please enter your Cloudflare Access team domain.\n\nExample: my-team.cloudflareaccess.com",
             ["OAuthAudienceRequired"] = "Please enter the Access application audience tag.\n\nFind it in Zero Trust → Access → Applications → Settings.",
+            ["OAuthPublicHostnameRequired"] = "Please enter the public hostname your Cloudflare Tunnel exposes.\n\nExample: api.yourcompany.com\n\nThis is where Cloudflare Access sends visitors back after they sign in — without it, login cannot complete.",
 
             // Close dialog
             ["CloseTitle"] = "ByteBridge",
@@ -95,10 +149,14 @@ public static class Strings
             ["ExitApp"] = "Exit",
             ["Cancel"] = "Cancel",
 
+            // Tray icon
+            ["TrayOpen"] = "Open ByteBridge",
+
             // Settings
             ["AutoStart"] = "Start with Windows",
             ["AutoStartHint"] = "ByteBridge will start automatically when you log in.",
             ["Language"] = "Language",
+            ["LanguageHint"] = "Select the display language",
             ["English"] = "English",
             ["Arabic"] = "العربية",
         },
@@ -110,6 +168,58 @@ public static class Strings
             ["AddData"] = "+ إضافة بيانات",
             ["Done"] = "تم",
             ["Settings"] = "الإعدادات",
+
+            // Menu bar
+            ["MenuFile"] = "ملف",
+            ["MenuFileNew"] = "قاعدة بيانات جديدة...",
+            ["MenuFileExit"] = "خروج",
+            ["MenuEdit"] = "تعديل",
+            ["MenuEditEdit"] = "تعديل المحدد",
+            ["MenuEditDelete"] = "حذف المحدد",
+            ["MenuWebServer"] = "سيرفر ويب",
+            ["MenuCloudflareTunnel"] = "نفق Cloudflare",
+            ["MenuOptions"] = "خيارات",
+            ["MenuHelp"] = "تعليمات",
+            ["MenuHelpAbout"] = "حول ByteBridge",
+            ["MenuHelpOpenLogs"] = "فتح مجلد السجلات",
+
+            // Add/Edit Database wizard
+            ["WizardAddTitle"] = "إضافة قاعدة بيانات",
+            ["WizardEditTitle"] = "تعديل قاعدة بيانات",
+            ["WizardStep1Title"] = "اسم الاتصال",
+            ["WizardStep1Hint"] = "أعطِ هذا الاتصال اسماً تتعرف عليه.",
+            ["WizardStep2Title"] = "تفاصيل السيرفر",
+            ["WizardStep3Title"] = "بيانات الدخول",
+            ["WizardStep3Hint"] = "هذه كلمة سر قاعدة البيانات.",
+            ["WizardStep4Title"] = "اختبار وإنهاء",
+            ["WizardStep4Hint"] = "قم بالاختبار قبل الحفظ، حتى لا يتحول خطأ إملائي إلى اتصال لن يعمل أبداً.",
+            ["WizardConnectionName"] = "اسم الاتصال",
+            ["WizardServer"] = "السيرفر",
+            ["WizardPort"] = "المنفذ",
+            ["WizardUsername"] = "اسم المستخدم",
+            ["WizardPassword"] = "كلمة السر",
+            ["WizardDatabase"] = "قاعدة البيانات",
+            ["WizardDatabaseHint"] = "أدخل اسم قاعدة البيانات المستعار أو مسارها.",
+            ["WizardBack"] = "السابق",
+            ["WizardNext"] = "التالي",
+            ["WizardTestConnection"] = "اختبار الاتصال",
+            ["WizardTestSucceeded"] = "نجح الاتصال.",
+            ["WizardTestFailed"] = "فشل الاتصال.\n\n{0}",
+            ["WizardFinish"] = "إنهاء",
+            ["WizardSave"] = "حفظ",
+
+            // Web Server / Cloudflare Tunnel / About dialogs
+            ["WebServerWindowTitle"] = "سيرفر ويب",
+            ["CloudflareTunnelWindowTitle"] = "نفق Cloudflare",
+            ["AboutTitle"] = "حول ByteBridge",
+            ["AboutVersion"] = "الإصدار {0}",
+            ["AboutDescription"] = "بوابة HTTP لقواعد بياناتك.",
+            ["AboutOpenLogs"] = "فتح مجلد السجلات",
+            ["AboutClose"] = "إغلاق",
+
+            // Traffic
+            ["RequestCount"] = "{0} طلب",
+            ["RequestCountUnknown"] = "—",
 
             // Gateway
             ["GatewayApi"] = "واجهة API",
@@ -147,6 +257,7 @@ public static class Strings
             ["Enabled"] = "مُفعّل",
             ["TeamDomain"] = "نطاق الفريق",
             ["Audience"] = "الجمهور",
+            ["PublicHostname"] = "النطاق العام",
             ["Enable"] = "تفعيل",
             ["Disable"] = "تعطيل",
 
@@ -175,6 +286,7 @@ public static class Strings
             ["OAuthEnabled"] = "تم تفعيل تسجيل الدخول عبر Cloudflare OAuth.\n\nتأكد من إعداد Cloudflare Access\nمزوّد هوية وإنشاء تطبيق\nلنطاق اسم بوابتك.",
             ["OAuthTeamDomainRequired"] = "الرجاء إدخال نطاق فريق Cloudflare Access.\n\nمثال: my-team.cloudflareaccess.com",
             ["OAuthAudienceRequired"] = "الرجاء إدخال علامة جمهور تطبيق Access.\n\nاعثر عليها في Zero Trust → Access → Applications → Settings.",
+            ["OAuthPublicHostnameRequired"] = "الرجاء إدخال النطاق العام الذي يعرضه Cloudflare Tunnel.\n\nمثال: api.yourcompany.com\n\nهذا هو المكان الذي يعيد Cloudflare Access توجيه الزوار إليه بعد تسجيل الدخول — بدونه لا يمكن إتمام تسجيل الدخول.",
 
             // Close dialog
             ["CloseTitle"] = "ByteBridge",
@@ -183,10 +295,14 @@ public static class Strings
             ["ExitApp"] = "خروج",
             ["Cancel"] = "إلغاء",
 
+            // Tray icon
+            ["TrayOpen"] = "فتح ByteBridge",
+
             // Settings
             ["AutoStart"] = "البدء مع Windows",
             ["AutoStartHint"] = "سيبدأ ByteBridge تلقائياً عند تسجيل الدخول.",
             ["Language"] = "اللغة",
+            ["LanguageHint"] = "اختر لغة العرض",
             ["English"] = "English",
             ["Arabic"] = "العربية",
         }
@@ -205,6 +321,17 @@ public static class Strings
             "ar" => new CultureInfo("ar"),
             _ => new CultureInfo("en")
         };
+
+        /*
+         * The "ar" culture's own number format uses Eastern
+         * Arabic-Indic digits (٠١٢٣...) by default. Everything in this
+         * app that shows a number -- ports, request counts, database
+         * paths -- reads better in the Western digits everyone here
+         * actually types, so they're forced regardless of language.
+         */
+        culture.NumberFormat.DigitSubstitution = DigitShapes.None;
+        culture.NumberFormat.NativeDigits =
+            ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
 
         Thread.CurrentThread.CurrentCulture = culture;
         Thread.CurrentThread.CurrentUICulture = culture;
