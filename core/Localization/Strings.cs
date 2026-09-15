@@ -156,6 +156,7 @@ public static class Strings
             ["AutoStart"] = "Start with Windows",
             ["AutoStartHint"] = "ByteBridge will start automatically when you log in.",
             ["Language"] = "Language",
+            ["LanguageHint"] = "Select the display language",
             ["English"] = "English",
             ["Arabic"] = "العربية",
         },
@@ -301,6 +302,7 @@ public static class Strings
             ["AutoStart"] = "البدء مع Windows",
             ["AutoStartHint"] = "سيبدأ ByteBridge تلقائياً عند تسجيل الدخول.",
             ["Language"] = "اللغة",
+            ["LanguageHint"] = "اختر لغة العرض",
             ["English"] = "English",
             ["Arabic"] = "العربية",
         }
@@ -319,6 +321,17 @@ public static class Strings
             "ar" => new CultureInfo("ar"),
             _ => new CultureInfo("en")
         };
+
+        /*
+         * The "ar" culture's own number format uses Eastern
+         * Arabic-Indic digits (٠١٢٣...) by default. Everything in this
+         * app that shows a number -- ports, request counts, database
+         * paths -- reads better in the Western digits everyone here
+         * actually types, so they're forced regardless of language.
+         */
+        culture.NumberFormat.DigitSubstitution = DigitShapes.None;
+        culture.NumberFormat.NativeDigits =
+            ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
 
         Thread.CurrentThread.CurrentCulture = culture;
         Thread.CurrentThread.CurrentUICulture = culture;

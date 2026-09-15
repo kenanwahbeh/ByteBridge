@@ -1,4 +1,4 @@
-<ui:FluentWindow x:Class="ByteBridge.AddDatabaseWizardWindow"
+<Window x:Class="ByteBridge.AddDatabaseWizardWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
@@ -8,8 +8,7 @@
         MinWidth="520"
         MinHeight="560"
         WindowStartupLocation="CenterOwner"
-        ResizeMode="CanResize"
-        WindowBackdropType="Mica">
+        ResizeMode="CanResize">
 
     <Grid>
         <Grid.RowDefinitions>
@@ -112,7 +111,7 @@
                     HorizontalAlignment="Right"
                     Margin="24,16,24,20">
 
-            <Button x:Name="CancelButton" Padding="18,9" Margin="0,0,10,0" Click="CancelButton_Click"/>
+            <Button x:Name="CancelButton" Padding="18,9" Margin="0,0,10,0" IsCancel="True" Click="CancelButton_Click"/>
             <Button x:Name="BackButton" Padding="18,9" Margin="0,0,10,0" Click="BackButton_Click"/>
             <ui:Button x:Name="NextButton" Padding="24,9" Appearance="Primary" IsDefault="True" Click="NextButton_Click"/>
             <ui:Button x:Name="SaveButton" Padding="24,9" Appearance="Primary" IsDefault="True" Visibility="Collapsed" Click="SaveButton_Click"/>
@@ -121,4 +120,4 @@
 
     </Grid>
 
-</ui:FluentWindow>
+</Window>

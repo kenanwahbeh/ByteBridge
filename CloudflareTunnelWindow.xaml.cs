@@ -10,7 +10,7 @@ namespace ByteBridge;
  * The Cloudflare Access (OAuth) card, moved off the main window into
  * its own dialog behind the Cloudflare Tunnel menu item.
  */
-public partial class CloudflareTunnelWindow : Wpf.Ui.Controls.FluentWindow
+public partial class CloudflareTunnelWindow : Window
 {
     private readonly SqliteDatabase _database;
 
@@ -38,6 +38,12 @@ public partial class CloudflareTunnelWindow : Wpf.Ui.Controls.FluentWindow
         TeamDomainTextBlock.Text = Strings.Get("TeamDomain");
         AudienceTextBlock.Text = Strings.Get("Audience");
         PublicHostnameTextBlock.Text = Strings.Get("PublicHostname");
+        CloseButton.Content = Strings.Get("Done");
+    }
+
+    private void CloseButton_Click(object sender, RoutedEventArgs e)
+    {
+        Close();
     }
 
     private void LoadOAuthConfig()

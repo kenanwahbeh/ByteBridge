@@ -13,7 +13,7 @@ using ByteBridge.Localization;
 
 namespace ByteBridge;
 
-public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
+public partial class MainWindow : Window
 {
     private readonly SqliteDatabase _database;
 

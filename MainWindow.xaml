@@ -1,4 +1,4 @@
-<ui:FluentWindow x:Class="ByteBridge.MainWindow"
+<Window x:Class="ByteBridge.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
@@ -8,7 +8,6 @@
         MinWidth="720"
         MinHeight="520"
         WindowStartupLocation="CenterScreen"
-        WindowBackdropType="Mica"
         Loaded="Window_Loaded"
         Closing="Window_Closing"
         Closed="Window_Closed">
@@ -71,4 +70,4 @@
 
     </Grid>
 
-</ui:FluentWindow>
+</Window>

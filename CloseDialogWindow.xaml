@@ -53,6 +53,7 @@
                 Padding="16,10"
                 Margin="0,8,0,0"
                 Click="CancelButton_Click"
+                IsCancel="True"
                 FontSize="14"/>
 
     </StackPanel>

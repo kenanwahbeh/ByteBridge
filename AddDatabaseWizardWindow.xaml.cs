@@ -14,7 +14,7 @@ namespace ByteBridge;
  * Arabic where the labels run longer -- and it gives Test a step of
  * its own instead of burying it at the bottom of a scrollable page.
  */
-public partial class AddDatabaseWizardWindow : Wpf.Ui.Controls.FluentWindow
+public partial class AddDatabaseWizardWindow : Window
 {
     private const int FirstStep = 1;
 

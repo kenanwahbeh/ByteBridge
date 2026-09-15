@@ -1,4 +1,4 @@
-<ui:FluentWindow x:Class="ByteBridge.AboutWindow"
+<Window x:Class="ByteBridge.AboutWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
@@ -6,8 +6,7 @@
         Width="420"
         SizeToContent="Height"
         WindowStartupLocation="CenterOwner"
-        ResizeMode="NoResize"
-        WindowBackdropType="Mica">
+        ResizeMode="NoResize">
 
     <Grid>
         <Grid.RowDefinitions>
@@ -44,6 +43,7 @@
                            Margin="8,0,0,0"
                            Appearance="Primary"
                            IsDefault="True"
+                           IsCancel="True"
                            Click="CloseButton_Click"/>
 
             </StackPanel>
@@ -52,4 +52,4 @@
 
     </Grid>
 
-</ui:FluentWindow>
+</Window>

@@ -6,7 +6,7 @@ using ByteBridge.Localization;
 
 namespace ByteBridge;
 
-public partial class AboutWindow : Wpf.Ui.Controls.FluentWindow
+public partial class AboutWindow : Window
 {
     private readonly SqliteDatabase _database;
 

@@ -54,7 +54,7 @@
                               Width="150"
                               Padding="8,7"
                               SelectionChanged="LanguageComboBox_SelectionChanged">
-                        <ComboBoxItem Content="English" Tag="en" IsSelected="True"/>
+                        <ComboBoxItem Content="English" Tag="en"/>
                         <ComboBoxItem Content="العربية" Tag="ar"/>
                     </ComboBox>
                 </Grid>
@@ -102,6 +102,8 @@
                 Padding="25,9"
                 HorizontalAlignment="Right"
                 Margin="0,16,0,0"
+                IsDefault="True"
+                IsCancel="True"
                 Click="DoneButton_Click"/>
 
     </Grid>

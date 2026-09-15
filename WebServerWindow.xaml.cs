@@ -14,7 +14,7 @@ namespace ByteBridge;
  * fields, same handlers -- just no longer competing with the
  * connections list for space on every launch.
  */
-public partial class WebServerWindow : Wpf.Ui.Controls.FluentWindow
+public partial class WebServerWindow : Window
 {
     private readonly SqliteDatabase _database;
 
@@ -62,6 +62,12 @@ public partial class WebServerWindow : Wpf.Ui.Controls.FluentWindow
         CopyKeyButton.Content = Strings.Get("CopyApiKey");
         RegenerateKeyButton.Content = Strings.Get("NewKey");
         StartServiceButton.Content = Strings.Get("StartService");
+        CloseButton.Content = Strings.Get("Done");
+    }
+
+    private void CloseButton_Click(object sender, RoutedEventArgs e)
+    {
+        Close();
     }
 
     private async Task UpdateGatewayUiAsync()
