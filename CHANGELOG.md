@@ -13,6 +13,8 @@ file is the single source of truth for what shipped.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-15
+
 ### Added
 
 - **A real menu bar replaces the always-open Gateway and Cloudflare
@@ -25,9 +27,20 @@ file is the single source of truth for what shipped.
 - **Each connection card shows how many requests it has answered**
   since the gateway last started, so it's visible at a glance whether
   a database is actually being used.
-- **The app now looks like Windows 11.** Mica window backdrops,
-  rounded corners and Fluent-styled controls throughout, via the
-  WPF-UI library.
+- **The app now looks more like Windows 11.** Fluent-styled buttons,
+  menus and checkboxes throughout, via the WPF-UI library, on top of
+  the native window chrome.
+
+### Fixed
+
+- **Arabic no longer renders numbers as Eastern Arabic-Indic digits**
+  (٠١٢٣). Ports, request counts and everything else numeric now show
+  in the digits people actually type, in either language.
+- **Settings never switched to right-to-left layout in Arabic,**
+  unlike the rest of the app, and one of its labels was never
+  translated at all.
+- **Every dialog can now be dismissed with Escape,** not just its
+  Cancel or Close button.
 
 ## [1.0.1] - 2026-09-13
 
@@ -253,7 +266,7 @@ file is the single source of truth for what shipped.
 
 - Settings live in `C:\ProgramData\ByteBridge\bytebridge.db`.
 
-[Unreleased]: https://github.com/kenanwahbeh/ByteBridge/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/kenanwahbeh/ByteBridge/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/kenanwahbeh/ByteBridge/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/kenanwahbeh/ByteBridge/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/kenanwahbeh/ByteBridge/compare/v1.1.0...v1.0.0
-[1.1.0]: https://github.com/kenanwahbeh/ByteBridge/compare/v1.0.0...v1.1.0
