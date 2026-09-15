@@ -1,0 +1,69 @@
+<ui:FluentWindow x:Class="ByteBridge.CloudflareTunnelWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+        Title="Cloudflare Tunnel"
+        Width="560"
+        SizeToContent="Height"
+        MinWidth="480"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        WindowBackdropType="Mica"
+        Loaded="Window_Loaded">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="24">
+
+            <TextBlock x:Name="OAuthStatusTextBlock"
+                       FontSize="16"
+                       FontWeight="SemiBold"/>
+
+            <StackPanel Margin="0,20,0,0">
+                <TextBlock x:Name="TeamDomainTextBlock"
+                           Text="Team Domain"
+                           FontSize="15"
+                           FontWeight="SemiBold"/>
+                <TextBox x:Name="TeamDomainTextBox"
+                         Margin="0,8,0,0"
+                         Padding="10"
+                         ToolTip="your-team.cloudflareaccess.com"/>
+            </StackPanel>
+
+            <StackPanel Margin="0,16,0,0">
+                <TextBlock x:Name="AudienceTextBlock"
+                           Text="Audience"
+                           FontSize="15"
+                           FontWeight="SemiBold"/>
+                <TextBox x:Name="AudienceTextBox"
+                         Margin="0,8,0,0"
+                         Padding="10"
+                         ToolTip="Access application audience tag"/>
+            </StackPanel>
+
+            <StackPanel Margin="0,16,0,0">
+                <TextBlock x:Name="PublicHostnameTextBlock"
+                           Text="Public Hostname"
+                           FontSize="15"
+                           FontWeight="SemiBold"/>
+                <TextBox x:Name="PublicHostnameTextBox"
+                         Margin="0,8,0,0"
+                         Padding="10"
+                         ToolTip="The hostname your Cloudflare Tunnel exposes, e.g. api.yourcompany.com — this is where Cloudflare sends visitors back after they sign in"/>
+            </StackPanel>
+
+            <ui:Button x:Name="OAuthToggleButton"
+                       Padding="24,9"
+                       Margin="0,24,0,0"
+                       HorizontalAlignment="Right"
+                       Appearance="Primary"
+                       Click="OAuthToggleButton_Click"/>
+
+        </StackPanel>
+
+    </Grid>
+
+</ui:FluentWindow>

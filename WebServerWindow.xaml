@@ -1,0 +1,89 @@
+<ui:FluentWindow x:Class="ByteBridge.WebServerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+        Title="Web Server"
+        Width="560"
+        SizeToContent="Height"
+        MinWidth="480"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        WindowBackdropType="Mica"
+        Loaded="Window_Loaded"
+        Closed="Window_Closed">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="24">
+
+            <TextBlock x:Name="GatewayStatusTextBlock"
+                       FontSize="16"
+                       FontWeight="SemiBold"/>
+
+            <TextBlock x:Name="ServiceStatusTextBlock"
+                       Margin="0,6,0,0"
+                       FontSize="13"
+                       Foreground="Gray"/>
+
+            <TextBlock x:Name="GatewayHintTextBlock"
+                       Margin="0,8,0,0"
+                       FontSize="12"
+                       Foreground="Gray"
+                       TextWrapping="Wrap"/>
+
+            <Button x:Name="StartServiceButton"
+                    Padding="14,7"
+                    Margin="0,12,0,0"
+                    HorizontalAlignment="Left"
+                    Visibility="Collapsed"
+                    Click="StartServiceButton_Click"/>
+
+            <Grid Margin="0,20,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                    <TextBlock x:Name="PortTextBlock"
+                               Text="Port"
+                               FontSize="15"
+                               FontWeight="SemiBold"/>
+                </StackPanel>
+
+                <TextBox x:Name="GatewayPortTextBox"
+                         Grid.Column="1"
+                         Width="90"
+                         Padding="8,7"
+                         VerticalAlignment="Center"/>
+            </Grid>
+
+            <StackPanel Orientation="Horizontal"
+                        Margin="0,18,0,0">
+
+                <Button x:Name="CopyKeyButton"
+                        Padding="14,7"
+                        Click="CopyKeyButton_Click"/>
+
+                <Button x:Name="RegenerateKeyButton"
+                        Padding="14,7"
+                        Margin="8,0,0,0"
+                        Click="RegenerateKeyButton_Click"/>
+
+            </StackPanel>
+
+            <ui:Button x:Name="GatewayToggleButton"
+                       Padding="24,9"
+                       Margin="0,24,0,0"
+                       HorizontalAlignment="Right"
+                       Appearance="Primary"
+                       Click="GatewayToggleButton_Click"/>
+
+        </StackPanel>
+
+    </Grid>
+
+</ui:FluentWindow>

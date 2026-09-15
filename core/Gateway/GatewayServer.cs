@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -82,6 +83,17 @@ public sealed class GatewayServer : IDisposable
     private volatile OAuthConfig _oauthConfig;
 
     private readonly RequestLog _log;
+
+    /*
+     * How many /query and /execute calls each database has answered
+     * since this process started. In-memory only -- it resets on
+     * restart, same as the window that displays it -- because the
+     * point is "is this connection actually being used right now",
+     * not a durable audit trail. The RequestLog above already covers
+     * durable auditing.
+     */
+    private readonly ConcurrentDictionary<string, long> _requestCounts =
+        new(StringComparer.OrdinalIgnoreCase);
 
     private readonly CloudflareAccessValidator? _oauthValidator;
 
@@ -359,6 +371,26 @@ public sealed class GatewayServer : IDisposable
             }
 
             /*
+             * /stats is unauthenticated for the same reason as /health:
+             * it exposes only how many requests each database has
+             * answered, never any data or SQL, and the desktop app polls
+             * it before a key is necessarily configured.
+             */
+            if (path == "/stats")
+            {
+                if (method != "GET")
+                {
+                    await WriteMethodNotAllowedAsync(context, "GET");
+                    return;
+                }
+
+                await DrainOrCloseAsync(context);
+
+                await WriteStatsAsync(context);
+                return;
+            }
+
+            /*
              * /auth/* endpoints handle OAuth login/logout.
              */
             if (path.StartsWith("/auth/", StringComparison.OrdinalIgnoreCase))
@@ -434,7 +466,7 @@ public sealed class GatewayServer : IDisposable
                         404,
                         new ErrorResponse(
                             $"Unknown endpoint \"{path}\". " +
-                            "Available: /health, /databases, /query, /execute."));
+                            "Available: /health, /stats, /databases, /query, /execute."));
 
                     return;
             }
@@ -480,6 +512,11 @@ public sealed class GatewayServer : IDisposable
             record.ElapsedMs = stopwatch.ElapsedMilliseconds;
 
             _log.Write(record);
+
+            if (record.Database is { Length: > 0 } database)
+            {
+                _requestCounts.AddOrUpdate(database, 1, (_, count) => count + 1);
+            }
         }
     }
 
@@ -754,6 +791,18 @@ public sealed class GatewayServer : IDisposable
                 Connections = connections.Count,
                 Online = online,
                 TimeUtc = DateTime.UtcNow
+            });
+    }
+
+    private async Task WriteStatsAsync(
+        HttpListenerContext context)
+    {
+        await WriteJsonAsync(
+            context,
+            200,
+            new
+            {
+                Requests = new Dictionary<string, long>(_requestCounts)
             });
     }
 

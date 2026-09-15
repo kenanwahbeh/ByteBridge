@@ -1,239 +1,74 @@
-<Window x:Class="ByteBridge.MainWindow"
+<ui:FluentWindow x:Class="ByteBridge.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
         Title="ByteBridge"
         Width="900"
         Height="700"
         MinWidth="720"
         MinHeight="520"
         WindowStartupLocation="CenterScreen"
+        WindowBackdropType="Mica"
         Loaded="Window_Loaded"
         Closing="Window_Closing"
         Closed="Window_Closed">
 
-    <Grid Margin="24">
+    <Grid>
 
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Header -->
-        <Grid Grid.Row="0">
+        <!-- Menu bar -->
+        <Menu x:Name="MainMenu"
+              Grid.Row="0">
 
-            <TextBlock x:Name="AppTitleTextBlock"
-                       Text="ByteBridge"
-                       FontSize="28"
-                       FontWeight="Bold"/>
+            <MenuItem x:Name="FileMenuItem">
+                <MenuItem x:Name="NewDatabaseMenuItem" Click="NewDatabaseMenuItem_Click"/>
+                <Separator/>
+                <MenuItem x:Name="ExitMenuItem" Click="ExitMenuItem_Click"/>
+            </MenuItem>
 
-            <Button x:Name="AddDataButton"
-                    Content="+ Add Data"
-                    HorizontalAlignment="Right"
-                    Padding="18,9"
-                    Click="AddButton_Click"/>
+            <MenuItem x:Name="EditMenuItem">
+                <MenuItem x:Name="EditSelectedMenuItem" IsEnabled="False" Click="EditSelectedMenuItem_Click"/>
+                <MenuItem x:Name="DeleteSelectedMenuItem" IsEnabled="False" Click="DeleteSelectedMenuItem_Click"/>
+            </MenuItem>
 
-        </Grid>
+            <MenuItem x:Name="WebServerMenuItem" Click="WebServerMenuItem_Click"/>
 
-        <!-- Gateway API -->
+            <MenuItem x:Name="CloudflareTunnelMenuItem" Click="CloudflareTunnelMenuItem_Click"/>
+
+            <MenuItem x:Name="OptionsMenuItem" Click="OptionsMenuItem_Click"/>
+
+            <MenuItem x:Name="HelpMenuItem">
+                <MenuItem x:Name="AboutMenuItem" Click="AboutMenuItem_Click"/>
+            </MenuItem>
+
+        </Menu>
+
+        <!-- Slim status readout -->
         <Border Grid.Row="1"
-                Margin="0,22,0,0"
-                Padding="16"
-                CornerRadius="8"
-                BorderThickness="1"
+                Padding="20,10"
+                BorderThickness="0,0,0,1"
                 BorderBrush="#DCDCDC">
 
-            <Grid>
-
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-
-                <StackPanel Grid.Column="0"
-                            VerticalAlignment="Center">
-
-                    <TextBlock x:Name="GatewayApiTextBlock"
-                               Text="Gateway API"
-                               FontSize="16"
-                               FontWeight="SemiBold"/>
-
-                    <TextBlock x:Name="GatewayStatusTextBlock"
-                               Margin="0,6,0,0"
-                               FontSize="14"/>
-
-                    <TextBlock x:Name="ServiceStatusTextBlock"
-                               Margin="0,4,0,0"
-                               FontSize="12"
-                               Foreground="Gray"/>
-
-                    <TextBlock x:Name="GatewayHintTextBlock"
-                               Margin="0,5,12,0"
-                               FontSize="12"
-                               Foreground="Gray"
-                               TextWrapping="Wrap"/>
-
-                </StackPanel>
-
-                <StackPanel Grid.Column="1"
-                            Orientation="Horizontal"
-                            VerticalAlignment="Center">
-
-                    <TextBlock x:Name="PortTextBlock"
-                               Text="Port"
-                               FontSize="13"
-                               VerticalAlignment="Center"
-                               Margin="0,0,8,0"/>
-
-                    <TextBox x:Name="GatewayPortTextBox"
-                             Width="70"
-                             Padding="8,7"
-                             VerticalAlignment="Center"/>
-
-                    <Button x:Name="CopyKeyButton"
-                            Content="Copy API Key"
-                            Padding="12,7"
-                            Margin="10,0,0,0"
-                            Click="CopyKeyButton_Click"/>
-
-                    <Button x:Name="RegenerateKeyButton"
-                            Content="New Key"
-                            Padding="12,7"
-                            Margin="5,0,0,0"
-                            Click="RegenerateKeyButton_Click"/>
-
-                    <Button x:Name="StartServiceButton"
-                            Content="Start Service"
-                            Padding="12,7"
-                            Margin="5,0,0,0"
-                            Visibility="Collapsed"
-                            Click="StartServiceButton_Click"/>
-
-                    <Button x:Name="GatewayToggleButton"
-                            Content="Start"
-                            Padding="18,7"
-                            Margin="5,0,0,0"
-                            Click="GatewayToggleButton_Click"/>
-
-                </StackPanel>
-
-            </Grid>
-
-        </Border>
-
-        <!-- Cloudflare OAuth -->
-        <Border Grid.Row="2"
-                Margin="0,22,0,0"
-                Padding="16"
-                CornerRadius="8"
-                BorderThickness="1"
-                BorderBrush="#DCDCDC"
-                x:Name="OAuthBorder"
-                Visibility="Collapsed">
-
-            <Grid>
-
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-
-                <StackPanel Grid.Column="0"
-                            VerticalAlignment="Center">
-
-                    <TextBlock x:Name="CloudflareLoginTextBlock"
-                               Text="Cloudflare Login"
-                               FontSize="16"
-                               FontWeight="SemiBold"/>
-
-                    <TextBlock x:Name="OAuthStatusTextBlock"
-                               Margin="0,6,0,0"
-                               FontSize="14"
-                               Text="Not configured"/>
-
-                    <TextBlock x:Name="OAuthUserTextBlock"
-                               Margin="0,4,0,0"
-                               FontSize="12"
-                               Foreground="Gray"
-                               Visibility="Collapsed"/>
-
-                </StackPanel>
-
-                <StackPanel Grid.Column="1"
-                            Orientation="Horizontal"
-                            VerticalAlignment="Center">
-
-                    <TextBlock x:Name="TeamDomainTextBlock"
-                               Text="Team Domain"
-                               FontSize="13"
-                               VerticalAlignment="Center"
-                               Margin="0,0,8,0"/>
-
-                    <TextBox x:Name="TeamDomainTextBox"
-                             Width="200"
-                             Padding="8,7"
-                             VerticalAlignment="Center"
-                             ToolTip="your-team.cloudflareaccess.com"/>
-
-                    <TextBlock x:Name="AudienceTextBlock"
-                               Text="Audience"
-                               FontSize="13"
-                               VerticalAlignment="Center"
-                               Margin="10,0,8,0"/>
-
-                    <TextBox x:Name="AudienceTextBox"
-                             Width="150"
-                             Padding="8,7"
-                             VerticalAlignment="Center"
-                             ToolTip="Access application audience tag"/>
-
-                    <TextBlock x:Name="PublicHostnameTextBlock"
-                               Text="Public Hostname"
-                               FontSize="13"
-                               VerticalAlignment="Center"
-                               Margin="10,0,8,0"/>
-
-                    <TextBox x:Name="PublicHostnameTextBox"
-                             Width="200"
-                             Padding="8,7"
-                             VerticalAlignment="Center"
-                             ToolTip="The hostname your Cloudflare Tunnel exposes, e.g. api.yourcompany.com — this is where Cloudflare sends visitors back after they sign in"/>
-
-                    <Button x:Name="OAuthToggleButton"
-                            Content="Enable"
-                            Padding="18,7"
-                            Margin="10,0,0,0"
-                            Click="OAuthToggleButton_Click"/>
-
-                </StackPanel>
-
-            </Grid>
+            <TextBlock x:Name="StatusTextBlock"
+                       FontSize="13"/>
 
         </Border>
 
         <!-- Connections -->
         <ScrollViewer Grid.Row="2"
-                      Margin="0,22,0,20"
+                      Margin="20"
                       VerticalScrollBarVisibility="Auto"
-                      HorizontalScrollBarVisibility="Auto">
+                      HorizontalScrollBarVisibility="Disabled">
 
             <StackPanel x:Name="ConnectionsPanel"/>
 
         </ScrollViewer>
 
-        <!-- Footer -->
-        <StackPanel Grid.Row="3"
-                    Orientation="Horizontal"
-                    HorizontalAlignment="Right">
-
-            <Button x:Name="DoneButton"
-                    Content="Done"
-                    Padding="25,9"
-                    Click="DoneButton_Click"/>
-
-        </StackPanel>
-
     </Grid>
 
-</Window>
+</ui:FluentWindow>

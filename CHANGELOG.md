@@ -13,6 +13,22 @@ file is the single source of truth for what shipped.
 
 ## [Unreleased]
 
+### Added
+
+- **A real menu bar replaces the always-open Gateway and Cloudflare
+  cards.** File, Edit, Web Server, Cloudflare Tunnel, Options and Help
+  now tuck configuration behind dialogs instead of leaving it open at
+  the top of the window competing with the connections list, which is
+  now the whole page.
+- **Adding a database is a four-step wizard** (name, server details,
+  credentials, test & finish) instead of one long scrolling form.
+- **Each connection card shows how many requests it has answered**
+  since the gateway last started, so it's visible at a glance whether
+  a database is actually being used.
+- **The app now looks like Windows 11.** Mica window backdrops,
+  rounded corners and Fluent-styled controls throughout, via the
+  WPF-UI library.
+
 ## [1.0.1] - 2026-09-13
 
 ### Fixed
