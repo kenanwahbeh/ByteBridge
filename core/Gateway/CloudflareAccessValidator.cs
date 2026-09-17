@@ -2,14 +2,14 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IdentityModel.Tokens.Jwt;
-using System.Linq;
 using System.Net.Http;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.IdentityModel.Tokens;
-using ByteBridge.Configuration;
+using ByteBridge.Data;
 
 namespace ByteBridge.Gateway;
 
@@ -29,7 +29,7 @@ namespace ByteBridge.Gateway;
  */
 public sealed class CloudflareAccessValidator : IDisposable
 {
-    private readonly OAuthConfig _config;
+    private readonly SqliteDatabase _database;
     private readonly HttpClient _http;
 
     /*
@@ -42,9 +42,9 @@ public sealed class CloudflareAccessValidator : IDisposable
     private readonly TimeSpan _refreshInterval = TimeSpan.FromHours(1);
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
 
-    public CloudflareAccessValidator(OAuthConfig config)
+    public CloudflareAccessValidator(SqliteDatabase database)
     {
-        _config = config;
+        _database = database;
         _http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
     }
 
@@ -62,22 +62,30 @@ public sealed class CloudflareAccessValidator : IDisposable
 
         try
         {
+            /*
+             * Read fresh rather than captured at construction: the
+             * gateway runs for as long as the Windows service does, so
+             * a team domain or audience changed in Settings needs to
+             * take effect without a restart.
+             */
+            var config = _database.GetOAuthConfig();
+
             var handler = new JwtSecurityTokenHandler();
 
             var validationParameters = new TokenValidationParameters
             {
                 ValidateIssuer = true,
-                ValidIssuer = _config.Issuer,
+                ValidIssuer = config.Issuer,
 
                 ValidateAudience = true,
-                ValidAudience = _config.Audience,
+                ValidAudience = config.Audience,
 
                 ValidateLifetime = true,
                 ClockSkew = TimeSpan.FromMinutes(2),
 
                 ValidateIssuerSigningKey = true,
-                IssuerSigningKeyResolver = (token, securityToken, kid, parameters) =>
-                    GetSigningKeysAsync(kid).GetAwaiter().GetResult()
+                IssuerSigningKeyResolver = (_, _, kid, _) =>
+                    GetSigningKeysAsync(kid, config.JwksUrl).GetAwaiter().GetResult()
             };
 
             var principal = handler.ValidateToken(
@@ -112,7 +120,8 @@ public sealed class CloudflareAccessValidator : IDisposable
      * from the JWKS endpoint if needed.
      */
     private async Task<IEnumerable<SecurityKey>> GetSigningKeysAsync(
-        string kid)
+        string kid,
+        string jwksUrl)
     {
         // Return cached key if available
         if (_keys.TryGetValue(kid, out var cached))
@@ -121,7 +130,7 @@ public sealed class CloudflareAccessValidator : IDisposable
         }
 
         // Refresh the JWKS cache
-        await RefreshKeysAsync();
+        await RefreshKeysAsync(jwksUrl);
 
         if (_keys.TryGetValue(kid, out var afterRefresh))
         {
@@ -135,7 +144,7 @@ public sealed class CloudflareAccessValidator : IDisposable
     /*
      * Fetches the JWKS from Cloudflare and caches the keys.
      */
-    private async Task RefreshKeysAsync()
+    private async Task RefreshKeysAsync(string jwksUrl)
     {
         // Avoid thundering herd
         if (DateTime.UtcNow - _lastRefresh < _refreshInterval)
@@ -153,7 +162,7 @@ public sealed class CloudflareAccessValidator : IDisposable
                 return;
             }
 
-            var response = await _http.GetAsync(_config.JwksUrl);
+            var response = await _http.GetAsync(jwksUrl);
             response.EnsureSuccessStatusCode();
 
             var json = await response.Content.ReadAsStringAsync();
@@ -163,28 +172,24 @@ public sealed class CloudflareAccessValidator : IDisposable
 
             foreach (var keyElement in keys.EnumerateArray())
             {
-                var kid = keyElement.GetProperty("kid").GetString();
+                if (!keyElement.TryGetProperty("kid", out var kidProperty))
+                {
+                    continue;
+                }
+
+                var kid = kidProperty.GetString();
 
                 if (string.IsNullOrEmpty(kid))
                 {
                     continue;
                 }
 
-                var x5c = keyElement.GetProperty("x5c").GetString();
+                var securityKey = BuildSecurityKey(keyElement);
 
-                if (string.IsNullOrEmpty(x5c))
+                if (securityKey != null)
                 {
-                    continue;
+                    _keys[kid] = securityKey;
                 }
-
-                // Convert the x5c certificate to a security key
-                var certBytes = Convert.FromBase64String(x5c);
-#pragma warning disable SYSLIB0057
-                var cert = new System.Security.Cryptography.X509Certificates.X509Certificate2(certBytes);
-#pragma warning restore SYSLIB0057
-                var securityKey = new X509SecurityKey(cert);
-
-                _keys[kid] = securityKey;
             }
 
             _lastRefresh = DateTime.UtcNow;
@@ -197,6 +202,76 @@ public sealed class CloudflareAccessValidator : IDisposable
         {
             _refreshLock.Release();
         }
+    }
+
+    /*
+     * Cloudflare Access's own JWKS (https://<team>/cdn-cgi/access/certs)
+     * sends plain RSA keys as "n" (modulus) and "e" (exponent), base64url
+     * encoded per RFC 7518 -- not an "x5c" certificate chain. The x5c
+     * form is still accepted, for any JWKS that does send one, since
+     * it's a normal and valid part of the JWK spec; it just isn't what
+     * Cloudflare actually sends, which is why relying on it exclusively
+     * left every token unverifiable.
+     */
+    internal static SecurityKey? BuildSecurityKey(JsonElement keyElement)
+    {
+        if (keyElement.TryGetProperty("n", out var nProperty) &&
+            keyElement.TryGetProperty("e", out var eProperty))
+        {
+            var modulus = nProperty.GetString();
+            var exponent = eProperty.GetString();
+
+            if (!string.IsNullOrEmpty(modulus) && !string.IsNullOrEmpty(exponent))
+            {
+                try
+                {
+                    var parameters = new RSAParameters
+                    {
+                        Modulus = Base64UrlEncoder.DecodeBytes(modulus),
+                        Exponent = Base64UrlEncoder.DecodeBytes(exponent)
+                    };
+
+                    return new RsaSecurityKey(RSA.Create(parameters));
+                }
+                catch (FormatException)
+                {
+                    return null;
+                }
+                catch (CryptographicException)
+                {
+                    return null;
+                }
+            }
+        }
+
+        if (keyElement.TryGetProperty("x5c", out var x5cProperty) &&
+            x5cProperty.ValueKind == JsonValueKind.Array &&
+            x5cProperty.GetArrayLength() > 0)
+        {
+            var certBase64 = x5cProperty[0].GetString();
+
+            if (!string.IsNullOrEmpty(certBase64))
+            {
+                try
+                {
+                    var certBytes = Convert.FromBase64String(certBase64);
+#pragma warning disable SYSLIB0057
+                    var cert = new System.Security.Cryptography.X509Certificates.X509Certificate2(certBytes);
+#pragma warning restore SYSLIB0057
+                    return new X509SecurityKey(cert);
+                }
+                catch (FormatException)
+                {
+                    return null;
+                }
+                catch (CryptographicException)
+                {
+                    return null;
+                }
+            }
+        }
+
+        return null;
     }
 
     public void Dispose()

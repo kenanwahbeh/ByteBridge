@@ -1,7 +1,7 @@
 using System;
 using System.Security.Cryptography;
-using System.Text;
 using ByteBridge.Configuration;
+using ByteBridge.Data;
 
 namespace ByteBridge.Gateway;
 
@@ -19,18 +19,41 @@ public sealed class OAuthSessionManager
 {
     private const string SessionCookieName = "efs_session";
 
-    private readonly OAuthConfig _config;
-    private readonly Data.SqliteDatabase _database;
+    /*
+     * Enabled is read on every single request the gateway answers
+     * (it gates whether the session cookie is even worth checking), so
+     * a straight database read there would trade a stale-config bug
+     * for a SQLite round-trip on every request instead. A couple of
+     * seconds of staleness is unnoticeable for a human flipping a
+     * switch in Settings; a query per request is not.
+     */
+    private static readonly TimeSpan ConfigCacheDuration = TimeSpan.FromSeconds(2);
 
-    public OAuthSessionManager(
-        OAuthConfig config,
-        Data.SqliteDatabase database)
+    private readonly SqliteDatabase _database;
+    private readonly object _configLock = new();
+    private OAuthConfig? _cachedConfig;
+    private DateTime _cacheExpiresAt;
+
+    public OAuthSessionManager(SqliteDatabase database)
     {
-        _config = config;
         _database = database;
     }
 
-    public bool Enabled => _config.Enabled;
+    public bool Enabled => GetConfig().Enabled;
+
+    private OAuthConfig GetConfig()
+    {
+        lock (_configLock)
+        {
+            if (_cachedConfig == null || DateTime.UtcNow >= _cacheExpiresAt)
+            {
+                _cachedConfig = _database.GetOAuthConfig();
+                _cacheExpiresAt = DateTime.UtcNow + ConfigCacheDuration;
+            }
+
+            return _cachedConfig;
+        }
+    }
 
     /*
      * Creates a new session for an authenticated user and
@@ -41,7 +64,7 @@ public sealed class OAuthSessionManager
         var token = GenerateSessionToken();
 
         var expiresAt = DateTime.UtcNow.AddMinutes(
-            _config.SessionTimeoutMinutes);
+            GetConfig().SessionTimeoutMinutes);
 
         _database.CreateSession(token, userEmail, expiresAt);
 
@@ -95,34 +118,53 @@ public sealed class OAuthSessionManager
 
     /*
      * Cookie helpers.
+     *
+     * Every cookie this gateway sets carries Secure: it is only ever
+     * reached over the HTTPS hostname a Cloudflare Tunnel exposes, so
+     * there is no legitimate plain-HTTP request for a cookie to leak
+     * onto in the first place.
      */
 
     public static string FormatCookie(
         string token,
-        int timeoutMinutes)
+        int timeoutMinutes) =>
+        FormatCookie(SessionCookieName, token, "/", timeoutMinutes * 60);
+
+    public static string ClearCookie() =>
+        ExpireCookie(SessionCookieName, "/");
+
+    public static string? ExtractTokenFromCookie(string? cookieHeader) =>
+        ExtractCookie(cookieHeader, SessionCookieName);
+
+    public static string FormatCookie(
+        string name,
+        string value,
+        string path,
+        int maxAgeSeconds)
     {
         var expires = DateTime.UtcNow
-            .AddMinutes(timeoutMinutes)
+            .AddSeconds(maxAgeSeconds)
             .ToString("R");
 
-        return $"{SessionCookieName}={token}; " +
-            $"Path=/; " +
+        return $"{name}={value}; " +
+            $"Path={path}; " +
             $"HttpOnly; " +
+            $"Secure; " +
             $"SameSite=Lax; " +
+            $"Max-Age={maxAgeSeconds}; " +
             $"Expires={expires}";
     }
 
-    public static string ClearCookie()
-    {
-        return $"{SessionCookieName}=; " +
-            "Path=/; " +
-            "HttpOnly; " +
-            "SameSite=Lax; " +
-            "Expires=Thu, 01 Jan 1970 00:00:00 GMT";
-    }
+    public static string ExpireCookie(string name, string path) =>
+        $"{name}=; " +
+        $"Path={path}; " +
+        "HttpOnly; " +
+        "Secure; " +
+        "SameSite=Lax; " +
+        "Max-Age=0; " +
+        "Expires=Thu, 01 Jan 1970 00:00:00 GMT";
 
-    public static string? ExtractTokenFromCookie(
-        string? cookieHeader)
+    public static string? ExtractCookie(string? cookieHeader, string name)
     {
         if (string.IsNullOrWhiteSpace(cookieHeader))
         {
@@ -136,10 +178,10 @@ public sealed class OAuthSessionManager
             var trimmed = cookie.Trim();
 
             if (trimmed.StartsWith(
-                    SessionCookieName + "=",
+                    name + "=",
                     StringComparison.OrdinalIgnoreCase))
             {
-                return trimmed[(SessionCookieName.Length + 1)..].Trim();
+                return trimmed[(name.Length + 1)..].Trim();
             }
         }
 

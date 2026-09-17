@@ -51,6 +51,91 @@ public class OAuthLoginTests
         Assert.DoesNotContain("127.0.0.1", location);
     }
 
+    /*
+     * /auth/login used to hand out a "state" value that /auth/callback
+     * never checked, which is what makes login CSRF possible: an
+     * attacker completes their own login, captures the callback URL
+     * Cloudflare sends back, and gets a victim to open it, logging the
+     * victim's browser into the attacker's account. Binding state to a
+     * cookie the callback must echo closes that -- a URL alone is no
+     * longer enough to complete someone else's login.
+     */
+    [Fact]
+    public async Task Login_sets_a_state_cookie_matching_the_redirect()
+    {
+        using var harness = StartWithOAuth(
+            redirectUri: "https://api.example.com/auth/callback");
+
+        using var response = await harness.Client.GetAsync("/auth/login");
+
+        var setCookie = Assert.Single(response.Headers.GetValues("Set-Cookie"));
+
+        Assert.Contains("cf_oauth_state=", setCookie);
+        Assert.Contains("HttpOnly", setCookie);
+        Assert.Contains("Secure", setCookie);
+        Assert.Contains("SameSite=Lax", setCookie);
+
+        var cookieState = ExtractCookieValue(setCookie, "cf_oauth_state");
+        var location = response.Headers.Location?.ToString() ?? "";
+
+        Assert.Contains($"state={cookieState}", location);
+    }
+
+    [Fact]
+    public async Task Callback_without_a_state_cookie_is_rejected()
+    {
+        using var harness = StartWithOAuth(
+            redirectUri: "https://api.example.com/auth/callback");
+
+        using var response = await harness.Client.GetAsync(
+            "/auth/callback?state=whatever&cf_clearance_jwt=irrelevant");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Callback_with_a_mismatched_state_is_rejected()
+    {
+        using var harness = StartWithOAuth(
+            redirectUri: "https://api.example.com/auth/callback");
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            "/auth/callback?state=wrong-value&cf_clearance_jwt=irrelevant");
+
+        request.Headers.Add("Cookie", "cf_oauth_state=right-value");
+
+        using var response = await harness.Client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    /*
+     * The state check has to run before token validation, or the two
+     * failures become indistinguishable and a mismatched-state error
+     * would look exactly like a garbage-token error.
+     */
+    [Fact]
+    public async Task A_rejected_state_never_reports_a_token_problem()
+    {
+        using var harness = StartWithOAuth(
+            redirectUri: "https://api.example.com/auth/callback");
+
+        using var response = await harness.Client.GetAsync("/auth/callback");
+
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.DoesNotContain("authentication token", body);
+    }
+
+    private static string ExtractCookieValue(string setCookie, string name)
+    {
+        var prefix = name + "=";
+        var start = setCookie.IndexOf(prefix, StringComparison.Ordinal) + prefix.Length;
+        var end = setCookie.IndexOf(';', start);
+        return setCookie[start..end];
+    }
+
     private static OAuthHarness StartWithOAuth(string redirectUri)
     {
         var root = new TempDataRoot();
@@ -68,8 +153,8 @@ public class OAuthLoginTests
         database.SaveOAuthConfig(oauthConfig);
 
         var log = new RequestLog(Path.Combine(root.Path, "logs"));
-        var validator = new CloudflareAccessValidator(oauthConfig);
-        var sessionManager = new OAuthSessionManager(oauthConfig, database);
+        var validator = new CloudflareAccessValidator(database);
+        var sessionManager = new OAuthSessionManager(database);
 
         var server = new GatewayServer(database, log, validator, sessionManager);
         server.Start(gatewayConfig);
