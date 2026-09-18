@@ -5,6 +5,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
 using System.Net.Http;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -39,13 +40,24 @@ public sealed class CloudflareAccessValidator : IDisposable
     private readonly ConcurrentDictionary<string, SecurityKey> _keys = new();
 
     private DateTime _lastRefresh = DateTime.MinValue;
-    private readonly TimeSpan _refreshInterval = TimeSpan.FromHours(1);
+    private readonly TimeSpan _refreshInterval;
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
 
     public CloudflareAccessValidator(OAuthConfig config)
+        : this(config, TimeSpan.FromHours(1))
+    {
+    }
+
+    /*
+     * Lets tests shrink the refresh throttle so a rotated key
+     * (a kid the cache has never seen) is picked up immediately
+     * instead of waiting out the production interval.
+     */
+    internal CloudflareAccessValidator(OAuthConfig config, TimeSpan refreshInterval)
     {
         _config = config;
         _http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+        _refreshInterval = refreshInterval;
     }
 
     /*
@@ -163,35 +175,62 @@ public sealed class CloudflareAccessValidator : IDisposable
 
             foreach (var keyElement in keys.EnumerateArray())
             {
-                var kid = keyElement.GetProperty("kid").GetString();
-
-                if (string.IsNullOrEmpty(kid))
+                /*
+                 * One oddly-shaped key (a bad kid, a non-RSA entry,
+                 * unparsable base64) must not cost us every other key
+                 * in the same JWKS response.
+                 */
+                try
                 {
-                    continue;
+                    if (!keyElement.TryGetProperty("kid", out var kidElement))
+                    {
+                        continue;
+                    }
+
+                    var kid = kidElement.GetString();
+
+                    if (string.IsNullOrEmpty(kid))
+                    {
+                        continue;
+                    }
+
+                    if (!keyElement.TryGetProperty("n", out var nElement) ||
+                        !keyElement.TryGetProperty("e", out var eElement))
+                    {
+                        continue;
+                    }
+
+                    var n = nElement.GetString();
+                    var e = eElement.GetString();
+
+                    if (string.IsNullOrEmpty(n) || string.IsNullOrEmpty(e))
+                    {
+                        continue;
+                    }
+
+                    var rsa = RSA.Create();
+                    rsa.ImportParameters(new RSAParameters
+                    {
+                        Modulus = Base64UrlEncoder.DecodeBytes(n),
+                        Exponent = Base64UrlEncoder.DecodeBytes(e)
+                    });
+
+                    _keys[kid] = new RsaSecurityKey(rsa) { KeyId = kid };
                 }
-
-                var x5c = keyElement.GetProperty("x5c").GetString();
-
-                if (string.IsNullOrEmpty(x5c))
+                catch (Exception ex)
                 {
-                    continue;
+                    Console.Error.WriteLine(
+                        $"Cloudflare Access JWKS key entry skipped: {ex.Message}");
                 }
-
-                // Convert the x5c certificate to a security key
-                var certBytes = Convert.FromBase64String(x5c);
-#pragma warning disable SYSLIB0057
-                var cert = new System.Security.Cryptography.X509Certificates.X509Certificate2(certBytes);
-#pragma warning restore SYSLIB0057
-                var securityKey = new X509SecurityKey(cert);
-
-                _keys[kid] = securityKey;
             }
 
             _lastRefresh = DateTime.UtcNow;
         }
-        catch
+        catch (Exception ex)
         {
-            // If refresh fails, keep using cached keys
+            // Keep using cached keys, but don't hide the failure.
+            Console.Error.WriteLine(
+                $"Cloudflare Access JWKS refresh failed ({_config.JwksUrl}): {ex.Message}");
         }
         finally
         {

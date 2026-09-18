@@ -6,11 +6,23 @@ using ByteBridge.Data;
 namespace ByteBridge.Tests;
 
 /*
+ * Console.Out/Error are process-wide statics. Any test class that
+ * swaps them (this one, and CloudflareAccessValidatorTests) has to
+ * run in the same xUnit collection, or two of them redirecting at
+ * once on different threads stomp on each other's capture.
+ */
+[CollectionDefinition("Console redirection", DisableParallelization = true)]
+public class ConsoleRedirectionCollection
+{
+}
+
+/*
  * On Windows Server Core there is no desktop, so the WPF control panel
  * cannot run and these commands are the only way to configure the
  * gateway. If they are broken, the service installs, starts, and is
  * unreachable forever, which is worse than not shipping them.
  */
+[Collection("Console redirection")]
 public class CliTests
 {
     private sealed class Captured : IDisposable
