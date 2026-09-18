@@ -134,34 +134,37 @@ public sealed class CloudflareAccessValidator : IDisposable
         string kid,
         string jwksUrl)
     {
-        // Fast path, lock-free: the common case once a URL's keys are
-        // already cached. _cachedJwksUrl is volatile, so seeing it
-        // equal jwksUrl here also guarantees seeing whatever _keys
-        // held at the moment it was last set (see RefreshKeysAsync).
-        if (jwksUrl == _cachedJwksUrl && _keys.TryGetValue(kid, out var cached))
+        if (await TryGetCachedKeyAsync(jwksUrl, kid) is { } cached)
         {
             return [cached];
         }
 
         await RefreshKeysAsync(jwksUrl);
 
-        /*
-         * Read under the same lock RefreshKeysAsync uses to reset the
-         * cache on a URL change. Without this, a concurrent request
-         * validating a token against a *different*, just-changed JWKS
-         * URL could reset and repopulate the cache in the instant
-         * between RefreshKeysAsync returning above and a lock-free
-         * read here, handing this call back a key that belongs to the
-         * other request's domain instead of its own.
-         */
+        return await TryGetCachedKeyAsync(jwksUrl, kid) is { } afterRefresh
+            ? [afterRefresh]
+            : [];
+    }
+
+    /*
+     * Reads the cache under the same lock RefreshKeysAsync uses to
+     * reset it on a URL change. The URL check and the dictionary
+     * lookup must happen as one atomic step: checking _cachedJwksUrl
+     * and then reading _keys as two separate lock-free operations
+     * would leave a gap where a concurrent request for a *different*
+     * JWKS URL could reset and repopulate the cache in between,
+     * handing this call back a key for the wrong domain if the two
+     * domains happen to share a kid.
+     */
+    private async Task<SecurityKey?> TryGetCachedKeyAsync(string jwksUrl, string kid)
+    {
         await _refreshLock.WaitAsync();
 
         try
         {
-            return jwksUrl == _cachedJwksUrl &&
-                _keys.TryGetValue(kid, out var afterRefresh)
-                    ? [afterRefresh]
-                    : [];
+            return jwksUrl == _cachedJwksUrl && _keys.TryGetValue(kid, out var key)
+                ? key
+                : null;
         }
         finally
         {

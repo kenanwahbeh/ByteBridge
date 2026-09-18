@@ -52,14 +52,20 @@ jobs:
         with:
           python-version: '3.12'
 
+      # ByteBridge.csproj and service/ByteBridge.Service.csproj both
+      # target net10.0-windows, which the SDK refuses to restore or
+      # build on Linux (NETSDK1100) -- ci.yml already covers both on
+      # windows-latest. This job uses a solution filter with just the
+      # two portable projects: ByteBridge.Core (plain net10.0) and the
+      # test project that references it.
       - name: Restore
-        run: dotnet restore ByteBridge.slnx
+        run: dotnet restore ByteBridge.CrossPlatform.slnx
 
       # dotnet's own equivalent of ruff: whitespace, brace placement,
       # using-directive order. .editorconfig at the repo root is what it
       # checks against.
       - name: Formatting (dotnet format)
-        run: dotnet format ByteBridge.slnx --verify-no-changes --verbosity diagnostic
+        run: dotnet format ByteBridge.CrossPlatform.slnx --verify-no-changes --verbosity diagnostic
 
       # Builds with the SDK's own Roslyn analyzers switched on
       # (Directory.Build.props: AnalysisMode=Recommended, which
@@ -68,7 +74,7 @@ jobs:
       # now; see the comment in Directory.Build.props for why they are
       # not yet build-breaking.
       - name: Build with security analyzers
-        run: dotnet build ByteBridge.slnx -c Release --no-restore
+        run: dotnet build ByteBridge.CrossPlatform.slnx -c Release --no-restore
 
       # p/csharp and p/security-audit are free, fully local rule sets
       # (no Semgrep cloud account involved) -- semgrep genuinely
@@ -86,7 +92,7 @@ jobs:
       # prints when a vulnerability exists.
       - name: Dependency vulnerability scan (dotnet list package)
         run: |
-          dotnet list ByteBridge.slnx package --vulnerable --include-transitive 2>&1 | tee vulnerable-packages.txt
+          dotnet list ByteBridge.CrossPlatform.slnx package --vulnerable --include-transitive 2>&1 | tee vulnerable-packages.txt
 
           if grep -q "has the following vulnerable packages" vulnerable-packages.txt; then
             echo "::error::Vulnerable NuGet package(s) found -- see the log above."

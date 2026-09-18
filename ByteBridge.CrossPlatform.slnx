@@ -1,0 +1,16 @@
+<Solution>
+  <!--
+    Just the two projects that build on Linux: ByteBridge.Core targets
+    plain net10.0, and ByteBridge.Tests references only that. The WPF
+    app and the Windows service both target net10.0-windows, which
+    the .NET SDK refuses to restore or build on a non-Windows OS
+    (NETSDK1100) without EnableWindowsTargeting; pulling that in to
+    run analyzers over WPF code that ci.yml already builds and tests
+    on windows-latest is more surface area than qa-checks.yml, an
+    ubuntu-latest job, needs.
+  -->
+  <Folder Name="/tests/">
+    <Project Path="tests/ByteBridge.Tests/ByteBridge.Tests.csproj" />
+  </Folder>
+  <Project Path="core/ByteBridge.Core.csproj" />
+</Solution>
