@@ -38,6 +38,17 @@ public sealed class CloudflareAccessValidator : IDisposable
      */
     private readonly ConcurrentDictionary<string, SecurityKey> _keys = new();
 
+    /*
+     * The JWKS URL the cache above was built from. Settings can change
+     * the team domain (and so the JWKS URL) without restarting the
+     * service, and the cached keys and the refresh throttle below both
+     * belong to whichever URL was fetched last -- without tracking it,
+     * a domain change would either return a stale key for a matching
+     * kid, or have the previous domain's throttle block a fetch from
+     * the new one for up to an hour.
+     */
+    private volatile string? _cachedJwksUrl;
+
     private DateTime _lastRefresh = DateTime.MinValue;
     private readonly TimeSpan _refreshInterval = TimeSpan.FromHours(1);
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
@@ -123,6 +134,11 @@ public sealed class CloudflareAccessValidator : IDisposable
         string kid,
         string jwksUrl)
     {
+        if (jwksUrl != _cachedJwksUrl)
+        {
+            await ResetCacheForUrlAsync(jwksUrl);
+        }
+
         // Return cached key if available
         if (_keys.TryGetValue(kid, out var cached))
         {
@@ -139,6 +155,35 @@ public sealed class CloudflareAccessValidator : IDisposable
 
         // Key still not found after refresh
         return [];
+    }
+
+    /*
+     * Clears the cache and the refresh throttle when the configured
+     * JWKS URL has changed, so a stale key from the previous domain is
+     * never returned and the previous domain's throttle can never
+     * block fetching from the new one.
+     */
+    private async Task ResetCacheForUrlAsync(string jwksUrl)
+    {
+        await _refreshLock.WaitAsync();
+
+        try
+        {
+            // Another caller may have already reset it while this one
+            // was waiting for the lock.
+            if (jwksUrl == _cachedJwksUrl)
+            {
+                return;
+            }
+
+            _keys.Clear();
+            _lastRefresh = DateTime.MinValue;
+            _cachedJwksUrl = jwksUrl;
+        }
+        finally
+        {
+            _refreshLock.Release();
+        }
     }
 
     /*
@@ -172,23 +217,38 @@ public sealed class CloudflareAccessValidator : IDisposable
 
             foreach (var keyElement in keys.EnumerateArray())
             {
-                if (!keyElement.TryGetProperty("kid", out var kidProperty))
+                /*
+                 * Each key is parsed independently: GetString() throws
+                 * for any JSON type other than string or null, and one
+                 * oddly-shaped key from Cloudflare must not stop every
+                 * key after it in the array from being cached.
+                 */
+                try
                 {
-                    continue;
+                    if (!keyElement.TryGetProperty("kid", out var kidProperty) ||
+                        kidProperty.ValueKind != JsonValueKind.String)
+                    {
+                        continue;
+                    }
+
+                    var kid = kidProperty.GetString();
+
+                    if (string.IsNullOrEmpty(kid))
+                    {
+                        continue;
+                    }
+
+                    var securityKey = BuildSecurityKey(keyElement);
+
+                    if (securityKey != null)
+                    {
+                        _keys[kid] = securityKey;
+                    }
                 }
-
-                var kid = kidProperty.GetString();
-
-                if (string.IsNullOrEmpty(kid))
+                catch (InvalidOperationException)
                 {
-                    continue;
-                }
-
-                var securityKey = BuildSecurityKey(keyElement);
-
-                if (securityKey != null)
-                {
-                    _keys[kid] = securityKey;
+                    // Wrong JSON type for a string field (kid/n/e/x5c[0]).
+                    // Skip this key and keep processing the rest.
                 }
             }
 
