@@ -1,0 +1,15 @@
+# Automatic pull requests when a dependency has a newer version, security
+# advisory or not. Covers both the NuGet packages the app depends on and
+# the GitHub Actions used to build/test it.
+
+version: 2
+updates:
+  - package-ecosystem: "nuget"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

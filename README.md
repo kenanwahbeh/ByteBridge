@@ -223,6 +223,7 @@ connections of whoever is running it.
 | `RequestLogTests` | The log file itself: one JSON line per request, parameter values kept out, long statements truncated, concurrent writes, and pruning old files. |
 | `RequestLoggingTests` | The log as the running gateway fills it: served and refused requests, the statement and connection, the forwarded client address, and every request landing exactly once under load. |
 | `SharedDatabaseTests` | The settings file open in two processes at once: WAL mode, one seeing what the other wrote, a write waiting for a lock, and both writing together. |
+| `AdversarialInputTests` | Boundary and hostile requests against every endpoint — empty/malformed/oversized/non-UTF-8 bodies, deeply nested JSON, wrong parameter shapes, SQL-injection-shaped identifiers, disabled connections, wrong HTTP methods — asserting a clean 4xx rather than a crash or a hang. |
 
 `FirebirdIntegrationTests` is skipped unless you point it at a server,
 so a fresh clone still gets a green run:
@@ -241,6 +242,45 @@ live Firebird tests skip for want of a server, and those same tests on
 `ubuntu-latest` against Firebird 4 in a service container. The test
 project targets plain `net10.0`, so it runs on Linux unchanged even
 though the app itself is Windows-only.
+
+### QA and security checks
+
+[qa-checks.yml](.github/workflows/qa-checks.yml) is a second required
+check on every pull request and push to `main`, covering what `ci.yml`
+does not:
+
+| Check | What it catches |
+| ----- | ---------------- |
+| `dotnet format --verify-no-changes` | Style drift from `.editorconfig` |
+| `dotnet build` with Roslyn security analyzers | Insecure patterns in this repo's own code (`Directory.Build.props` turns on the SDK's `CA5xxx` category) |
+| semgrep (`p/csharp`, `p/security-audit`) | Deeper static analysis, entirely local — no code leaves the runner |
+| `dotnet list package --vulnerable --include-transitive` | Known CVEs in a dependency, direct or transitive |
+| gitleaks | Secrets committed by mistake |
+| `dotnet test` + Coverlet | The suite above, including `AdversarialInputTests`, with a minimum line-coverage threshold enforced |
+
+Run the same checks locally before pushing:
+
+```
+dotnet format ByteBridge.slnx --verify-no-changes
+pip install semgrep && semgrep --config=p/csharp --config=p/security-audit .
+dotnet list ByteBridge.slnx package --vulnerable --include-transitive
+```
+
+[mutation-testing.yml](.github/workflows/mutation-testing.yml) runs
+[Stryker.NET](https://stryker-mutator.io/docs/stryker-net/introduction/)
+against `core/ByteBridge.Core.csproj` weekly and on demand. It never
+fails the build — a surviving mutant means a test that runs a line
+without actually asserting on its result, which needs a human to judge
+whether it is worth a new test, not a numeric threshold:
+
+```
+dotnet tool install -g dotnet-stryker
+cd tests/ByteBridge.Tests
+dotnet-stryker
+```
+
+[Dependabot](.github/dependabot.yml) opens a pull request weekly for
+outdated or vulnerable NuGet packages and GitHub Actions.
 
 ## Versioning
 

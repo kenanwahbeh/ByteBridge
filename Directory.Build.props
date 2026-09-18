@@ -1,0 +1,21 @@
+<Project>
+
+  <!--
+    Applies to every project in the solution. Turns on the security
+    rule category of the .NET SDK's own analyzers (CA5xxx: crypto
+    misuse, XML injection, insecure deserialization, and the like);
+    they ship in the SDK already, this just switches them on.
+
+    Left as warnings rather than errors for now: turning a first batch
+    of newly-enabled rules straight into build failures tends to block
+    unrelated work on pre-existing findings that need triage, not a
+    build break. Once qa-checks.yml has run clean for a while this can
+    move to TreatWarningsAsErrors for the CA5 category specifically.
+  -->
+  <PropertyGroup>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <AnalysisMode>Recommended</AnalysisMode>
+  </PropertyGroup>
+
+</Project>

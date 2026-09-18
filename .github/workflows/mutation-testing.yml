@@ -1,0 +1,59 @@
+name: Mutation Testing
+
+# Mutation testing answers a different question than coverage does:
+# coverage says a line ran during a test, mutation testing says a test
+# would actually fail if that line were wrong. Stryker.NET mutates the
+# real logic (conditions, boundaries, arithmetic) in core/ByteBridge.Core
+# and reruns ByteBridge.Tests against each mutant; a mutant that survives
+# means some behavior change in that code would slip past every test.
+#
+# Deliberately not run on every PR: a full mutation run is slow, and
+# deciding whether a surviving mutant is worth a new test is a human
+# judgment call, not a pass/fail gate. This runs weekly and on demand,
+# and only publishes a report -- it never fails the build.
+#
+# To run it locally:
+#   dotnet tool install -g dotnet-stryker
+#   cd tests/ByteBridge.Tests
+#   dotnet-stryker
+
+on:
+  schedule:
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mutation-testing:
+    name: Stryker.NET
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install Stryker.NET
+        run: dotnet tool install -g dotnet-stryker
+
+      # Stryker auto-detects the single project ByteBridge.Tests
+      # references (ByteBridge.Core) -- no --project flag needed.
+      # Firebird-tagged tests are skipped like any other CI run, since
+      # BYTEBRIDGE_TEST_FIREBIRD is not set here.
+      - name: Run mutation tests
+        working-directory: tests/ByteBridge.Tests
+        run: dotnet-stryker --reporter html --reporter cleartext
+
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: stryker-report
+          path: tests/ByteBridge.Tests/StrykerOutput/**/reports/*.html
+          if-no-files-found: warn

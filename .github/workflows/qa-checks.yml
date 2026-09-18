@@ -1,0 +1,137 @@
+name: QA and Security Checks
+
+# The .NET equivalent of a Python "AI-safety QA baseline": a required
+# gate that catches the classes of bug an AI assistant (or a rushed
+# human) is most likely to introduce, before it ever reaches main.
+#
+#   ruff / dotnet format        -- style drift, dead usings
+#   bandit / Roslyn analyzers   -- insecure patterns in this repo's own code
+#   semgrep                     -- deeper SAST, cross-language rule sets
+#   pip-audit / dotnet list     -- known CVEs in third-party dependencies
+#   gitleaks                    -- secrets committed by mistake
+#   pytest+coverage / dotnet test + Coverlet -- tests actually run and
+#                                  mostly cover the real logic
+#
+# schemathesis and mutmut have .NET counterparts too, but they live
+# elsewhere: the schemathesis-equivalent is the hand-written
+# AdversarialInputTests.cs in ByteBridge.Tests (run right here, as part
+# of the normal test step), and the mutmut-equivalent is Stryker.NET in
+# mutation-testing.yml (too slow to run on every PR).
+#
+# Everything here runs on ubuntu-latest: none of it needs Windows, and
+# keeping it off the Windows runner that ci.yml already uses keeps this
+# job fast and cheap. Actions are pinned by commit SHA rather than tag,
+# so a compromised or re-pointed tag upstream cannot silently change
+# what runs in this pipeline.
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  qa-and-testing:
+    name: QA and testing
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Set up Python (for semgrep)
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+
+      - name: Restore
+        run: dotnet restore ByteBridge.slnx
+
+      # dotnet's own equivalent of ruff: whitespace, brace placement,
+      # using-directive order. .editorconfig at the repo root is what it
+      # checks against.
+      - name: Formatting (dotnet format)
+        run: dotnet format ByteBridge.slnx --verify-no-changes --verbosity diagnostic
+
+      # Builds with the SDK's own Roslyn analyzers switched on
+      # (Directory.Build.props: AnalysisMode=Recommended, which
+      # includes the CA5xxx security category) -- this repo's
+      # equivalent of bandit. Findings show up as build warnings for
+      # now; see the comment in Directory.Build.props for why they are
+      # not yet build-breaking.
+      - name: Build with security analyzers
+        run: dotnet build ByteBridge.slnx -c Release --no-restore
+
+      # p/csharp and p/security-audit are free, fully local rule sets
+      # (no Semgrep cloud account involved) -- semgrep genuinely
+      # analyzes C#, it is just Python-distributed.
+      - name: Install semgrep
+        run: pip install semgrep
+
+      - name: SAST scan (semgrep)
+        run: semgrep --config=p/csharp --config=p/security-audit --error .
+
+      # Known CVEs in the packages this project depends on, including
+      # transitive ones -- built into the SDK, no extra tool needed.
+      # The command's own exit code stays 0 even when it finds
+      # something, so the check greps its own output for the phrase it
+      # prints when a vulnerability exists.
+      - name: Dependency vulnerability scan (dotnet list package)
+        run: |
+          dotnet list ByteBridge.slnx package --vulnerable --include-transitive 2>&1 | tee vulnerable-packages.txt
+
+          if grep -q "has the following vulnerable packages" vulnerable-packages.txt; then
+            echo "::error::Vulnerable NuGet package(s) found -- see the log above."
+            exit 1
+          fi
+
+      # The CLI binary straight from gitleaks' own GitHub release, not
+      # the Marketplace action -- that one requires a paid license for
+      # automated use on private repositories. This is free regardless.
+      - name: Install gitleaks
+        run: |
+          curl -sSL -o /tmp/gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz"
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          chmod +x /tmp/gitleaks
+
+      - name: Leaked secrets scan (gitleaks)
+        run: /tmp/gitleaks detect --source . --no-git -v
+
+      # Firebird-tagged tests need a live server (ci.yml runs those
+      # separately, against a Firebird service container); everything
+      # else -- including AdversarialInputTests.cs, the boundary/fuzz
+      # suite -- runs here with Coverlet coverage collection and an
+      # enforced minimum. Raise Threshold as real coverage grows; it
+      # starts conservative so this gate is not immediately red.
+      - name: Test with coverage (dotnet test + Coverlet)
+        run: >
+          dotnet test tests/ByteBridge.Tests/ByteBridge.Tests.csproj
+          -c Release
+          --filter "Category!=Firebird"
+          --logger "trx;LogFileName=results.trx"
+          --results-directory artifacts/tests
+          /p:CollectCoverage=true
+          /p:CoverletOutputFormat=cobertura
+          /p:CoverletOutput=../../artifacts/coverage/
+          /p:Threshold=50
+          /p:ThresholdType=line
+          /p:ThresholdStat=total
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: qa-test-results
+          path: |
+            artifacts/tests/*.trx
+            artifacts/coverage/*.xml
+          if-no-files-found: warn

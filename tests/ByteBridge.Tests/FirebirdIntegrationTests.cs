@@ -303,7 +303,9 @@ public class FirebirdIntegrationTests
             sql = $"INSERT INTO {Table} (ID, NAME, BALANCE) VALUES (@id, @name, @balance)",
             parameters = new Dictionary<string, object>
             {
-                ["id"] = 99, ["name"] = "Inserted", ["balance"] = 10.5
+                ["id"] = 99,
+                ["name"] = "Inserted",
+                ["balance"] = 10.5
             }
         }));
 
