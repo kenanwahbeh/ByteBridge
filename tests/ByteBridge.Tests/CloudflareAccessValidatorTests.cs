@@ -20,7 +20,12 @@ namespace ByteBridge.Tests;
  * These tests pin the fixed parsing, multi-key/kid selection,
  * tolerance of a malformed entry, picking up a rotated key, and
  * surfacing a refresh failure instead of hiding it.
+ *
+ * The last test redirects Console.Error, a process-wide static, so
+ * it shares CliTests' "Console redirection" collection to keep the
+ * two from racing each other.
  */
+[Collection("Console redirection")]
 public class CloudflareAccessValidatorTests
 {
     private const string TeamDomain = "test-team.cloudflareaccess.com";
