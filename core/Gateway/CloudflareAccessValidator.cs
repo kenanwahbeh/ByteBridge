@@ -134,51 +134,34 @@ public sealed class CloudflareAccessValidator : IDisposable
         string kid,
         string jwksUrl)
     {
-        if (jwksUrl != _cachedJwksUrl)
-        {
-            await ResetCacheForUrlAsync(jwksUrl);
-        }
-
-        // Return cached key if available
-        if (_keys.TryGetValue(kid, out var cached))
+        // Fast path, lock-free: the common case once a URL's keys are
+        // already cached. _cachedJwksUrl is volatile, so seeing it
+        // equal jwksUrl here also guarantees seeing whatever _keys
+        // held at the moment it was last set (see RefreshKeysAsync).
+        if (jwksUrl == _cachedJwksUrl && _keys.TryGetValue(kid, out var cached))
         {
             return [cached];
         }
 
-        // Refresh the JWKS cache
         await RefreshKeysAsync(jwksUrl);
 
-        if (_keys.TryGetValue(kid, out var afterRefresh))
-        {
-            return [afterRefresh];
-        }
-
-        // Key still not found after refresh
-        return [];
-    }
-
-    /*
-     * Clears the cache and the refresh throttle when the configured
-     * JWKS URL has changed, so a stale key from the previous domain is
-     * never returned and the previous domain's throttle can never
-     * block fetching from the new one.
-     */
-    private async Task ResetCacheForUrlAsync(string jwksUrl)
-    {
+        /*
+         * Read under the same lock RefreshKeysAsync uses to reset the
+         * cache on a URL change. Without this, a concurrent request
+         * validating a token against a *different*, just-changed JWKS
+         * URL could reset and repopulate the cache in the instant
+         * between RefreshKeysAsync returning above and a lock-free
+         * read here, handing this call back a key that belongs to the
+         * other request's domain instead of its own.
+         */
         await _refreshLock.WaitAsync();
 
         try
         {
-            // Another caller may have already reset it while this one
-            // was waiting for the lock.
-            if (jwksUrl == _cachedJwksUrl)
-            {
-                return;
-            }
-
-            _keys.Clear();
-            _lastRefresh = DateTime.MinValue;
-            _cachedJwksUrl = jwksUrl;
+            return jwksUrl == _cachedJwksUrl &&
+                _keys.TryGetValue(kid, out var afterRefresh)
+                    ? [afterRefresh]
+                    : [];
         }
         finally
         {
@@ -187,23 +170,37 @@ public sealed class CloudflareAccessValidator : IDisposable
     }
 
     /*
-     * Fetches the JWKS from Cloudflare and caches the keys.
+     * Fetches the JWKS from Cloudflare and caches the keys, unless
+     * jwksUrl was already fetched within the throttle window.
+     *
+     * Always taking the lock first, rather than checking the throttle
+     * before acquiring it, means the URL-change check and the throttle
+     * check both happen inside one critical section -- there is no
+     * gap between them for another call to observe a half-updated
+     * cache.
      */
     private async Task RefreshKeysAsync(string jwksUrl)
     {
-        // Avoid thundering herd
-        if (DateTime.UtcNow - _lastRefresh < _refreshInterval)
-        {
-            return;
-        }
-
         await _refreshLock.WaitAsync();
 
         try
         {
-            // Double-check after acquiring the lock
-            if (DateTime.UtcNow - _lastRefresh < _refreshInterval)
+            if (jwksUrl != _cachedJwksUrl)
             {
+                /*
+                 * The configured JWKS URL changed (e.g. Settings
+                 * updated the team domain): the cached keys and the
+                 * refresh throttle both belong to the previous
+                 * domain and must not be reused for this one.
+                 */
+                _keys.Clear();
+                _lastRefresh = DateTime.MinValue;
+                _cachedJwksUrl = jwksUrl;
+            }
+            else if (DateTime.UtcNow - _lastRefresh < _refreshInterval)
+            {
+                // Avoid a thundering herd: this exact URL was already
+                // refreshed recently.
                 return;
             }
 
