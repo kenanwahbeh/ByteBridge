@@ -1183,13 +1183,15 @@ public sealed class GatewayServer : IDisposable
         }
 
         // Create a session
-        var sessionToken =
+        var (sessionToken, expiresAt) =
             _sessionManager.CreateSession(email);
 
-        // Set the session cookie and redirect to root
+        // Set the session cookie and redirect to root, using the
+        // session's own expiry so the cookie and the stored session
+        // expire at the exact same instant.
         var cookie = OAuthSessionManager.FormatCookie(
             sessionToken,
-            _database.GetOAuthConfig().SessionTimeoutMinutes);
+            expiresAt);
 
         /*
          * Added, not assigned: the state cookie's expiry above already

@@ -56,10 +56,15 @@ public sealed class OAuthSessionManager
     }
 
     /*
-     * Creates a new session for an authenticated user and
-     * returns the session token.
+     * Creates a new session for an authenticated user and returns the
+     * session token together with the exact expiry it was stored
+     * with, so a caller that also sets a cookie for this session uses
+     * that same instant rather than recomputing one from "now" a
+     * second time -- besides reading the timeout config only once,
+     * this also avoids the two expiries drifting apart by however
+     * many milliseconds pass between the two calls.
      */
-    public string CreateSession(string userEmail)
+    public (string Token, DateTime ExpiresAt) CreateSession(string userEmail)
     {
         var token = GenerateSessionToken();
 
@@ -68,7 +73,7 @@ public sealed class OAuthSessionManager
 
         _database.CreateSession(token, userEmail, expiresAt);
 
-        return token;
+        return (token, expiresAt);
     }
 
     /*
@@ -125,10 +130,27 @@ public sealed class OAuthSessionManager
      * onto in the first place.
      */
 
+    /*
+     * Formats the session cookie from the session's own expiry rather
+     * than a duration, so Expires always matches ExpiresAt as stored
+     * in SQLite exactly, down to the second.
+     */
     public static string FormatCookie(
         string token,
-        int timeoutMinutes) =>
-        FormatCookie(SessionCookieName, token, "/", timeoutMinutes * 60);
+        DateTime expiresAt)
+    {
+        var maxAgeSeconds = Math.Max(
+            0,
+            (int)Math.Ceiling((expiresAt - DateTime.UtcNow).TotalSeconds));
+
+        return $"{SessionCookieName}={token}; " +
+            "Path=/; " +
+            "HttpOnly; " +
+            "Secure; " +
+            "SameSite=Lax; " +
+            $"Max-Age={maxAgeSeconds}; " +
+            $"Expires={expiresAt.ToString("R")}";
+    }
 
     public static string ClearCookie() =>
         ExpireCookie(SessionCookieName, "/");

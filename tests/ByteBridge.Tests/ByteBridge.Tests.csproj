@@ -11,7 +11,7 @@
       CA1707 wants identifiers without underscores. Every test name in
       this project is a full sentence describing the behavior under
       test (A_request_without_sql_is_a_bad_request), which is the
-      house convention, not an oversight -- xUnit test names aren't
+      house convention, not an oversight; xUnit test names aren't
       public API either, so the rule's rationale doesn't apply here.
     -->
     <NoWarn>$(NoWarn);CA1707</NoWarn>
