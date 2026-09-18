@@ -92,6 +92,7 @@ jobs:
       # prints when a vulnerability exists.
       - name: Dependency vulnerability scan (dotnet list package)
         run: |
+          set -o pipefail
           dotnet list ByteBridge.CrossPlatform.slnx package --vulnerable --include-transitive 2>&1 | tee vulnerable-packages.txt
 
           if grep -q "has the following vulnerable packages" vulnerable-packages.txt; then
