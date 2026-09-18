@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IdentityModel.Tokens.Jwt;
 using System.Net.Http;
@@ -33,25 +32,27 @@ public sealed class CloudflareAccessValidator : IDisposable
     private readonly HttpClient _http;
 
     /*
-     * Cached JWKS keys, keyed by key ID (kid).
-     * Refreshed when an unknown kid is encountered.
+     * The JWKS URL and the keys fetched from it, published as one
+     * immutable object. A single volatile reference read gives a
+     * caller a self-consistent (url, keys) pair with no lock: there is
+     * no way to observe the url from one publish and the keys from
+     * another, which is what made the previous url-field-plus-
+     * dictionary design racy under a concurrent URL change.
+     *
+     * Reads never take _refreshLock at all -- only a fetch in
+     * RefreshKeysAsync does, to serialize concurrent refreshes. A
+     * cache hit must never wait behind another request's slow (or
+     * hung) network call to Cloudflare.
      */
-    private readonly ConcurrentDictionary<string, SecurityKey> _keys = new();
-
-    /*
-     * The JWKS URL the cache above was built from. Settings can change
-     * the team domain (and so the JWKS URL) without restarting the
-     * service, and the cached keys and the refresh throttle below both
-     * belong to whichever URL was fetched last -- without tracking it,
-     * a domain change would either return a stale key for a matching
-     * kid, or have the previous domain's throttle block a fetch from
-     * the new one for up to an hour.
-     */
-    private volatile string? _cachedJwksUrl;
+    private volatile JwksSnapshot? _snapshot;
 
     private DateTime _lastRefresh = DateTime.MinValue;
     private readonly TimeSpan _refreshInterval = TimeSpan.FromHours(1);
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
+
+    private sealed record JwksSnapshot(
+        string JwksUrl,
+        IReadOnlyDictionary<string, SecurityKey> Keys);
 
     public CloudflareAccessValidator(SqliteDatabase database)
     {
@@ -134,76 +135,70 @@ public sealed class CloudflareAccessValidator : IDisposable
         string kid,
         string jwksUrl)
     {
-        if (await TryGetCachedKeyAsync(jwksUrl, kid) is { } cached)
+        if (TryGetCachedKey(jwksUrl, kid) is { } cached)
         {
             return [cached];
         }
 
         await RefreshKeysAsync(jwksUrl);
 
-        return await TryGetCachedKeyAsync(jwksUrl, kid) is { } afterRefresh
+        return TryGetCachedKey(jwksUrl, kid) is { } afterRefresh
             ? [afterRefresh]
             : [];
     }
 
     /*
-     * Reads the cache under the same lock RefreshKeysAsync uses to
-     * reset it on a URL change. The URL check and the dictionary
-     * lookup must happen as one atomic step: checking _cachedJwksUrl
-     * and then reading _keys as two separate lock-free operations
-     * would leave a gap where a concurrent request for a *different*
-     * JWKS URL could reset and repopulate the cache in between,
-     * handing this call back a key for the wrong domain if the two
-     * domains happen to share a kid.
+     * Lock-free: a single read of the volatile _snapshot reference
+     * gives a self-consistent url/keys pair, so there is nothing here
+     * that a concurrent refresh (which publishes a brand new
+     * JwksSnapshot rather than mutating one in place) could tear.
      */
-    private async Task<SecurityKey?> TryGetCachedKeyAsync(string jwksUrl, string kid)
+    private SecurityKey? TryGetCachedKey(string jwksUrl, string kid)
     {
-        await _refreshLock.WaitAsync();
+        var snapshot = _snapshot;
 
-        try
-        {
-            return jwksUrl == _cachedJwksUrl && _keys.TryGetValue(kid, out var key)
+        return snapshot != null &&
+            snapshot.JwksUrl == jwksUrl &&
+            snapshot.Keys.TryGetValue(kid, out var key)
                 ? key
                 : null;
-        }
-        finally
-        {
-            _refreshLock.Release();
-        }
     }
 
     /*
-     * Fetches the JWKS from Cloudflare and caches the keys, unless
-     * jwksUrl was already fetched within the throttle window.
+     * Fetches the JWKS from Cloudflare and publishes a new snapshot,
+     * unless jwksUrl was already fetched within the throttle window.
      *
-     * Always taking the lock first, rather than checking the throttle
-     * before acquiring it, means the URL-change check and the throttle
-     * check both happen inside one critical section -- there is no
-     * gap between them for another call to observe a half-updated
-     * cache.
+     * _refreshLock only ever serializes concurrent fetches against
+     * each other; it is never held while a reader is looking up a
+     * key, so a request whose key is already cached is never made to
+     * wait behind another request's slow (or hung) call to Cloudflare.
      */
     private async Task RefreshKeysAsync(string jwksUrl)
     {
+        var before = _snapshot;
+
+        if (before != null &&
+            before.JwksUrl == jwksUrl &&
+            DateTime.UtcNow - _lastRefresh < _refreshInterval)
+        {
+            // Avoid a thundering herd: this exact URL was already
+            // refreshed recently.
+            return;
+        }
+
         await _refreshLock.WaitAsync();
 
         try
         {
-            if (jwksUrl != _cachedJwksUrl)
+            // Re-check after acquiring the lock: another caller may
+            // have already refreshed this exact URL while this one
+            // was waiting.
+            before = _snapshot;
+
+            if (before != null &&
+                before.JwksUrl == jwksUrl &&
+                DateTime.UtcNow - _lastRefresh < _refreshInterval)
             {
-                /*
-                 * The configured JWKS URL changed (e.g. Settings
-                 * updated the team domain): the cached keys and the
-                 * refresh throttle both belong to the previous
-                 * domain and must not be reused for this one.
-                 */
-                _keys.Clear();
-                _lastRefresh = DateTime.MinValue;
-                _cachedJwksUrl = jwksUrl;
-            }
-            else if (DateTime.UtcNow - _lastRefresh < _refreshInterval)
-            {
-                // Avoid a thundering herd: this exact URL was already
-                // refreshed recently.
                 return;
             }
 
@@ -214,6 +209,18 @@ public sealed class CloudflareAccessValidator : IDisposable
             var jwks = JsonSerializer.Deserialize<JsonElement>(json);
 
             var keys = jwks.GetProperty("keys");
+
+            /*
+             * Starts from the previous snapshot's keys when the URL
+             * has not changed, so a kid Cloudflare stops listing
+             * mid-rotation is not dropped by one fetch that happens
+             * to land during the overlap -- matching the accumulate-
+             * until-the-URL-changes behavior this cache always had.
+             * A URL change starts from nothing, same as before.
+             */
+            var newKeys = before != null && before.JwksUrl == jwksUrl
+                ? new Dictionary<string, SecurityKey>(before.Keys)
+                : [];
 
             foreach (var keyElement in keys.EnumerateArray())
             {
@@ -242,7 +249,7 @@ public sealed class CloudflareAccessValidator : IDisposable
 
                     if (securityKey != null)
                     {
-                        _keys[kid] = securityKey;
+                        newKeys[kid] = securityKey;
                     }
                 }
                 catch (InvalidOperationException)
@@ -252,11 +259,13 @@ public sealed class CloudflareAccessValidator : IDisposable
                 }
             }
 
+            _snapshot = new JwksSnapshot(jwksUrl, newKeys);
             _lastRefresh = DateTime.UtcNow;
         }
         catch
         {
-            // If refresh fails, keep using cached keys
+            // If refresh fails, keep using whatever snapshot is
+            // already published.
         }
         finally
         {
