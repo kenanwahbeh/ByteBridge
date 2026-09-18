@@ -598,6 +598,9 @@ public class SqliteDatabase
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
 
+        // nosemgrep: csharp.lang.security.sqli.csharp-sqli.csharp-sqli
+        // UpsertSetting is a hardcoded constant; both values are bound
+        // as parameters below, never interpolated into it.
         command.CommandText = UpsertSetting;
 
         command.Parameters.AddWithValue("$key", key);
@@ -742,6 +745,10 @@ public class SqliteDatabase
             using var command = connection.CreateCommand();
 
             command.Transaction = transaction;
+
+            // nosemgrep: csharp.lang.security.sqli.csharp-sqli.csharp-sqli
+            // UpsertSetting is a hardcoded constant; both values are
+            // bound as parameters below, never interpolated into it.
             command.CommandText = UpsertSetting;
 
             command.Parameters.AddWithValue("$key", key);
