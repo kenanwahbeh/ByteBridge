@@ -50,6 +50,11 @@ internal static class FirebirdExecutor
         await using var command =
             connection.CreateCommand();
 
+        // sql is the caller's statement text; every value is bound
+        // through AddParameters below, never concatenated into it.
+        // Running arbitrary caller-supplied SQL is this gateway's job,
+        // gated by the API key -- see the README's Security section.
+        // nosemgrep: csharp.lang.security.sqli.csharp-sqli.csharp-sqli
         command.CommandText = sql;
         command.CommandTimeout = commandTimeoutSeconds;
 
@@ -119,6 +124,11 @@ internal static class FirebirdExecutor
         await using var command =
             connection.CreateCommand();
 
+        // sql is the caller's statement text; every value is bound
+        // through AddParameters below, never concatenated into it.
+        // Running arbitrary caller-supplied SQL is this gateway's job,
+        // gated by the API key -- see the README's Security section.
+        // nosemgrep: csharp.lang.security.sqli.csharp-sqli.csharp-sqli
         command.CommandText = sql;
         command.CommandTimeout = commandTimeoutSeconds;
 

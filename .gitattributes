@@ -1,0 +1,13 @@
+# Without this file, git had no opinion on line endings: files were
+# stored however whoever committed them happened to save them, and
+# Windows' own core.autocrlf silently converted to CRLF on checkout
+# here without ever normalizing the repository itself. A checkout on
+# Linux (as qa-checks.yml runs on) got the raw stored bytes instead,
+# which for most files was LF -- conflicting with .editorconfig's
+# end_of_line = crlf for *.cs and failing dotnet format on nearly
+# every file in the repository, despite an identical Windows checkout
+# passing cleanly.
+#
+# This pins every text file to CRLF, matching .editorconfig, so a
+# checkout is identical byte-for-byte on every platform.
+* text=auto eol=crlf

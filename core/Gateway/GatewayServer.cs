@@ -80,7 +80,13 @@ public sealed class GatewayServer : IDisposable
 
     private volatile GatewayConfig _config;
 
-    private volatile OAuthConfig _oauthConfig;
+    /*
+     * The name of the cookie that binds a /auth/login redirect to the
+     * browser completing it at /auth/callback, so a callback URL
+     * crafted by an attacker and opened by a victim (login CSRF)
+     * cannot complete a login the victim never asked to start.
+     */
+    private const string OAuthStateCookieName = "cf_oauth_state";
 
     private readonly RequestLog _log;
 
@@ -109,13 +115,18 @@ public sealed class GatewayServer : IDisposable
 
         _config = database.GetGatewayConfig();
 
-        _oauthConfig = database.GetOAuthConfig();
-
         _log = log ?? new RequestLog(database.LogDirectory);
 
-        _oauthValidator = oauthValidator;
+        /*
+         * Always real, unless a caller (a test, usually) supplies its
+         * own. The service used to construct this class with neither,
+         * which left OAuth login permanently unreachable no matter how
+         * Settings was configured -- there was nothing to validate a
+         * token or track a session even once OAuth was turned on.
+         */
+        _oauthValidator = oauthValidator ?? new CloudflareAccessValidator(database);
 
-        _sessionManager = sessionManager;
+        _sessionManager = sessionManager ?? new OAuthSessionManager(database);
     }
 
     /*
@@ -227,6 +238,8 @@ public sealed class GatewayServer : IDisposable
     public void Dispose()
     {
         Stop();
+
+        _oauthValidator?.Dispose();
     }
 
     /*
@@ -993,8 +1006,10 @@ public sealed class GatewayServer : IDisposable
          * 3. Cloudflare redirects back with a JWT in the
          *    cf_clearance cookie or as a query parameter
          */
-        var redirectUri = _oauthConfig.RedirectUri;
-        var teamDomain = _oauthConfig.TeamDomain;
+        var oauthConfig = _database.GetOAuthConfig();
+
+        var redirectUri = oauthConfig.RedirectUri;
+        var teamDomain = oauthConfig.TeamDomain;
 
         /*
          * There used to be a fallback to {_config.BaseUrl}/auth/callback
@@ -1023,6 +1038,24 @@ public sealed class GatewayServer : IDisposable
                 System.Security.Cryptography
                     .RandomNumberGenerator.GetBytes(16))
             .ToLowerInvariant();
+
+        /*
+         * Bound to this browser by a short-lived cookie rather than a
+         * server-side table of pending logins: the callback proves it
+         * is completing the login this same browser started by
+         * echoing the state back, so there is nothing kept server-side
+         * for an attacker to exhaust and nothing that needs periodic
+         * cleanup. Ten minutes is generous for an identity-provider
+         * redirect and short enough that an intercepted, unused state
+         * is worthless well before anyone could replay it.
+         */
+        context.Response.Headers.Add(
+            "Set-Cookie",
+            OAuthSessionManager.FormatCookie(
+                OAuthStateCookieName,
+                state,
+                "/auth",
+                maxAgeSeconds: 600));
 
         var loginUrl =
             $"https://{teamDomain}/cdn-cgi/access/callback" +
@@ -1061,6 +1094,37 @@ public sealed class GatewayServer : IDisposable
                 500,
                 new ErrorResponse(
                     "OAuth validator is not configured."));
+            return;
+        }
+
+        /*
+         * The state cookie is consumed here, before anything else,
+         * regardless of whether it turns out to match: a state is only
+         * ever good for one callback attempt, successful or not, so an
+         * attacker who intercepts a callback URL cannot replay it even
+         * against the same browser.
+         */
+        var incomingState = context.Request.QueryString["state"];
+
+        var expectedState = OAuthSessionManager.ExtractCookie(
+            context.Request.Headers["Cookie"],
+            OAuthStateCookieName);
+
+        context.Response.Headers.Add(
+            "Set-Cookie",
+            OAuthSessionManager.ExpireCookie(OAuthStateCookieName, "/auth"));
+
+        if (string.IsNullOrEmpty(incomingState) ||
+            string.IsNullOrEmpty(expectedState) ||
+            !CryptographicOperations.FixedTimeEquals(
+                Encoding.UTF8.GetBytes(incomingState),
+                Encoding.UTF8.GetBytes(expectedState)))
+        {
+            await WriteJsonAsync(
+                context,
+                400,
+                new ErrorResponse(
+                    "This login could not be verified. Please try signing in again."));
             return;
         }
 
@@ -1119,17 +1183,23 @@ public sealed class GatewayServer : IDisposable
         }
 
         // Create a session
-        var sessionToken =
+        var (sessionToken, expiresAt) =
             _sessionManager.CreateSession(email);
 
-        // Set the session cookie and redirect to root
+        // Set the session cookie and redirect to root, using the
+        // session's own expiry so the cookie and the stored session
+        // expire at the exact same instant.
         var cookie = OAuthSessionManager.FormatCookie(
             sessionToken,
-            _sessionManager.Enabled
-                ? _oauthConfig.SessionTimeoutMinutes
-                : 60);
+            expiresAt);
 
-        context.Response.Headers["Set-Cookie"] = cookie;
+        /*
+         * Added, not assigned: the state cookie's expiry above already
+         * put one Set-Cookie header on this response, and assigning
+         * here would silently replace it instead of adding a second
+         * header, leaving the state cookie sitting in the browser.
+         */
+        context.Response.Headers.Add("Set-Cookie", cookie);
         context.Response.StatusCode = 302;
         context.Response.RedirectLocation = "/";
     }
