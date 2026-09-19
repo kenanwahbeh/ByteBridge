@@ -20,7 +20,9 @@ namespace ByteBridge.Gateway;
  * Cloudflare Access issues tokens signed with RSA keys that
  * rotate periodically. This validator fetches the public keys
  * from Cloudflare's JWKS endpoint and caches them, refreshing
- * when a new key ID is encountered.
+ * when a new key ID is encountered or the cached copy's TTL has
+ * elapsed. A successful refresh replaces the cache wholesale so a
+ * key Cloudflare has revoked stops being trusted.
  *
  * The validator checks:
  * - Signature validity against Cloudflare's public keys
@@ -35,7 +37,9 @@ public sealed class CloudflareAccessValidator : IDisposable
 
     /*
      * Cached JWKS keys, keyed by key ID (kid).
-     * Refreshed when an unknown kid is encountered.
+     * Refreshed when an unknown kid is encountered, or when the
+     * cache has passed its TTL, so a revoked kid stops validating
+     * once the next refresh drops it.
      */
     private readonly ConcurrentDictionary<string, SecurityKey> _keys = new();
 
@@ -120,27 +124,22 @@ public sealed class CloudflareAccessValidator : IDisposable
     }
 
     /*
-     * Returns signing keys for the given key ID, fetching
-     * from the JWKS endpoint if needed.
+     * Returns signing keys for the given key ID, refreshing from
+     * the JWKS endpoint first. RefreshKeysAsync throttles itself
+     * via the TTL, so a cache hit within the TTL is still cheap,
+     * but a kid that Cloudflare has since revoked won't be trusted
+     * forever just because it was seen once.
      */
     private async Task<IEnumerable<SecurityKey>> GetSigningKeysAsync(
         string kid)
     {
-        // Return cached key if available
-        if (_keys.TryGetValue(kid, out var cached))
-        {
-            return [cached];
-        }
-
-        // Refresh the JWKS cache
         await RefreshKeysAsync();
 
-        if (_keys.TryGetValue(kid, out var afterRefresh))
+        if (_keys.TryGetValue(kid, out var key))
         {
-            return [afterRefresh];
+            return [key];
         }
 
-        // Key still not found after refresh
         return [];
     }
 
@@ -172,6 +171,7 @@ public sealed class CloudflareAccessValidator : IDisposable
             var jwks = JsonSerializer.Deserialize<JsonElement>(json);
 
             var keys = jwks.GetProperty("keys");
+            var fetchedKeys = new Dictionary<string, SecurityKey>();
 
             foreach (var keyElement in keys.EnumerateArray())
             {
@@ -215,13 +215,38 @@ public sealed class CloudflareAccessValidator : IDisposable
                         Exponent = Base64UrlEncoder.DecodeBytes(e)
                     });
 
-                    _keys[kid] = new RsaSecurityKey(rsa) { KeyId = kid };
+                    fetchedKeys[kid] = new RsaSecurityKey(rsa) { KeyId = kid };
                 }
                 catch (Exception ex)
                 {
                     Console.Error.WriteLine(
                         $"Cloudflare Access JWKS key entry skipped: {ex.Message}");
                 }
+            }
+
+            if (fetchedKeys.Count > 0)
+            {
+                /*
+                 * Replace the cache wholesale rather than upserting, so a
+                 * kid Cloudflare has revoked (no longer present in the
+                 * response) stops being trusted instead of lingering in
+                 * the cache for the lifetime of the process.
+                 */
+                foreach (var staleKid in _keys.Keys.Except(fetchedKeys.Keys).ToList())
+                {
+                    _keys.TryRemove(staleKid, out _);
+                }
+
+                foreach (var (kid, key) in fetchedKeys)
+                {
+                    _keys[kid] = key;
+                }
+            }
+            else
+            {
+                // No usable keys in this response; keep serving the last known-good cache.
+                Console.Error.WriteLine(
+                    $"Cloudflare Access JWKS refresh returned no usable keys ({_config.JwksUrl})");
             }
 
             _lastRefresh = DateTime.UtcNow;
