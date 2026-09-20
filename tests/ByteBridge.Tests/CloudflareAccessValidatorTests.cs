@@ -114,6 +114,32 @@ public class CloudflareAccessValidatorTests
     }
 
     [Fact]
+    public async Task A_key_dropped_from_the_jwks_response_stops_being_trusted_after_refresh()
+    {
+        using var jwks = new FakeJwksServer();
+        using var keyA = new TestSigningKey("key-a");
+        jwks.SetKeys(keyA);
+
+        using var validator = new CloudflareAccessValidator(MakeConfig(jwks.Url), TimeSpan.Zero);
+
+        var tokenA = IssueToken(keyA, "user-a@example.com");
+        Assert.NotNull(await validator.ValidateTokenAsync(tokenA));
+
+        // Cloudflare revokes key-a; it no longer appears in the JWKS response.
+        using var keyB = new TestSigningKey("key-b");
+        jwks.SetKeys(keyB);
+
+        // Any validation attempt triggers a refresh (interval is zero) that should drop key-a.
+        var tokenB = IssueToken(keyB, "user-b@example.com");
+        Assert.NotNull(await validator.ValidateTokenAsync(tokenB));
+
+        var revokedToken = IssueToken(keyA, "user-a@example.com");
+        var principal = await validator.ValidateTokenAsync(revokedToken);
+
+        Assert.Null(principal);
+    }
+
+    [Fact]
     public async Task A_jwks_fetch_failure_is_reported_instead_of_silently_swallowed()
     {
         using var jwks = new FakeJwksServer();
