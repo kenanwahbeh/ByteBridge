@@ -95,9 +95,9 @@ public sealed class GatewayServer : IDisposable
     private readonly ConcurrentDictionary<string, long> _requestCounts =
         new(StringComparer.OrdinalIgnoreCase);
 
-    private readonly CloudflareAccessValidator? _oauthValidator;
+    private volatile CloudflareAccessValidator? _oauthValidator;
 
-    private readonly OAuthSessionManager? _sessionManager;
+    private volatile OAuthSessionManager? _sessionManager;
 
     public GatewayServer(
         SqliteDatabase database,
@@ -136,6 +136,35 @@ public sealed class GatewayServer : IDisposable
     public void UpdateApiKey(string apiKey)
     {
         _config.ApiKey = apiKey;
+    }
+
+    /*
+     * Applies Cloudflare Access settings to a running listener, the way
+     * UpdateApiKey does for the key: the service outlives the control
+     * panel, so a team domain or audience saved there has to take
+     * effect without a restart.
+     *
+     * Turning it off drops the validator and session manager, which
+     * makes /auth/* answer "not configured" and stops session cookies
+     * counting, while the API key keeps working either way.
+     */
+    public void UpdateOAuth(OAuthConfig config)
+    {
+        var validator = config.Enabled
+            ? new CloudflareAccessValidator(config)
+            : null;
+
+        var sessions = config.Enabled
+            ? new OAuthSessionManager(config, _database)
+            : null;
+
+        var previous = _oauthValidator;
+
+        _oauthConfig = config;
+        _oauthValidator = validator;
+        _sessionManager = sessions;
+
+        previous?.Dispose();
     }
 
     public void Start(GatewayConfig config)

@@ -326,4 +326,115 @@ public class CliTests
         Assert.Contains("already named", error);
         Assert.Single(database.GetConnections());
     }
+
+    // ---- oauth -------------------------------------------------------
+
+    private static string[] OAuthSet(
+        string teamDomain = "my-team.cloudflareaccess.com",
+        string audience = "abc123",
+        string publicHostname = "api.example.com") =>
+    [
+        "oauth", "set",
+        "--team-domain", teamDomain,
+        "--audience", audience,
+        "--public-hostname", publicHostname
+    ];
+
+    [Fact]
+    public void Oauth_set_stores_the_team_domain_audience_and_derived_urls()
+    {
+        using var root = new TempDataRoot();
+        var database = root.OpenDatabase();
+
+        var (code, _, _) = Run(database, OAuthSet());
+
+        var config = database.GetOAuthConfig();
+
+        Assert.Equal(0, code);
+        Assert.Equal("my-team.cloudflareaccess.com", config.TeamDomain);
+        Assert.Equal("abc123", config.Audience);
+        Assert.Equal(
+            "https://my-team.cloudflareaccess.com/cdn-cgi/access/certs",
+            config.JwksUrl);
+        Assert.Equal("https://api.example.com/auth/callback", config.RedirectUri);
+        Assert.False(config.Enabled);
+    }
+
+    [Theory]
+    [InlineData("https://my-team.cloudflareaccess.com")]
+    [InlineData("my-team.cloudflareaccess.com/path")]
+    [InlineData("has space.example.com")]
+    public void Oauth_set_refuses_a_team_domain_that_is_not_a_bare_hostname(string teamDomain)
+    {
+        using var root = new TempDataRoot();
+        var database = root.OpenDatabase();
+
+        var (code, _, error) = Run(database, OAuthSet(teamDomain: teamDomain));
+
+        Assert.Equal(1, code);
+        Assert.Contains("bare hostname", error);
+        Assert.Equal(string.Empty, database.GetOAuthConfig().TeamDomain);
+    }
+
+    [Fact]
+    public void Oauth_set_needs_every_field()
+    {
+        using var root = new TempDataRoot();
+        var database = root.OpenDatabase();
+
+        var (code, _, error) = Run(
+            database, "oauth", "set", "--team-domain", "my-team.cloudflareaccess.com");
+
+        Assert.Equal(1, code);
+        Assert.Contains("--audience", error);
+    }
+
+    [Fact]
+    public void Oauth_on_before_the_settings_exist_is_refused()
+    {
+        using var root = new TempDataRoot();
+        var database = root.OpenDatabase();
+
+        var (code, _, error) = Run(database, "oauth", "on");
+
+        Assert.Equal(1, code);
+        Assert.Contains("oauth set", error);
+        Assert.False(database.GetOAuthConfig().Enabled);
+    }
+
+    [Fact]
+    public void Oauth_on_and_off_toggle_login_without_losing_the_settings()
+    {
+        using var root = new TempDataRoot();
+        var database = root.OpenDatabase();
+
+        Run(database, OAuthSet());
+
+        Assert.Equal(0, Run(database, "oauth", "on").Code);
+        Assert.True(database.GetOAuthConfig().Enabled);
+
+        Assert.Equal(0, Run(database, "oauth", "off").Code);
+
+        var config = database.GetOAuthConfig();
+
+        Assert.False(config.Enabled);
+        Assert.Equal("abc123", config.Audience);
+    }
+
+    [Fact]
+    public void Oauth_show_reports_what_is_configured()
+    {
+        using var root = new TempDataRoot();
+        var database = root.OpenDatabase();
+
+        Run(database, OAuthSet());
+        Run(database, "oauth", "on");
+
+        var (code, output, _) = Run(database, "oauth", "show");
+
+        Assert.Equal(0, code);
+        Assert.Contains("on", output);
+        Assert.Contains("my-team.cloudflareaccess.com", output);
+        Assert.Contains("abc123", output);
+    }
 }

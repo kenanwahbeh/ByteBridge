@@ -38,8 +38,24 @@ public static class Cli
           db add --name <n> --server <host> --path <file>
                  --user <u> --password <p> [--port <3050>]
 
+          oauth show             Show the Cloudflare Access settings
+          oauth set --team-domain <team>.cloudflareaccess.com
+                    --audience <AUD tag> --public-hostname <host>
+          oauth on | off         Whether Cloudflare Access login is offered
+
         Changes apply within a few seconds; the service does not need
         restarting.
+        """;
+
+    private const string OAuthSetUsage = """
+        oauth set --team-domain <team>.cloudflareaccess.com
+                  --audience <AUD tag> --public-hostname <host>
+
+        --team-domain      Zero Trust team domain, e.g. my-team.cloudflareaccess.com
+        --audience         The Access application's AUD tag (Zero Trust >
+                           Access > Applications > Settings)
+        --public-hostname  The hostname the tunnel serves, e.g. api.example.com;
+                           Access sends visitors back to it after sign-in
         """;
 
     private const string AddUsage = """
@@ -106,6 +122,7 @@ public static class Cli
             "port" => SetPort(database, args),
             "key" => Key(database, args),
             "db" => Db(database, args),
+            "oauth" => OAuth(database, args),
             _ => Unknown(args[0])
         };
 
@@ -214,6 +231,134 @@ public static class Cli
                 Console.Error.WriteLine("error: key takes 'show' or 'new'.");
                 return 1;
         }
+    }
+
+    private static int OAuth(SqliteDatabase database, string[] args)
+    {
+        var action = args.Length > 1 ? args[1].ToLowerInvariant() : "show";
+
+        switch (action)
+        {
+            case "show":
+                var config = database.GetOAuthConfig();
+
+                Console.WriteLine($"login         {(config.Enabled ? "on" : "off")}");
+                Console.WriteLine($"team domain   {Shown(config.TeamDomain)}");
+                Console.WriteLine($"audience      {Shown(config.Audience)}");
+                Console.WriteLine($"callback      {Shown(config.RedirectUri)}");
+                return 0;
+
+            case "set":
+                return SetOAuth(database, args);
+
+            case "on":
+                return SetOAuthEnabled(database, true);
+
+            case "off":
+                return SetOAuthEnabled(database, false);
+
+            default:
+                Console.Error.WriteLine("error: oauth takes 'show', 'set', 'on' or 'off'.");
+                return 1;
+        }
+    }
+
+    private static string Shown(string value) =>
+        string.IsNullOrEmpty(value) ? "not set" : value;
+
+    private static int SetOAuth(SqliteDatabase database, string[] args)
+    {
+        var options = Options(args, 2);
+
+        if (options.ContainsKey("help"))
+        {
+            Console.WriteLine(OAuthSetUsage);
+            return 0;
+        }
+
+        string? Required(string name)
+        {
+            if (options.TryGetValue(name, out var value)
+                && !string.IsNullOrWhiteSpace(value))
+            {
+                return value.Trim();
+            }
+
+            Console.Error.WriteLine($"error: oauth set needs --{name}.");
+            return null;
+        }
+
+        var teamDomain = Required("team-domain");
+        var audience = Required("audience");
+        var publicHostname = Required("public-hostname");
+
+        if (teamDomain == null || audience == null || publicHostname == null)
+        {
+            return 1;
+        }
+
+        /*
+         * These are spliced into URLs the gateway redirects browsers to,
+         * so anything that is not a bare hostname is refused rather than
+         * quietly producing https://https://... .
+         */
+        foreach (var (label, host) in new[]
+                 {
+                     ("--team-domain", teamDomain),
+                     ("--public-hostname", publicHostname)
+                 })
+        {
+            if (Uri.CheckHostName(host) == UriHostNameType.Unknown)
+            {
+                Console.Error.WriteLine(
+                    $"error: {label} takes a bare hostname such as "
+                    + "my-team.cloudflareaccess.com, without https:// or a path.");
+                return 1;
+            }
+        }
+
+        var config = database.GetOAuthConfig();
+
+        config.TeamDomain = teamDomain;
+        config.Audience = audience;
+        config.JwksUri = $"https://{teamDomain}/cdn-cgi/access/certs";
+        config.RedirectUri = $"https://{publicHostname}/auth/callback";
+
+        database.SaveOAuthConfig(config);
+
+        Console.WriteLine(
+            config.Enabled
+                ? "Cloudflare Access settings saved and applied."
+                : "Cloudflare Access settings saved. Turn login on with: oauth on");
+
+        return 0;
+    }
+
+    private static int SetOAuthEnabled(SqliteDatabase database, bool enabled)
+    {
+        var config = database.GetOAuthConfig();
+
+        if (enabled
+            && (string.IsNullOrEmpty(config.TeamDomain)
+                || string.IsNullOrEmpty(config.Audience)
+                || string.IsNullOrEmpty(config.RedirectUri)))
+        {
+            Console.Error.WriteLine(
+                "error: set the team domain, audience and public hostname first "
+                + "(oauth set --help).");
+            return 1;
+        }
+
+        config.Enabled = enabled;
+
+        database.SaveOAuthConfig(config);
+
+        Console.WriteLine(
+            enabled
+                ? "Cloudflare Access login is on."
+                : "Cloudflare Access login is off. The API key still works.");
+
+        return 0;
     }
 
     private static int Db(SqliteDatabase database, string[] args)

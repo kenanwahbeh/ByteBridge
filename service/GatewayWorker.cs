@@ -44,6 +44,13 @@ public sealed class GatewayWorker : BackgroundService
      */
     private string? _lastFailure;
 
+    /*
+     * The Cloudflare Access settings the listener currently has. Null
+     * until the first pass, so those are applied before anything can
+     * connect rather than after.
+     */
+    private OAuthConfig? _appliedOAuth;
+
     public GatewayWorker(
         SqliteDatabase database,
         GatewayServer gateway,
@@ -106,6 +113,8 @@ public sealed class GatewayWorker : BackgroundService
      */
     private void Reconcile()
     {
+        ReconcileOAuth();
+
         var desired = _database.GetGatewayConfig();
 
         if (!desired.AutoStart)
@@ -159,6 +168,33 @@ public sealed class GatewayWorker : BackgroundService
             StartWith(desired);
         }
     }
+
+    private void ReconcileOAuth()
+    {
+        var desired = _database.GetOAuthConfig();
+
+        if (_appliedOAuth != null && SameOAuth(_appliedOAuth, desired))
+        {
+            return;
+        }
+
+        _gateway.UpdateOAuth(desired);
+        _appliedOAuth = desired;
+
+        _logger.LogInformation(
+            desired.Enabled
+                ? "Cloudflare Access login is on for {TeamDomain}."
+                : "Cloudflare Access login is off.",
+            desired.TeamDomain);
+    }
+
+    private static bool SameOAuth(OAuthConfig a, OAuthConfig b) =>
+        a.Enabled == b.Enabled
+        && a.TeamDomain == b.TeamDomain
+        && a.Audience == b.Audience
+        && a.JwksUri == b.JwksUri
+        && a.RedirectUri == b.RedirectUri
+        && a.SessionTimeoutMinutes == b.SessionTimeoutMinutes;
 
     /*
      * Everything the running listener captured at Start time. The key
