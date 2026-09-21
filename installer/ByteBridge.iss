@@ -124,10 +124,20 @@ Source: "..\{#PublishDir}\*"; \
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExeName}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
 
+; shellexec matters here and is not decoration: app.manifest marks
+; ByteBridge.exe requireAdministrator, and without this flag Setup
+; launches [Run] entries via CreateProcess, which cannot silently
+; elevate a manifested child -- even though Setup itself is already
+; running elevated. That fails with "Unable to execute file ... error
+; code 740" right after an otherwise-successful install, reading as a
+; failure when nothing failed. ShellExecute (what shellexec selects)
+; goes through the same elevation path Explorer uses for a shortcut,
+; which does handle it correctly.
+
 [Run]
 Filename: "{app}\{#AppExeName}"; \
   Description: "{cm:LaunchProgram,{#StringChange(AppName, '&', '&&')}}"; \
-  Flags: nowait postinstall skipifsilent
+  Flags: nowait postinstall skipifsilent shellexec
 
 [Code]
 

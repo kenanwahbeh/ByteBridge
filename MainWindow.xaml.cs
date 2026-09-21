@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
-using FirebirdSql.Data.FirebirdClient;
 using ByteBridge.Configuration;
 using ByteBridge.Data;
 using ByteBridge.Gateway;
@@ -32,7 +32,34 @@ public partial class MainWindow : Window
 
     private List<DatabaseConfig> _connections = new();
 
+    private DatabaseConfig? _selectedConnection;
+
+    /*
+     * How many requests the gateway has answered for each database,
+     * keyed by connection name -- the same identifier a client sends
+     * in "database". Refreshed on the same tick as the status line;
+     * empty whenever the gateway is not answering.
+     */
+    private Dictionary<string, long> _requestCounts = new();
+
+    /*
+     * The request-count label for each connection card, kept around so
+     * the 2-second refresh can update just that text run instead of
+     * tearing down and rebuilding the whole list -- which would lose
+     * the selection highlight and flicker for no reason.
+     */
+    private readonly Dictionary<string, TextBlock> _requestCountLabels = new();
+
     private bool _isClosing = false;
+
+    /*
+     * Created lazily on the first minimize-to-tray, then just shown
+     * and hidden from there on rather than recreated each time --
+     * NotifyIcon holds a live shell notification-area slot, and
+     * disposing and recreating it on every toggle is what makes tray
+     * icons flicker or land in the wrong spot.
+     */
+    private System.Windows.Forms.NotifyIcon? _trayIcon;
 
     public MainWindow()
     {
@@ -49,16 +76,11 @@ public partial class MainWindow : Window
 
         ApplyLocalization();
 
-        GatewayPortTextBox.Text =
-            _database.GetGatewayConfig().Port.ToString();
-
-        _refresh.Tick += async (_, _) => await UpdateGatewayUi();
+        _refresh.Tick += async (_, _) => await UpdateStatusAsync();
 
         LoadConnections();
 
-        LoadOAuthConfig();
-
-        _ = UpdateGatewayUi();
+        _ = UpdateStatusAsync();
 
         _refresh.Start();
     }
@@ -73,7 +95,7 @@ public partial class MainWindow : Window
         object sender,
         RoutedEventArgs e)
     {
-        await UpdateGatewayUi();
+        await UpdateStatusAsync();
     }
 
     private void Window_Closing(
@@ -103,8 +125,7 @@ public partial class MainWindow : Window
             case CloseDialogResult.MinimizeToTray:
                 // Minimize to tray instead of closing
                 e.Cancel = true;
-                WindowState = WindowState.Minimized;
-                ShowInTaskbar = false;
+                MinimizeToTray();
                 break;
 
             case CloseDialogResult.Settings:
@@ -138,6 +159,85 @@ public partial class MainWindow : Window
         _refresh.Stop();
 
         _service.Dispose();
+
+        _trayIcon?.Dispose();
+        _trayIcon = null;
+    }
+
+    /*
+     * Hides the window entirely -- not just off the taskbar -- and
+     * shows a notification-area icon in its place. The previous
+     * version set WindowState.Minimized with ShowInTaskbar false and
+     * nothing else: no taskbar entry and no tray icon either, so the
+     * window was simply gone until relaunched from the Start menu.
+     */
+    private void MinimizeToTray()
+    {
+        EnsureTrayIcon();
+
+        Hide();
+
+        _trayIcon!.Visible = true;
+    }
+
+    private void RestoreFromTray()
+    {
+        if (_trayIcon != null)
+        {
+            _trayIcon.Visible = false;
+        }
+
+        Show();
+        WindowState = WindowState.Normal;
+        ShowInTaskbar = true;
+        Activate();
+    }
+
+    private void EnsureTrayIcon()
+    {
+        if (_trayIcon != null)
+        {
+            return;
+        }
+
+        var exePath =
+            Environment.ProcessPath
+            ?? System.Reflection.Assembly.GetExecutingAssembly().Location;
+
+        var icon =
+            System.Drawing.Icon.ExtractAssociatedIcon(exePath);
+
+        var menu = new System.Windows.Forms.ContextMenuStrip();
+
+        var openItem = menu.Items.Add(Strings.Get("TrayOpen"));
+        openItem.Click += (_, _) => RestoreFromTray();
+
+        var exitItem = menu.Items.Add(Strings.Get("ExitApp"));
+        exitItem.Click += (_, _) => ExitFromTray();
+
+        _trayIcon = new System.Windows.Forms.NotifyIcon
+        {
+            Icon = icon,
+            Text = Strings.Get("AppTitle"),
+            ContextMenuStrip = menu
+        };
+
+        _trayIcon.MouseClick += (_, e) =>
+        {
+            if (e.Button == System.Windows.Forms.MouseButtons.Left)
+            {
+                RestoreFromTray();
+            }
+        };
+
+        _trayIcon.DoubleClick += (_, _) => RestoreFromTray();
+    }
+
+    private void ExitFromTray()
+    {
+        _isClosing = true;
+
+        Close();
     }
 
     private void OpenSettings()
@@ -148,7 +248,6 @@ public partial class MainWindow : Window
             {
                 ApplyLocalization();
                 LoadConnections();
-                LoadOAuthConfig();
             })
         {
             Owner = this
@@ -157,274 +256,226 @@ public partial class MainWindow : Window
         settingsWindow.ShowDialog();
 
         // Refresh UI after settings change
-        _ = UpdateGatewayUi();
+        _ = UpdateStatusAsync();
     }
 
-    /*
-     * Records whether the gateway should be listening and leaves the
-     * service to act on it, rather than starting or stopping a listener
-     * in this process. The service notices within a few seconds; the
-     * refresh timer is what makes the window catch up.
-     */
-    private async void GatewayToggleButton_Click(
-        object sender,
-        RoutedEventArgs e)
+    // ---- Menu bar --------------------------------------------------
+
+    private void NewDatabaseMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        var config = _database.GetGatewayConfig();
-
-        if (config.AutoStart)
+        var window = new AddDatabaseWizardWindow
         {
-            config.AutoStart = false;
+            Owner = this
+        };
 
-            _database.SaveGatewayConfig(config);
-
-            await UpdateGatewayUi();
-
+        if (window.ShowDialog() != true || window.Result == null)
+        {
             return;
         }
 
-        var portText = GatewayPortTextBox.Text.Trim();
-
-        if (!int.TryParse(portText, out var port)
-            || port < 1
-            || port > 65535)
-        {
-            MessageBox.Show(
-                "Please enter a valid port between 1 and 65535.",
-                "ByteBridge",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
-
-            return;
-        }
-
-        config.Port = port;
-        config.AutoStart = true;
-
-        _database.SaveGatewayConfig(config);
-
-        await UpdateGatewayUi();
-    }
-
-    private async void StartServiceButton_Click(
-        object sender,
-        RoutedEventArgs e)
-    {
         try
         {
-            _service.Start();
+            _database.AddConnection(window.Result);
+
+            LoadConnections();
         }
         catch (Exception ex)
         {
             MessageBox.Show(
-                "The ByteBridge service could not be started.\n\n"
-                + ex.Message,
-                "Service",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
-        }
-
-        await UpdateGatewayUi();
-    }
-
-    private void CopyKeyButton_Click(
-        object sender,
-        RoutedEventArgs e)
-    {
-        try
-        {
-            Clipboard.SetText(_database.GetGatewayConfig().ApiKey);
-
-            MessageBox.Show(
-                "API key copied.\n\n" +
-                "Send it on every request as the X-API-Key header.",
-
+                ex.Message,
                 "ByteBridge",
-
                 MessageBoxButton.OK,
-
-                MessageBoxImage.Information);
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(
-                $"The key could not be copied.\n\n{ex.Message}",
-
-                "ByteBridge",
-
-                MessageBoxButton.OK,
-
                 MessageBoxImage.Warning);
         }
     }
 
-    private void RegenerateKeyButton_Click(
-        object sender,
-        RoutedEventArgs e)
+    private void ExitMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        var confirm =
-            MessageBox.Show(
-                "Generate a new API key?\n\n" +
-                "Every client still using the current key will be " +
-                "rejected until it is updated.",
-
-                "New API Key",
-
-                MessageBoxButton.YesNo,
-
-                MessageBoxImage.Warning);
-
-        if (confirm != MessageBoxResult.Yes)
-        {
-            return;
-        }
-
-        /*
-         * The service compares the key on every request and reloads it
-         * without rebinding, so a rotation takes effect within seconds
-         * and no restart is needed.
-         */
-        _database.RegenerateApiKey();
-
-        MessageBox.Show(
-            "A new API key was generated.\n\n" +
-            "Use Copy API Key to put it on the clipboard.",
-
-            "ByteBridge",
-
-            MessageBoxButton.OK,
-
-            MessageBoxImage.Information);
+        // Trigger the closing event which shows the close dialog
+        Close();
     }
+
+    private void EditSelectedMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selectedConnection != null)
+        {
+            EditConnection(_selectedConnection);
+        }
+    }
+
+    private void DeleteSelectedMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selectedConnection != null)
+        {
+            DeleteConnection(_selectedConnection);
+        }
+    }
+
+    private void WebServerMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        var window = new WebServerWindow(_database, _service)
+        {
+            Owner = this
+        };
+
+        window.ShowDialog();
+
+        _ = UpdateStatusAsync();
+    }
+
+    private void CloudflareTunnelMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        var window = new CloudflareTunnelWindow(_database)
+        {
+            Owner = this
+        };
+
+        window.ShowDialog();
+    }
+
+    private void OptionsMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        OpenSettings();
+    }
+
+    private void AboutMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        var window = new AboutWindow(_database)
+        {
+            Owner = this
+        };
+
+        window.ShowDialog();
+    }
+
+    // ---- Gateway status ----------------------------------------------
 
     /*
-     * Shows two facts that are easy to confuse, and keeps them apart:
-     * whether Windows is running the service, and whether the gateway
-     * inside it is actually answering. A running service with a gateway
-     * that could not bind is precisely the state that makes a tunnel
-     * return 502, so collapsing the two would hide it.
+     * One line: whether the gateway is answering and whether the
+     * service is running. The controls that used to sit beside this
+     * (port, keys, start/stop) now live in the Web Server dialog; this
+     * is only what belongs on the page someone glances at every time.
      */
-    private async Task UpdateGatewayUi()
+    private async Task UpdateStatusAsync()
     {
         var config = _database.GetGatewayConfig();
         var state = _service.State();
-
-        /*
-         * Everything that can be known without asking the gateway is
-         * painted before anything is asked of it, so opening the window
-         * never waits on a network call to show something. The gateway
-         * line below keeps whatever it last said until the answer comes
-         * back, which is why this does not flicker on the timer.
-         */
-        RenderServiceState(state);
 
         var answering =
             state == ServiceState.Running
             && await _service.IsAnsweringAsync(config.BaseUrl);
 
-        RenderGatewayState(config, state, answering);
-    }
+        string gatewayText;
+        Brush color;
 
-    private void RenderServiceState(ServiceState state)
-    {
-        StartServiceButton.Visibility =
-            state == ServiceState.Stopped
-                ? Visibility.Visible
-                : Visibility.Collapsed;
-
-        ServiceStatusTextBlock.Text = state switch
-        {
-            ServiceState.Running => "Service: running",
-            ServiceState.Stopped => "Service: stopped",
-            ServiceState.Pending => "Service: starting or stopping",
-            _ => "Service: not installed — reinstall ByteBridge to add it"
-        };
-    }
-
-    private void RenderGatewayState(
-        GatewayConfig config,
-        ServiceState state,
-        bool answering)
-    {
         if (answering)
         {
-            GatewayStatusTextBlock.Text =
-                $"● Answering — {config.BaseUrl}";
-
-            GatewayStatusTextBlock.Foreground = Brushes.Green;
-
-            GatewayHintTextBlock.Text =
-                "Point the tunnel here:  "
-                + $"cloudflared tunnel --url {config.BaseUrl}";
+            gatewayText = Strings.Format("Answering", config.BaseUrl);
+            color = Brushes.Green;
         }
         else if (!config.AutoStart)
         {
-            GatewayStatusTextBlock.Text = "● Turned off";
-
-            GatewayStatusTextBlock.Foreground = Brushes.Gray;
-
-            GatewayHintTextBlock.Text =
-                "The gateway is set not to listen. A tunnel pointed at "
-                + "this machine will return 502 until it is turned on.";
+            gatewayText = Strings.Get("TurnedOff");
+            color = Brushes.Gray;
         }
         else if (state == ServiceState.Running)
         {
-            /*
-             * Wanted, and the service is up, but nothing answers. Either
-             * it is still within a poll of noticing, or the bind failed
-             * and it is retrying. The event log carries the reason.
-             */
-            GatewayStatusTextBlock.Text = "● Starting, or unable to bind";
-
-            GatewayStatusTextBlock.Foreground = Brushes.DarkOrange;
-
-            GatewayHintTextBlock.Text =
-                $"The service is running but nothing answers on {config.BaseUrl}. "
-                + "Give it a few seconds; if it stays this way the port is in use "
-                + "or the reservation was refused. See Event Viewer, Application, "
-                 + "source ByteBridge.";
+            gatewayText = Strings.Get("Starting");
+            color = Brushes.DarkOrange;
         }
         else
         {
-            GatewayStatusTextBlock.Text = "● Not running";
-
-            GatewayStatusTextBlock.Foreground = Brushes.Red;
-
-            GatewayHintTextBlock.Text =
-                "The service that hosts the gateway is not running, so a "
-                + "tunnel pointed at this machine will return 502.";
+            gatewayText = Strings.Get("NotRunning");
+            color = Brushes.Red;
         }
 
-        GatewayToggleButton.Content =
-            config.AutoStart ? "Turn Off" : "Turn On";
+        var serviceKey = state switch
+        {
+            ServiceState.Running => "ServiceRunning",
+            ServiceState.Stopped => "ServiceStopped",
+            ServiceState.Pending => "ServicePending",
+            _ => "ServiceNotInstalled"
+        };
 
-        /*
-         * The port is only editable while the gateway is meant to be
-         * off, so a change cannot half-apply under a live tunnel.
-         */
-        GatewayPortTextBox.IsEnabled = !config.AutoStart;
+        StatusTextBlock.Text = $"{gatewayText}    ·    {Strings.Get(serviceKey)}";
+        StatusTextBlock.Foreground = color;
+
+        _requestCounts =
+            answering
+                ? await _service.GetStatsAsync(config.BaseUrl)
+                : new Dictionary<string, long>();
+
+        RefreshRequestCountLabels();
     }
+
+    private void RefreshRequestCountLabels()
+    {
+        foreach (var connection in _connections)
+        {
+            if (!_requestCountLabels.TryGetValue(connection.Id, out var label))
+            {
+                continue;
+            }
+
+            label.Text =
+                _requestCounts.TryGetValue(connection.Name, out var count)
+                    ? Strings.Format("RequestCount", count)
+                    : Strings.Get("RequestCountUnknown");
+        }
+    }
+
+    // ---- Connections ---------------------------------------------------
 
     private void LoadConnections()
     {
         _connections =
             _database.GetConnections();
 
+        if (_selectedConnection != null &&
+            !_connections.Exists(c => c.Id == _selectedConnection.Id))
+        {
+            _selectedConnection = null;
+        }
+
         RenderConnections();
+
+        UpdateEditMenuState();
+
+        RefreshRequestCountLabels();
+    }
+
+    private void UpdateEditMenuState()
+    {
+        var hasSelection = _selectedConnection != null;
+
+        EditSelectedMenuItem.IsEnabled = hasSelection;
+        DeleteSelectedMenuItem.IsEnabled = hasSelection;
+    }
+
+    private void SelectConnection(DatabaseConfig connection)
+    {
+        _selectedConnection =
+            _selectedConnection?.Id == connection.Id
+                ? null
+                : connection;
+
+        RenderConnections();
+
+        UpdateEditMenuState();
     }
 
     private void RenderConnections()
     {
         ConnectionsPanel.Children.Clear();
 
+        _requestCountLabels.Clear();
+
         if (_connections.Count == 0)
         {
             ConnectionsPanel.Children.Add(
                 new TextBlock
                 {
-                    Text =
-                        "No databases configured.\n\n" +
-                        "Click + Add Data to create a connection.",
+                    Text = Strings.Get("NoDatabases"),
 
                     FontSize = 16,
 
@@ -450,14 +501,18 @@ public partial class MainWindow : Window
     private Border CreateConnectionCard(
         DatabaseConfig connection)
     {
+        var isSelected = _selectedConnection?.Id == connection.Id;
+
         var border = new Border
         {
             BorderBrush =
-                new SolidColorBrush(
-                    Color.FromRgb(220, 220, 220)),
+                isSelected
+                    ? Brushes.RoyalBlue
+                    : new SolidColorBrush(
+                        Color.FromRgb(220, 220, 220)),
 
             BorderThickness =
-                new Thickness(1),
+                new Thickness(isSelected ? 2 : 1),
 
             CornerRadius =
                 new CornerRadius(8),
@@ -486,7 +541,14 @@ public partial class MainWindow : Window
                 Width = GridLength.Auto
             });
 
-        var left = new StackPanel();
+        var left = new StackPanel
+        {
+            Background = Brushes.Transparent,
+            Cursor = Cursors.Hand
+        };
+
+        left.MouseLeftButtonUp +=
+            (_, _) => SelectConnection(connection);
 
         left.Children.Add(
             new TextBlock
@@ -517,21 +579,36 @@ public partial class MainWindow : Window
 
         if (!connection.Enabled)
         {
-            status.Text = "● Offline";
+            status.Text = Strings.Get("Offline");
             status.Foreground = Brushes.Gray;
         }
         else if (connection.LastTestSuccessful)
         {
-            status.Text = "● Online";
+            status.Text = Strings.Get("Online");
             status.Foreground = Brushes.Green;
         }
         else
         {
-            status.Text = "● Offline";
+            status.Text = Strings.Get("Offline");
             status.Foreground = Brushes.Red;
         }
 
         left.Children.Add(status);
+
+        var requestCountLabel = new TextBlock
+        {
+            Margin = new Thickness(0, 4, 0, 0),
+            FontSize = 12,
+            Foreground = Brushes.Gray,
+            Text =
+                _requestCounts.TryGetValue(connection.Name, out var count)
+                    ? Strings.Format("RequestCount", count)
+                    : Strings.Get("RequestCountUnknown")
+        };
+
+        left.Children.Add(requestCountLabel);
+
+        _requestCountLabels[connection.Id] = requestCountLabel;
 
         Grid.SetColumn(left, 0);
 
@@ -550,8 +627,8 @@ public partial class MainWindow : Window
         {
             Content =
                 connection.Enabled
-                    ? "Offline"
-                    : "Online",
+                    ? Strings.Get("OfflineButton")
+                    : Strings.Get("OnlineButton"),
 
             Padding =
                 new Thickness(12, 7, 12, 7),
@@ -566,7 +643,7 @@ public partial class MainWindow : Window
 
         var editButton = new Button
         {
-            Content = "Edit",
+            Content = Strings.Get("Edit"),
 
             Padding =
                 new Thickness(12, 7, 12, 7),
@@ -581,7 +658,7 @@ public partial class MainWindow : Window
 
         var deleteButton = new Button
         {
-            Content = "Delete",
+            Content = Strings.Get("Delete"),
 
             Padding =
                 new Thickness(12, 7, 12, 7),
@@ -607,44 +684,11 @@ public partial class MainWindow : Window
         return border;
     }
 
-    private void AddButton_Click(
-        object sender,
-        RoutedEventArgs e)
-    {
-        var window =
-            new AddDatabaseWindow
-            {
-                Owner = this
-            };
-
-        if (window.ShowDialog() != true ||
-            window.Result == null)
-        {
-            return;
-        }
-
-        try
-        {
-            _database.AddConnection(
-                window.Result);
-
-            LoadConnections();
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(
-                ex.Message,
-                "ByteBridge",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
-        }
-    }
-
     private void EditConnection(
         DatabaseConfig connection)
     {
         var window =
-            new AddDatabaseWindow(connection)
+            new AddDatabaseWizardWindow(connection)
             {
                 Owner = this
             };
@@ -677,10 +721,9 @@ public partial class MainWindow : Window
     {
         var result =
             MessageBox.Show(
-                $"Delete \"{connection.Name}\"?\n\n" +
-                "This connection will be permanently removed.",
+                Strings.Format("DeleteConfirm", connection.Name),
 
-                "Delete Database",
+                Strings.Get("DeleteTitle"),
 
                 MessageBoxButton.YesNo,
 
@@ -693,6 +736,11 @@ public partial class MainWindow : Window
 
         _database.DeleteConnection(
             connection.Id);
+
+        if (_selectedConnection?.Id == connection.Id)
+        {
+            _selectedConnection = null;
+        }
 
         LoadConnections();
     }
@@ -707,10 +755,9 @@ public partial class MainWindow : Window
         {
             var confirm =
                 MessageBox.Show(
-                    $"Turn \"{connection.Name}\" online?\n\n" +
-                    "ByteBridge will test the database connection first.",
+                    Strings.Format("TurnOnlineConfirm", connection.Name),
 
-                    "Turn Online",
+                    Strings.Get("TurnOnlineTitle"),
 
                     MessageBoxButton.YesNo,
 
@@ -721,59 +768,40 @@ public partial class MainWindow : Window
                 return;
             }
 
-            try
+            var (succeeded, error) =
+                await FirebirdConnectionTester.TestAsync(connection);
+
+            if (!succeeded)
             {
-                var successful =
-                    await TestConnectionAsync(connection);
-
-                if (!successful)
-                {
-                    MessageBox.Show(
-                        "The database connection failed.\n\n" +
-                        "The connection will remain Offline.",
-
-                        "Connection Failed",
-
-                        MessageBoxButton.OK,
-
-                        MessageBoxImage.Warning);
-
-                    _database.SetTestResult(
-                        connection.Id,
-                        false);
-
-                    LoadConnections();
-
-                    return;
-                }
-
-                _database.SetTestResult(
-                    connection.Id,
-                    true);
-
-                _database.SetEnabled(
-                    connection.Id,
-                    true);
-
-                LoadConnections();
-            }
-            catch (Exception ex)
-            {
-                _database.SetTestResult(
-                    connection.Id,
-                    false);
-
                 MessageBox.Show(
-                    $"The database connection failed.\n\n{ex.Message}",
+                    error == null
+                        ? Strings.Get("ConnectionFailedMessage")
+                        : Strings.Format("ConnectionFailedError", error),
 
-                    "Connection Failed",
+                    Strings.Get("ConnectionFailed"),
 
                     MessageBoxButton.OK,
 
                     MessageBoxImage.Warning);
 
+                _database.SetTestResult(
+                    connection.Id,
+                    false);
+
                 LoadConnections();
+
+                return;
             }
+
+            _database.SetTestResult(
+                connection.Id,
+                true);
+
+            _database.SetEnabled(
+                connection.Id,
+                true);
+
+            LoadConnections();
 
             return;
         }
@@ -783,9 +811,9 @@ public partial class MainWindow : Window
          */
         var offlineConfirm =
             MessageBox.Show(
-                $"Turn \"{connection.Name}\" offline?",
+                Strings.Format("TurnOfflineConfirm", connection.Name),
 
-                "Turn Offline",
+                Strings.Get("TurnOfflineTitle"),
 
                 MessageBoxButton.YesNo,
 
@@ -803,164 +831,34 @@ public partial class MainWindow : Window
         LoadConnections();
     }
 
-    private static async Task<bool> TestConnectionAsync(
-        DatabaseConfig config)
-    {
-        try
-        {
-            var builder =
-                new FbConnectionStringBuilder
-                {
-                    DataSource = config.Server,
-                    Port = config.Port,
-                    Database = config.Database,
-                    UserID = config.Username,
-                    Password = config.Password,
-                    Charset = "UTF8",
-                    ConnectionTimeout = 10
-                };
-
-            await using var connection =
-                new FbConnection(builder.ToString());
-
-            await connection.OpenAsync();
-
-            await connection.CloseAsync();
-
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private void DoneButton_Click(
-        object sender,
-        RoutedEventArgs e)
-    {
-        // Trigger the closing event which shows the close dialog
-        Close();
-    }
-
-    /*
-     * OAuth configuration and event handlers.
-     */
-
-    private void LoadOAuthConfig()
-    {
-        var config = _database.GetGatewayConfig();
-        var oauthConfig = _database.GetOAuthConfig();
-
-        OAuthBorder.Visibility = Visibility.Visible;
-
-        TeamDomainTextBox.Text = oauthConfig.TeamDomain;
-        AudienceTextBox.Text = oauthConfig.Audience;
-
-        if (oauthConfig.Enabled)
-        {
-            OAuthStatusTextBlock.Text = "Enabled";
-            OAuthStatusTextBlock.Foreground = Brushes.Green;
-            OAuthToggleButton.Content = "Disable";
-            TeamDomainTextBox.IsEnabled = false;
-            AudienceTextBox.IsEnabled = false;
-        }
-        else
-        {
-            OAuthStatusTextBlock.Text = "Not configured";
-            OAuthStatusTextBlock.Foreground = Brushes.Gray;
-            OAuthToggleButton.Content = "Enable";
-            TeamDomainTextBox.IsEnabled = true;
-            AudienceTextBox.IsEnabled = true;
-        }
-    }
-
-    private void OAuthToggleButton_Click(
-        object sender,
-        RoutedEventArgs e)
-    {
-        var config = _database.GetOAuthConfig();
-
-        if (config.Enabled)
-        {
-            // Disable OAuth
-            config.Enabled = false;
-            _database.SaveOAuthConfig(config);
-
-            MessageBox.Show(
-                Strings.Get("OAuthDisabled"),
-                Strings.Get("AppTitle"),
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
-        }
-        else
-        {
-            // Enable OAuth
-            var teamDomain = TeamDomainTextBox.Text.Trim();
-            var audience = AudienceTextBox.Text.Trim();
-
-            if (string.IsNullOrEmpty(teamDomain))
-            {
-                MessageBox.Show(
-                    Strings.Get("OAuthTeamDomainRequired"),
-                    Strings.Get("AppTitle"),
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Warning);
-
-                return;
-            }
-
-            if (string.IsNullOrEmpty(audience))
-            {
-                MessageBox.Show(
-                    Strings.Get("OAuthAudienceRequired"),
-                    Strings.Get("AppTitle"),
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Warning);
-
-                return;
-            }
-
-            config.Enabled = true;
-            config.TeamDomain = teamDomain;
-            config.Audience = audience;
-            config.JwksUri =
-                $"https://{teamDomain}/cdn-cgi/access/certs";
-
-            _database.SaveOAuthConfig(config);
-
-            MessageBox.Show(
-                Strings.Get("OAuthEnabled"),
-                Strings.Get("AppTitle"),
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
-        }
-
-        LoadOAuthConfig();
-    }
-
     /*
      * Applies localized strings to all UI elements.
      */
     private void ApplyLocalization()
     {
         Title = Strings.Get("AppTitle");
-        AddDataButton.Content = Strings.Get("AddData");
-        DoneButton.Content = Strings.Get("Done");
 
-        // Gateway
-        GatewayApiTextBlock.Text = Strings.Get("GatewayApi");
-        PortTextBlock.Text = Strings.Get("Port");
-        CopyKeyButton.Content = Strings.Get("CopyApiKey");
-        RegenerateKeyButton.Content = Strings.Get("NewKey");
-        StartServiceButton.Content = Strings.Get("StartService");
+        FileMenuItem.Header = Strings.Get("MenuFile");
+        NewDatabaseMenuItem.Header = Strings.Get("MenuFileNew");
+        ExitMenuItem.Header = Strings.Get("MenuFileExit");
 
-        // OAuth
-        CloudflareLoginTextBlock.Text = Strings.Get("CloudflareLogin");
-        TeamDomainTextBlock.Text = Strings.Get("TeamDomain");
-        AudienceTextBlock.Text = Strings.Get("Audience");
+        EditMenuItem.Header = Strings.Get("MenuEdit");
+        EditSelectedMenuItem.Header = Strings.Get("MenuEditEdit");
+        DeleteSelectedMenuItem.Header = Strings.Get("MenuEditDelete");
+
+        WebServerMenuItem.Header = Strings.Get("MenuWebServer");
+        CloudflareTunnelMenuItem.Header = Strings.Get("MenuCloudflareTunnel");
+        OptionsMenuItem.Header = Strings.Get("MenuOptions");
+
+        HelpMenuItem.Header = Strings.Get("MenuHelp");
+        AboutMenuItem.Header = Strings.Get("MenuHelpAbout");
+
+        FlowDirection =
+            Strings.CurrentLanguage == "ar"
+                ? FlowDirection.RightToLeft
+                : FlowDirection.LeftToRight;
 
         // Refresh dynamic text
-        _ = UpdateGatewayUi();
+        _ = UpdateStatusAsync();
     }
 }

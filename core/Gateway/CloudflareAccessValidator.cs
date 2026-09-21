@@ -5,6 +5,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
 using System.Net.Http;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -19,7 +20,9 @@ namespace ByteBridge.Gateway;
  * Cloudflare Access issues tokens signed with RSA keys that
  * rotate periodically. This validator fetches the public keys
  * from Cloudflare's JWKS endpoint and caches them, refreshing
- * when a new key ID is encountered.
+ * when a new key ID is encountered or the cached copy's TTL has
+ * elapsed. A successful refresh replaces the cache wholesale so a
+ * key Cloudflare has revoked stops being trusted.
  *
  * The validator checks:
  * - Signature validity against Cloudflare's public keys
@@ -34,18 +37,31 @@ public sealed class CloudflareAccessValidator : IDisposable
 
     /*
      * Cached JWKS keys, keyed by key ID (kid).
-     * Refreshed when an unknown kid is encountered.
+     * Refreshed when an unknown kid is encountered, or when the
+     * cache has passed its TTL, so a revoked kid stops validating
+     * once the next refresh drops it.
      */
     private readonly ConcurrentDictionary<string, SecurityKey> _keys = new();
 
     private DateTime _lastRefresh = DateTime.MinValue;
-    private readonly TimeSpan _refreshInterval = TimeSpan.FromHours(1);
+    private readonly TimeSpan _refreshInterval;
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
 
     public CloudflareAccessValidator(OAuthConfig config)
+        : this(config, TimeSpan.FromHours(1))
+    {
+    }
+
+    /*
+     * Lets tests shrink the refresh throttle so a rotated key
+     * (a kid the cache has never seen) is picked up immediately
+     * instead of waiting out the production interval.
+     */
+    internal CloudflareAccessValidator(OAuthConfig config, TimeSpan refreshInterval)
     {
         _config = config;
         _http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+        _refreshInterval = refreshInterval;
     }
 
     /*
@@ -108,27 +124,22 @@ public sealed class CloudflareAccessValidator : IDisposable
     }
 
     /*
-     * Returns signing keys for the given key ID, fetching
-     * from the JWKS endpoint if needed.
+     * Returns signing keys for the given key ID, refreshing from
+     * the JWKS endpoint first. RefreshKeysAsync throttles itself
+     * via the TTL, so a cache hit within the TTL is still cheap,
+     * but a kid that Cloudflare has since revoked won't be trusted
+     * forever just because it was seen once.
      */
     private async Task<IEnumerable<SecurityKey>> GetSigningKeysAsync(
         string kid)
     {
-        // Return cached key if available
-        if (_keys.TryGetValue(kid, out var cached))
-        {
-            return [cached];
-        }
-
-        // Refresh the JWKS cache
         await RefreshKeysAsync();
 
-        if (_keys.TryGetValue(kid, out var afterRefresh))
+        if (_keys.TryGetValue(kid, out var key))
         {
-            return [afterRefresh];
+            return [key];
         }
 
-        // Key still not found after refresh
         return [];
     }
 
@@ -160,38 +171,91 @@ public sealed class CloudflareAccessValidator : IDisposable
             var jwks = JsonSerializer.Deserialize<JsonElement>(json);
 
             var keys = jwks.GetProperty("keys");
+            var fetchedKeys = new Dictionary<string, SecurityKey>();
 
             foreach (var keyElement in keys.EnumerateArray())
             {
-                var kid = keyElement.GetProperty("kid").GetString();
-
-                if (string.IsNullOrEmpty(kid))
+                /*
+                 * One oddly-shaped key (a bad kid, a non-RSA entry,
+                 * unparsable base64) must not cost us every other key
+                 * in the same JWKS response.
+                 */
+                try
                 {
-                    continue;
+                    if (!keyElement.TryGetProperty("kid", out var kidElement))
+                    {
+                        continue;
+                    }
+
+                    var kid = kidElement.GetString();
+
+                    if (string.IsNullOrEmpty(kid))
+                    {
+                        continue;
+                    }
+
+                    if (!keyElement.TryGetProperty("n", out var nElement) ||
+                        !keyElement.TryGetProperty("e", out var eElement))
+                    {
+                        continue;
+                    }
+
+                    var n = nElement.GetString();
+                    var e = eElement.GetString();
+
+                    if (string.IsNullOrEmpty(n) || string.IsNullOrEmpty(e))
+                    {
+                        continue;
+                    }
+
+                    var rsa = RSA.Create();
+                    rsa.ImportParameters(new RSAParameters
+                    {
+                        Modulus = Base64UrlEncoder.DecodeBytes(n),
+                        Exponent = Base64UrlEncoder.DecodeBytes(e)
+                    });
+
+                    fetchedKeys[kid] = new RsaSecurityKey(rsa) { KeyId = kid };
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine(
+                        $"Cloudflare Access JWKS key entry skipped: {ex.Message}");
+                }
+            }
+
+            if (fetchedKeys.Count > 0)
+            {
+                /*
+                 * Replace the cache wholesale rather than upserting, so a
+                 * kid Cloudflare has revoked (no longer present in the
+                 * response) stops being trusted instead of lingering in
+                 * the cache for the lifetime of the process.
+                 */
+                foreach (var staleKid in _keys.Keys.Except(fetchedKeys.Keys).ToList())
+                {
+                    _keys.TryRemove(staleKid, out _);
                 }
 
-                var x5c = keyElement.GetProperty("x5c").GetString();
-
-                if (string.IsNullOrEmpty(x5c))
+                foreach (var (kid, key) in fetchedKeys)
                 {
-                    continue;
+                    _keys[kid] = key;
                 }
-
-                // Convert the x5c certificate to a security key
-                var certBytes = Convert.FromBase64String(x5c);
-#pragma warning disable SYSLIB0057
-                var cert = new System.Security.Cryptography.X509Certificates.X509Certificate2(certBytes);
-#pragma warning restore SYSLIB0057
-                var securityKey = new X509SecurityKey(cert);
-
-                _keys[kid] = securityKey;
+            }
+            else
+            {
+                // No usable keys in this response; keep serving the last known-good cache.
+                Console.Error.WriteLine(
+                    $"Cloudflare Access JWKS refresh returned no usable keys ({_config.JwksUrl})");
             }
 
             _lastRefresh = DateTime.UtcNow;
         }
-        catch
+        catch (Exception ex)
         {
-            // If refresh fails, keep using cached keys
+            // Keep using cached keys, but don't hide the failure.
+            Console.Error.WriteLine(
+                $"Cloudflare Access JWKS refresh failed ({_config.JwksUrl}): {ex.Message}");
         }
         finally
         {

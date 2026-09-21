@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Net.Http;
+using System.Net.Http.Json;
 using System.ServiceProcess;
 using System.Threading;
 using System.Threading.Tasks;
@@ -122,6 +124,43 @@ public sealed class GatewayServiceControl : IDisposable
         catch (TaskCanceledException)
         {
             return false;
+        }
+    }
+
+    private sealed class StatsResponse
+    {
+        public Dictionary<string, long> Requests { get; set; } = new();
+    }
+
+    /*
+     * How many requests each connection has answered, for the card in
+     * the window. Empty rather than thrown on any failure -- a card
+     * that can't show a count is a much smaller problem than a window
+     * that stops refreshing because the gateway is momentarily down.
+     */
+    public async Task<Dictionary<string, long>> GetStatsAsync(
+        string baseUrl,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var response = await _client.GetFromJsonAsync<StatsResponse>(
+                baseUrl.TrimEnd('/') + "/stats",
+                cancellationToken);
+
+            return response?.Requests ?? new Dictionary<string, long>();
+        }
+        catch (HttpRequestException)
+        {
+            return new Dictionary<string, long>();
+        }
+        catch (TaskCanceledException)
+        {
+            return new Dictionary<string, long>();
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return new Dictionary<string, long>();
         }
     }
 

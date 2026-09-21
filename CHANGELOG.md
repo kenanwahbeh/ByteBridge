@@ -13,6 +13,61 @@ file is the single source of truth for what shipped.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-15
+
+### Added
+
+- **A real menu bar replaces the always-open Gateway and Cloudflare
+  cards.** File, Edit, Web Server, Cloudflare Tunnel, Options and Help
+  now tuck configuration behind dialogs instead of leaving it open at
+  the top of the window competing with the connections list, which is
+  now the whole page.
+- **Adding a database is a four-step wizard** (name, server details,
+  credentials, test & finish) instead of one long scrolling form.
+- **Each connection card shows how many requests it has answered**
+  since the gateway last started, so it's visible at a glance whether
+  a database is actually being used.
+- **The app now looks more like Windows 11.** Fluent-styled buttons,
+  menus and checkboxes throughout, via the WPF-UI library, on top of
+  the native window chrome.
+
+### Fixed
+
+- **Arabic no longer renders numbers as Eastern Arabic-Indic digits**
+  (٠١٢٣). Ports, request counts and everything else numeric now show
+  in the digits people actually type, in either language.
+- **Settings never switched to right-to-left layout in Arabic,**
+  unlike the rest of the app, and one of its labels was never
+  translated at all.
+- **Every dialog can now be dismissed with Escape,** not just its
+  Cancel or Close button.
+
+## [1.0.1] - 2026-09-13
+
+### Fixed
+
+- **Minimizing no longer just makes the window disappear.** "Minimize
+  to Tray" set the window to minimized and hid it from the taskbar,
+  but nothing in the app ever put up a tray icon, so there was
+  nothing left to click to bring it back -- relaunching from the
+  Start menu was the only way out. A real system tray icon now
+  appears near the clock; clicking or double-clicking it restores the
+  window, and its menu offers Open and Exit.
+- **The close dialog no longer breaks under Arabic.** Three
+  fixed-width buttons crammed into one 400px-wide row barely survived
+  in English and overflowed once the labels were the longer Arabic
+  ones. It is now a single column of full-width buttons that sizes
+  itself to its content, and it flows right-to-left for Arabic
+  instead of forcing RTL text through an LTR layout.
+- **Cloudflare Access login could never complete.** With no public
+  hostname configured, the gateway redirected visitors back to
+  `http://127.0.0.1:<port>/auth/callback` after they signed in -- an
+  address that only means anything on the machine running the
+  gateway, so nobody arriving through the tunnel could ever land
+  there. Settings now has a required Public Hostname field, and the
+  gateway refuses to start the login flow with a clear error instead
+  of redirecting somewhere unreachable.
+
 ## [1.0.0] - 2026-09-13
 
 ### Security
@@ -211,6 +266,7 @@ file is the single source of truth for what shipped.
 
 - Settings live in `C:\ProgramData\ByteBridge\bytebridge.db`.
 
-[Unreleased]: https://github.com/kenanwahbeh/ByteBridge/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/kenanwahbeh/ByteBridge/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/kenanwahbeh/ByteBridge/compare/v1.0.1...v1.1.0
+[1.0.1]: https://github.com/kenanwahbeh/ByteBridge/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/kenanwahbeh/ByteBridge/compare/v1.1.0...v1.0.0
-[1.1.0]: https://github.com/kenanwahbeh/ByteBridge/compare/v1.0.0...v1.1.0

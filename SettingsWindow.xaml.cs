@@ -25,6 +25,10 @@ public partial class SettingsWindow : Window
     {
         InitializeComponent();
 
+        FlowDirection = Strings.CurrentLanguage == "ar"
+            ? FlowDirection.RightToLeft
+            : FlowDirection.LeftToRight;
+
         _database = database;
         _onLanguageChanged = onLanguageChanged;
 
@@ -51,10 +55,14 @@ public partial class SettingsWindow : Window
 
     private void ApplyLocalization()
     {
+        FlowDirection = Strings.CurrentLanguage == "ar"
+            ? FlowDirection.RightToLeft
+            : FlowDirection.LeftToRight;
+
         Title = Strings.Get("Settings");
         SettingsTitleTextBlock.Text = Strings.Get("Settings");
         LanguageTextBlock.Text = Strings.Get("Language");
-        LanguageHintTextBlock.Text = "Select the display language";
+        LanguageHintTextBlock.Text = Strings.Get("LanguageHint");
         AutoStartTextBlock.Text = Strings.Get("AutoStart");
         AutoStartHintTextBlock.Text = Strings.Get("AutoStartHint");
         DoneButton.Content = Strings.Get("Done");
