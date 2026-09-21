@@ -76,6 +76,10 @@ public static class Program
                 new RequestLog(database.LogDirectory));
         });
 
+        builder.Services.AddSingleton(provider =>
+            new ConnectionHealthMonitor(
+                provider.GetRequiredService<SqliteDatabase>()));
+
         builder.Services.AddHostedService<GatewayWorker>();
 
         builder.Build().Run();
