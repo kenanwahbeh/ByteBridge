@@ -80,6 +80,14 @@ public sealed class GatewayServer : IDisposable
 
     private volatile GatewayConfig _config;
 
+    /*
+     * Binds a /auth/login redirect to the browser that completes it at
+     * /auth/callback, so a callback URL an attacker crafted and a
+     * victim opens cannot finish a login the victim never started
+     * (login CSRF).
+     */
+    private const string OAuthStateCookieName = "cf_oauth_state";
+
     private readonly RequestLog _log;
 
     /*
@@ -1091,6 +1099,21 @@ public sealed class GatewayServer : IDisposable
             $"?redirect_uri={Uri.EscapeDataString(redirectUri)}" +
             $"&state={state}";
 
+        /*
+         * Kept in a short-lived cookie rather than a server-side table
+         * of pending logins: there is nothing for a flood of /auth/login
+         * calls to exhaust and nothing to clean up. Ten minutes covers
+         * an identity-provider round trip, and an unused state is
+         * worthless soon after.
+         */
+        context.Response.Headers.Add(
+            "Set-Cookie",
+            OAuthSessionManager.FormatCookie(
+                OAuthStateCookieName,
+                state,
+                "/auth",
+                maxAgeSeconds: 600));
+
         context.Response.StatusCode = 302;
         context.Response.RedirectLocation = loginUrl;
     }
@@ -1128,6 +1151,36 @@ public sealed class GatewayServer : IDisposable
                 500,
                 new ErrorResponse(
                     "OAuth validator is not configured."));
+            return;
+        }
+
+        /*
+         * The state cookie is spent here, before anything else and
+         * whether or not it matches: a state is good for one callback
+         * attempt, so an intercepted callback URL cannot be replayed
+         * even from the browser that started the login.
+         */
+        var incomingState = context.Request.QueryString["state"];
+
+        var expectedState = OAuthSessionManager.ExtractCookie(
+            context.Request.Headers["Cookie"],
+            OAuthStateCookieName);
+
+        context.Response.Headers.Add(
+            "Set-Cookie",
+            OAuthSessionManager.ExpireCookie(OAuthStateCookieName, "/auth"));
+
+        if (string.IsNullOrEmpty(incomingState) ||
+            string.IsNullOrEmpty(expectedState) ||
+            !CryptographicOperations.FixedTimeEquals(
+                Encoding.UTF8.GetBytes(incomingState),
+                Encoding.UTF8.GetBytes(expectedState)))
+        {
+            await WriteJsonAsync(
+                context,
+                400,
+                new ErrorResponse(
+                    "This login could not be verified. Please try signing in again."));
             return;
         }
 
@@ -1186,17 +1239,20 @@ public sealed class GatewayServer : IDisposable
         }
 
         // Create a session
-        var sessionToken =
+        var (sessionToken, expiresAt) =
             sessions.CreateSession(email);
 
         // Set the session cookie and redirect to root
         var cookie = OAuthSessionManager.FormatCookie(
             sessionToken,
-            sessions.Enabled
-                ? oauth.Config.SessionTimeoutMinutes
-                : 60);
+            expiresAt);
 
-        context.Response.Headers["Set-Cookie"] = cookie;
+        /*
+         * Added, not assigned: the response already carries the header
+         * that expires the state cookie, and assigning would replace it
+         * and leave that cookie in the browser.
+         */
+        context.Response.Headers.Add("Set-Cookie", cookie);
         context.Response.StatusCode = 302;
         context.Response.RedirectLocation = "/";
     }

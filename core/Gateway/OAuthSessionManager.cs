@@ -33,10 +33,12 @@ public sealed class OAuthSessionManager
     public bool Enabled => _config.Enabled;
 
     /*
-     * Creates a new session for an authenticated user and
-     * returns the session token.
+     * Creates a new session for an authenticated user and returns the
+     * session token together with the expiry it was stored with, so
+     * the cookie can expire at that same instant instead of one
+     * recomputed from "now" a second time.
      */
-    public string CreateSession(string userEmail)
+    public (string Token, DateTime ExpiresAt) CreateSession(string userEmail)
     {
         var token = GenerateSessionToken();
 
@@ -45,7 +47,7 @@ public sealed class OAuthSessionManager
 
         _database.CreateSession(token, userEmail, expiresAt);
 
-        return token;
+        return (token, expiresAt);
     }
 
     /*
@@ -95,34 +97,82 @@ public sealed class OAuthSessionManager
 
     /*
      * Cookie helpers.
+     *
+     * Every cookie carries Secure: the gateway is reached from a
+     * browser over the HTTPS hostname a Cloudflare Tunnel exposes, so
+     * there is no legitimate plain-HTTP request for one to leak onto.
+     * Max-Age is sent beside Expires so a browser with a skewed clock
+     * still ages the cookie out on time.
      */
 
+    /*
+     * The session cookie, expiring at the exact instant the stored
+     * session does.
+     */
     public static string FormatCookie(
         string token,
-        int timeoutMinutes)
+        DateTime expiresAt)
     {
-        var expires = DateTime.UtcNow
-            .AddMinutes(timeoutMinutes)
-            .ToString("R");
+        var maxAgeSeconds = Math.Max(
+            0,
+            (int)Math.Ceiling((expiresAt - DateTime.UtcNow).TotalSeconds));
 
-        return $"{SessionCookieName}={token}; " +
-            $"Path=/; " +
-            $"HttpOnly; " +
-            $"SameSite=Lax; " +
-            $"Expires={expires}";
+        return BuildCookie(
+            SessionCookieName,
+            token,
+            "/",
+            maxAgeSeconds,
+            expiresAt);
     }
 
-    public static string ClearCookie()
-    {
-        return $"{SessionCookieName}=; " +
-            "Path=/; " +
-            "HttpOnly; " +
-            "SameSite=Lax; " +
-            "Expires=Thu, 01 Jan 1970 00:00:00 GMT";
-    }
+    public static string FormatCookie(
+        string name,
+        string value,
+        string path,
+        int maxAgeSeconds) =>
+        BuildCookie(
+            name,
+            value,
+            path,
+            maxAgeSeconds,
+            DateTime.UtcNow.AddSeconds(maxAgeSeconds));
+
+    private static string BuildCookie(
+        string name,
+        string value,
+        string path,
+        int maxAgeSeconds,
+        DateTime expiresAt) =>
+        $"{name}={value}; " +
+        $"Path={path}; " +
+        "HttpOnly; " +
+        "Secure; " +
+        "SameSite=Lax; " +
+        $"Max-Age={maxAgeSeconds}; " +
+        $"Expires={expiresAt.ToUniversalTime().ToString("R")}";
+
+    public static string ExpireCookie(string name, string path) =>
+        $"{name}=; " +
+        $"Path={path}; " +
+        "HttpOnly; " +
+        "Secure; " +
+        "SameSite=Lax; " +
+        "Max-Age=0; " +
+        "Expires=Thu, 01 Jan 1970 00:00:00 GMT";
+
+    public static string ClearCookie() =>
+        ExpireCookie(SessionCookieName, "/");
 
     public static string? ExtractTokenFromCookie(
-        string? cookieHeader)
+        string? cookieHeader) =>
+        ExtractCookie(cookieHeader, SessionCookieName);
+
+    /*
+     * Cookie names are case-sensitive, so this matches them exactly.
+     */
+    public static string? ExtractCookie(
+        string? cookieHeader,
+        string name)
     {
         if (string.IsNullOrWhiteSpace(cookieHeader))
         {
@@ -136,10 +186,10 @@ public sealed class OAuthSessionManager
             var trimmed = cookie.Trim();
 
             if (trimmed.StartsWith(
-                    SessionCookieName + "=",
-                    StringComparison.OrdinalIgnoreCase))
+                    name + "=",
+                    StringComparison.Ordinal))
             {
-                return trimmed[(SessionCookieName.Length + 1)..].Trim();
+                return trimmed[(name.Length + 1)..].Trim();
             }
         }
 
