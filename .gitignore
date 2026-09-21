@@ -26,3 +26,8 @@ TestResults/
 # OS
 Thumbs.db
 .DS_Store
+.claude/
+.venv/
+venv/
+.env
+.env/
