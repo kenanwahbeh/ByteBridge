@@ -22,7 +22,7 @@ public class ConnectionHealthMonitorTests
 
         var monitor = new ConnectionHealthMonitor(
             database,
-            _ => Task.FromResult<(bool, string?)>((true, null)));
+            (_, _) => Task.FromResult<(bool, string?)>((true, null)));
 
         var changes = await monitor.RefreshAsync();
 
@@ -40,7 +40,7 @@ public class ConnectionHealthMonitorTests
 
         var monitor = new ConnectionHealthMonitor(
             database,
-            _ => Task.FromResult<(bool, string?)>((false, "connection refused")));
+            (_, _) => Task.FromResult<(bool, string?)>((false, "connection refused")));
 
         var changes = await monitor.RefreshAsync();
 
@@ -60,7 +60,7 @@ public class ConnectionHealthMonitorTests
 
         var monitor = new ConnectionHealthMonitor(
             database,
-            _ =>
+            (_, _) =>
             {
                 probed++;
                 return Task.FromResult<(bool, string?)>((true, null));
@@ -82,9 +82,40 @@ public class ConnectionHealthMonitorTests
 
         var monitor = new ConnectionHealthMonitor(
             database,
-            _ => Task.FromResult<(bool, string?)>((true, null)));
+            (_, _) => Task.FromResult<(bool, string?)>((true, null)));
 
         Assert.Empty(await monitor.RefreshAsync());
+    }
+
+    [Fact]
+    public async Task Cancelling_mid_probe_stops_the_refresh_without_marking_the_connection_offline()
+    {
+        using var root = new TempDataRoot();
+        var database = root.OpenDatabase();
+
+        database.AddConnection(MakeConnection("Sales", enabled: true, lastTestSuccessful: true));
+
+        using var cancellation = new CancellationTokenSource();
+        var probeStarted = new TaskCompletionSource();
+
+        var monitor = new ConnectionHealthMonitor(
+            database,
+            async (_, token) =>
+            {
+                probeStarted.SetResult();
+                await Task.Delay(Timeout.Infinite, token);
+
+                return (true, null);
+            });
+
+        var refresh = monitor.RefreshAsync(cancellation.Token);
+
+        await probeStarted.Task;
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => refresh);
+
+        Assert.True(Assert.Single(database.GetConnections()).LastTestSuccessful);
     }
 
     private static DatabaseConfig MakeConnection(

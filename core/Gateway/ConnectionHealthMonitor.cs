@@ -23,11 +23,11 @@ public sealed class ConnectionHealthMonitor
 {
     private readonly SqliteDatabase _database;
 
-    private readonly Func<DatabaseConfig, Task<(bool Succeeded, string? Error)>> _test;
+    private readonly Func<DatabaseConfig, CancellationToken, Task<(bool Succeeded, string? Error)>> _test;
 
     public ConnectionHealthMonitor(
         SqliteDatabase database,
-        Func<DatabaseConfig, Task<(bool Succeeded, string? Error)>>? test = null)
+        Func<DatabaseConfig, CancellationToken, Task<(bool Succeeded, string? Error)>>? test = null)
     {
         _database = database;
         _test = test ?? FirebirdConnectionTester.TestAsync;
@@ -49,7 +49,7 @@ public sealed class ConnectionHealthMonitor
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var (succeeded, _) = await _test(connection);
+            var (succeeded, _) = await _test(connection, cancellationToken);
 
             _database.SetTestResult(connection.Id, succeeded);
 
