@@ -13,7 +13,8 @@ namespace ByteBridge.Data;
 public static class FirebirdConnectionTester
 {
     public static async Task<(bool Succeeded, string? Error)> TestAsync(
-        DatabaseConfig config)
+        DatabaseConfig config,
+        CancellationToken cancellationToken = default)
     {
         try
         {
@@ -30,11 +31,20 @@ public static class FirebirdConnectionTester
 
             await using var connection = new FbConnection(builder.ToString());
 
-            await connection.OpenAsync();
+            await connection.OpenAsync(cancellationToken);
 
             await connection.CloseAsync();
 
             return (true, null);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            /*
+             * Being told to stop is not a failed test: reporting it as
+             * one would mark a working database offline every time the
+             * service shuts down mid-probe.
+             */
+            throw;
         }
         catch (Exception ex)
         {

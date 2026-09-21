@@ -27,8 +27,18 @@ public sealed class GatewayWorker : BackgroundService
     private static readonly TimeSpan PollInterval =
         TimeSpan.FromSeconds(5);
 
+    /*
+     * How often each enabled connection is probed. Slower than the
+     * settings poll because every probe opens a real database
+     * connection, and a minute is soon enough for "online" to catch up
+     * with a server that has just come back.
+     */
+    private static readonly TimeSpan HealthInterval =
+        TimeSpan.FromSeconds(60);
+
     private readonly SqliteDatabase _database;
     private readonly GatewayServer _gateway;
+    private readonly ConnectionHealthMonitor _health;
     private readonly ILogger<GatewayWorker> _logger;
 
     /*
@@ -54,10 +64,12 @@ public sealed class GatewayWorker : BackgroundService
     public GatewayWorker(
         SqliteDatabase database,
         GatewayServer gateway,
+        ConnectionHealthMonitor health,
         ILogger<GatewayWorker> logger)
     {
         _database = database;
         _gateway = gateway;
+        _health = health;
         _logger = logger;
     }
 
@@ -66,6 +78,8 @@ public sealed class GatewayWorker : BackgroundService
     {
         _logger.LogInformation(
             "ByteBridge gateway service starting.");
+
+        var healthLoop = RunHealthChecksAsync(stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -95,6 +109,8 @@ public sealed class GatewayWorker : BackgroundService
             }
         }
 
+        await healthLoop;
+
         if (_gateway.IsRunning)
         {
             _gateway.Stop();
@@ -102,6 +118,48 @@ public sealed class GatewayWorker : BackgroundService
 
         _logger.LogInformation(
             "ByteBridge gateway service stopped.");
+    }
+
+    /*
+     * Its own loop rather than a step in the one above: a probe can
+     * wait ten seconds on an unreachable server, and that must not
+     * hold up noticing a rotated API key.
+     */
+    private async Task RunHealthChecksAsync(
+        CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                foreach (var (name, online) in await _health.RefreshAsync(stoppingToken))
+                {
+                    _logger.LogInformation(
+                        "Connection {Name} is now {State}.",
+                        name,
+                        online ? "online" : "offline");
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception error)
+            {
+                _logger.LogError(
+                    error,
+                    "Could not check the connections' health; will retry.");
+            }
+
+            try
+            {
+                await Task.Delay(HealthInterval, stoppingToken);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+        }
     }
 
     /*
