@@ -80,8 +80,6 @@ public sealed class GatewayServer : IDisposable
 
     private volatile GatewayConfig _config;
 
-    private volatile OAuthConfig _oauthConfig;
-
     private readonly RequestLog _log;
 
     /*
@@ -95,9 +93,29 @@ public sealed class GatewayServer : IDisposable
     private readonly ConcurrentDictionary<string, long> _requestCounts =
         new(StringComparer.OrdinalIgnoreCase);
 
-    private readonly CloudflareAccessValidator? _oauthValidator;
+    /*
+     * The Cloudflare Access settings, the validator built from them and
+     * the session manager, as one immutable snapshot. They used to be
+     * three separate fields, so a request that read them across an
+     * await could see the settings from before an UpdateOAuth and the
+     * validator from after it. Each handler now takes the snapshot once
+     * and uses only that.
+     */
+    private sealed record OAuthState(
+        OAuthConfig Config,
+        CloudflareAccessValidator? Validator,
+        OAuthSessionManager? Sessions);
 
-    private readonly OAuthSessionManager? _sessionManager;
+    private volatile OAuthState _oauth;
+
+    /*
+     * Validators UpdateOAuth created. A superseded one is not disposed
+     * on the spot: a request that took its snapshot before the swap may
+     * still be validating a token with it. They go when the server does.
+     */
+    private readonly List<CloudflareAccessValidator> _ownedValidators = new();
+
+    private readonly object _oauthLock = new();
 
     public GatewayServer(
         SqliteDatabase database,
@@ -109,13 +127,12 @@ public sealed class GatewayServer : IDisposable
 
         _config = database.GetGatewayConfig();
 
-        _oauthConfig = database.GetOAuthConfig();
-
         _log = log ?? new RequestLog(database.LogDirectory);
 
-        _oauthValidator = oauthValidator;
-
-        _sessionManager = sessionManager;
+        _oauth = new OAuthState(
+            database.GetOAuthConfig(),
+            oauthValidator,
+            sessionManager);
     }
 
     /*
@@ -136,6 +153,37 @@ public sealed class GatewayServer : IDisposable
     public void UpdateApiKey(string apiKey)
     {
         _config.ApiKey = apiKey;
+    }
+
+    /*
+     * Applies Cloudflare Access settings to a running listener, the way
+     * UpdateApiKey does for the key: the service outlives the control
+     * panel, so a team domain or audience saved there has to take
+     * effect without a restart.
+     *
+     * Turning it off drops the validator and session manager, which
+     * makes /auth/* answer "not configured" and stops session cookies
+     * counting, while the API key keeps working either way.
+     */
+    public void UpdateOAuth(OAuthConfig config)
+    {
+        var validator = config.Enabled
+            ? new CloudflareAccessValidator(config)
+            : null;
+
+        var sessions = config.Enabled
+            ? new OAuthSessionManager(config, _database)
+            : null;
+
+        lock (_oauthLock)
+        {
+            if (validator != null)
+            {
+                _ownedValidators.Add(validator);
+            }
+
+            _oauth = new OAuthState(config, validator, sessions);
+        }
     }
 
     public void Start(GatewayConfig config)
@@ -227,6 +275,16 @@ public sealed class GatewayServer : IDisposable
     public void Dispose()
     {
         Stop();
+
+        lock (_oauthLock)
+        {
+            foreach (var validator in _ownedValidators)
+            {
+                validator.Dispose();
+            }
+
+            _ownedValidators.Clear();
+        }
     }
 
     /*
@@ -861,9 +919,11 @@ public sealed class GatewayServer : IDisposable
 
     private bool IsAuthorized(HttpListenerRequest request)
     {
+        var sessions = _oauth.Sessions;
+
         // Check session cookie first
-        if (_sessionManager != null &&
-            _sessionManager.Enabled)
+        if (sessions != null &&
+            sessions.Enabled)
         {
             var cookieHeader =
                 request.Headers["Cookie"];
@@ -875,7 +935,7 @@ public sealed class GatewayServer : IDisposable
             if (token != null)
             {
                 var user =
-                    _sessionManager.ValidateSession(token);
+                    sessions.ValidateSession(token);
 
                 if (user != null)
                 {
@@ -974,7 +1034,9 @@ public sealed class GatewayServer : IDisposable
         HttpListenerContext context,
         CancellationToken cancellationToken)
     {
-        if (_sessionManager == null || !_sessionManager.Enabled)
+        var oauth = _oauth;
+
+        if (oauth.Sessions == null || !oauth.Sessions.Enabled)
         {
             await WriteJsonAsync(
                 context,
@@ -993,8 +1055,8 @@ public sealed class GatewayServer : IDisposable
          * 3. Cloudflare redirects back with a JWT in the
          *    cf_clearance cookie or as a query parameter
          */
-        var redirectUri = _oauthConfig.RedirectUri;
-        var teamDomain = _oauthConfig.TeamDomain;
+        var redirectUri = oauth.Config.RedirectUri;
+        var teamDomain = oauth.Config.TeamDomain;
 
         /*
          * There used to be a fallback to {_config.BaseUrl}/auth/callback
@@ -1044,7 +1106,10 @@ public sealed class GatewayServer : IDisposable
         HttpListenerContext context,
         CancellationToken cancellationToken)
     {
-        if (_sessionManager == null || !_sessionManager.Enabled)
+        var oauth = _oauth;
+        var sessions = oauth.Sessions;
+
+        if (sessions == null || !sessions.Enabled)
         {
             await WriteJsonAsync(
                 context,
@@ -1054,7 +1119,9 @@ public sealed class GatewayServer : IDisposable
             return;
         }
 
-        if (_oauthValidator == null)
+        var validator = oauth.Validator;
+
+        if (validator == null)
         {
             await WriteJsonAsync(
                 context,
@@ -1092,7 +1159,7 @@ public sealed class GatewayServer : IDisposable
 
         // Validate the JWT
         var principal =
-            await _oauthValidator.ValidateTokenAsync(token);
+            await validator.ValidateTokenAsync(token);
 
         if (principal == null)
         {
@@ -1120,13 +1187,13 @@ public sealed class GatewayServer : IDisposable
 
         // Create a session
         var sessionToken =
-            _sessionManager.CreateSession(email);
+            sessions.CreateSession(email);
 
         // Set the session cookie and redirect to root
         var cookie = OAuthSessionManager.FormatCookie(
             sessionToken,
-            _sessionManager.Enabled
-                ? _oauthConfig.SessionTimeoutMinutes
+            sessions.Enabled
+                ? oauth.Config.SessionTimeoutMinutes
                 : 60);
 
         context.Response.Headers["Set-Cookie"] = cookie;
@@ -1140,7 +1207,9 @@ public sealed class GatewayServer : IDisposable
     private async Task HandleLogoutAsync(
         HttpListenerContext context)
     {
-        if (_sessionManager != null)
+        var sessions = _oauth.Sessions;
+
+        if (sessions != null)
         {
             var cookieHeader =
                 context.Request.Headers["Cookie"];
@@ -1151,7 +1220,7 @@ public sealed class GatewayServer : IDisposable
 
             if (token != null)
             {
-                _sessionManager.RevokeSession(token);
+                sessions.RevokeSession(token);
             }
         }
 
@@ -1193,9 +1262,11 @@ public sealed class GatewayServer : IDisposable
     private string? GetAuthenticatedUser(
         HttpListenerRequest request)
     {
+        var sessions = _oauth.Sessions;
+
         // Check session cookie first
-        if (_sessionManager != null &&
-            _sessionManager.Enabled)
+        if (sessions != null &&
+            sessions.Enabled)
         {
             var cookieHeader =
                 request.Headers["Cookie"];
@@ -1207,7 +1278,7 @@ public sealed class GatewayServer : IDisposable
             if (token != null)
             {
                 var email =
-                    _sessionManager.ValidateSession(token);
+                    sessions.ValidateSession(token);
 
                 if (email != null)
                 {
