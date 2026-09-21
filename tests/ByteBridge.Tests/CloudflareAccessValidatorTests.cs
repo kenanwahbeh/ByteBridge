@@ -177,7 +177,7 @@ public class CloudflareAccessValidatorTests
         JwksUri = jwksUrl
     };
 
-    private static string IssueToken(TestSigningKey key, string subject)
+    internal static string IssueToken(TestSigningKey key, string subject)
     {
         var handler = new JwtSecurityTokenHandler();
 
@@ -209,7 +209,7 @@ public class CloudflareAccessValidatorTests
         };
     }
 
-    private sealed class TestSigningKey : IDisposable
+    internal sealed class TestSigningKey : IDisposable
     {
         public string Kid { get; }
 
@@ -232,7 +232,7 @@ public class CloudflareAccessValidatorTests
      * change the served key set (or fail the request) without touching
      * a real network.
      */
-    private sealed class FakeJwksServer : IDisposable
+    internal sealed class FakeJwksServer : IDisposable
     {
         private readonly HttpListener _listener;
         private readonly CancellationTokenSource _cts = new();
