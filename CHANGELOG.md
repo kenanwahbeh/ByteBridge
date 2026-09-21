@@ -13,6 +13,43 @@ file is the single source of truth for what shipped.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-21
+
+### Added
+
+- **Cloudflare Access sign-in now works in the background service.**
+  The service used to start without any Access support, so a team
+  domain and audience saved in Settings did nothing there. It now
+  applies them at startup and whenever they change, with no restart.
+  The API key keeps working whether Access login is on or off.
+- **`oauth` commands for machines with no desktop.** `oauth set
+  --team-domain <team>.cloudflareaccess.com --audience <AUD tag>
+  --public-hostname <host>` stores the settings, `oauth on` and
+  `oauth off` switch login, and `oauth show` prints what is
+  configured.
+
+### Fixed
+
+- **`/databases` no longer reports a working database as `"online":
+  false`.** The flag was only written when someone turned a connection
+  on from the window, so a connection enabled any other way, or one
+  whose server came back after a failed test, stayed offline in the
+  API while queries against it worked. The service now checks every
+  enabled connection once a minute and keeps the flag current.
+- **A signing key Cloudflare had revoked stayed trusted until the
+  service restarted.** The key list is now replaced on every refresh
+  instead of only added to, and a cached key is re-checked once its
+  time is up. If a refresh fails or comes back empty, the last good
+  keys stay in use.
+- **Cloudflare Access sign-in rejected every token.** Keys were read
+  as certificates, but Cloudflare publishes plain RSA keys, so none
+  could be parsed and the failure was swallowed silently. A malformed
+  entry no longer costs the valid keys beside it, and a failed refresh
+  is now reported.
+- **Access settings with only a team domain and an audience could
+  never verify a token.** The key address was meant to default to the
+  team domain's, but the default never applied.
+
 ## [1.1.0] - 2026-09-15
 
 ### Added
@@ -266,7 +303,8 @@ file is the single source of truth for what shipped.
 
 - Settings live in `C:\ProgramData\ByteBridge\bytebridge.db`.
 
-[Unreleased]: https://github.com/kenanwahbeh/ByteBridge/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/kenanwahbeh/ByteBridge/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/kenanwahbeh/ByteBridge/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/kenanwahbeh/ByteBridge/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/kenanwahbeh/ByteBridge/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/kenanwahbeh/ByteBridge/compare/v1.1.0...v1.0.0
