@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Text;
 using ByteBridge.Configuration;
@@ -18,9 +19,30 @@ namespace ByteBridge.Gateway;
 public sealed class OAuthSessionManager
 {
     private const string SessionCookieName = "efs_session";
+    private const string LoginStateCookieName = "efs_oauth_state";
 
-    private readonly OAuthConfig _config;
+    private static readonly TimeSpan LoginStateLifetime =
+        TimeSpan.FromMinutes(10);
+
+    private static readonly TimeSpan LoginStateCleanupInterval =
+        TimeSpan.FromMinutes(1);
+
+    private const int MaxPendingLoginStates = 1024;
+
+    private const int MaxPendingLoginStatesPerClient = 8;
+
+    private volatile OAuthConfig _config;
     private readonly Data.SqliteDatabase _database;
+
+    private readonly object _loginStateSync = new();
+
+    private readonly Dictionary<string, PendingLoginState> _loginStates =
+        new(StringComparer.Ordinal);
+
+    private readonly Dictionary<string, int> _clientLoginStateCounts =
+        new(StringComparer.Ordinal);
+
+    private DateTime _nextLoginStateCleanup = DateTime.MinValue;
 
     public OAuthSessionManager(
         OAuthConfig config,
@@ -31,6 +53,11 @@ public sealed class OAuthSessionManager
     }
 
     public bool Enabled => _config.Enabled;
+
+    public void UpdateConfig(OAuthConfig config)
+    {
+        _config = config;
+    }
 
     /*
      * Creates a new session for an authenticated user and
@@ -93,6 +120,118 @@ public sealed class OAuthSessionManager
             .ToLowerInvariant();
     }
 
+    public string? CreateLoginState(string clientKey)
+    {
+        var now = DateTime.UtcNow;
+
+        lock (_loginStateSync)
+        {
+            if (now >= _nextLoginStateCleanup)
+            {
+                RemoveExpiredLoginStates(now);
+
+                _nextLoginStateCleanup =
+                    now.Add(LoginStateCleanupInterval);
+            }
+
+            _clientLoginStateCounts.TryGetValue(
+                clientKey,
+                out var clientCount);
+
+            if (_loginStates.Count >= MaxPendingLoginStates ||
+                clientCount >= MaxPendingLoginStatesPerClient)
+            {
+                return null;
+            }
+
+            var value = GenerateSessionToken();
+
+            _loginStates[value] = new PendingLoginState(
+                now.Add(LoginStateLifetime),
+                clientKey);
+
+            _clientLoginStateCounts[clientKey] = clientCount + 1;
+
+            return value;
+        }
+    }
+
+    public bool ConsumeLoginState(
+        string? returnedState,
+        string? cookieState)
+    {
+        if (string.IsNullOrEmpty(returnedState) ||
+            string.IsNullOrEmpty(cookieState))
+        {
+            return false;
+        }
+
+        if (!CryptographicOperations.FixedTimeEquals(
+                Encoding.UTF8.GetBytes(returnedState),
+                Encoding.UTF8.GetBytes(cookieState)))
+        {
+            return false;
+        }
+
+        lock (_loginStateSync)
+        {
+            if (!_loginStates.Remove(
+                    returnedState,
+                    out var pending))
+            {
+                return false;
+            }
+
+            DecrementClientCount(pending.ClientKey);
+
+            return pending.ExpiresAt >= DateTime.UtcNow;
+        }
+    }
+
+    private void RemoveExpiredLoginStates(DateTime now)
+    {
+        var expired = new List<string>();
+
+        foreach (var state in _loginStates)
+        {
+            if (state.Value.ExpiresAt < now)
+            {
+                expired.Add(state.Key);
+            }
+        }
+
+        foreach (var state in expired)
+        {
+            if (_loginStates.Remove(state, out var pending))
+            {
+                DecrementClientCount(pending.ClientKey);
+            }
+        }
+    }
+
+    private void DecrementClientCount(string clientKey)
+    {
+        if (!_clientLoginStateCounts.TryGetValue(
+                clientKey,
+                out var count))
+        {
+            return;
+        }
+
+        if (count <= 1)
+        {
+            _clientLoginStateCounts.Remove(clientKey);
+        }
+        else
+        {
+            _clientLoginStateCounts[clientKey] = count - 1;
+        }
+    }
+
+    private readonly record struct PendingLoginState(
+        DateTime ExpiresAt,
+        string ClientKey);
+
     /*
      * Cookie helpers.
      */
@@ -108,6 +247,21 @@ public sealed class OAuthSessionManager
         return $"{SessionCookieName}={token}; " +
             $"Path=/; " +
             $"HttpOnly; " +
+            $"Secure; " +
+            $"SameSite=Lax; " +
+            $"Expires={expires}";
+    }
+
+    public static string FormatLoginStateCookie(string state)
+    {
+        var expires = DateTime.UtcNow
+            .Add(LoginStateLifetime)
+            .ToString("R");
+
+        return $"{LoginStateCookieName}={state}; " +
+            $"Path=/auth/; " +
+            $"HttpOnly; " +
+            $"Secure; " +
             $"SameSite=Lax; " +
             $"Expires={expires}";
     }
@@ -117,12 +271,32 @@ public sealed class OAuthSessionManager
         return $"{SessionCookieName}=; " +
             "Path=/; " +
             "HttpOnly; " +
+            "Secure; " +
             "SameSite=Lax; " +
             "Expires=Thu, 01 Jan 1970 00:00:00 GMT";
     }
 
     public static string? ExtractTokenFromCookie(
         string? cookieHeader)
+    {
+        return ExtractCookie(cookieHeader, SessionCookieName);
+    }
+
+    public static string? ExtractLoginStateFromCookie(
+        string? cookieHeader)
+    {
+        return ExtractCookie(cookieHeader, LoginStateCookieName);
+    }
+
+    public static string? ExtractCloudflareAccessTokenFromCookie(
+        string? cookieHeader)
+    {
+        return ExtractCookie(cookieHeader, "CF_Authorization");
+    }
+
+    private static string? ExtractCookie(
+        string? cookieHeader,
+        string cookieName)
     {
         if (string.IsNullOrWhiteSpace(cookieHeader))
         {
@@ -136,10 +310,10 @@ public sealed class OAuthSessionManager
             var trimmed = cookie.Trim();
 
             if (trimmed.StartsWith(
-                    SessionCookieName + "=",
+                    cookieName + "=",
                     StringComparison.OrdinalIgnoreCase))
             {
-                return trimmed[(SessionCookieName.Length + 1)..].Trim();
+                return trimmed[(cookieName.Length + 1)..].Trim();
             }
         }
 

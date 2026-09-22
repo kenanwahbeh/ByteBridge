@@ -3,9 +3,17 @@ import cors from 'cors';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { gateway } from './src/server/gatewayEngine.js';
+import { CloudflareAccessVerifier } from './src/server/cloudflareAccess.js';
+import {
+  getSingleHeader,
+  isCloudflareTunnelRequest,
+  isDirectLoopbackRequest,
+} from './src/server/requestSecurity.js';
 
 const app = express();
 const PORT = 3000;
+const HOST = process.env.BYTEBRIDGE_HOST?.trim() || '127.0.0.1';
+const cloudflareAccess = new CloudflareAccessVerifier();
 
 // Security & Parsing Middlewares
 app.use(cors());
@@ -311,6 +319,45 @@ app.post('/execute', (req: Request, res: Response) => {
 // CONTROL PANEL API ENDPOINTS (/api/*)
 // -------------------------------------------------------------
 
+/*
+ * The control API returns database credentials and the gateway key, and can
+ * mutate every setting. It is therefore a local administration surface, not
+ * part of the tunneled data API. Reject proxy/tunnel traffic even when its
+ * final hop originates from loopback.
+ */
+app.use('/api', async (req: Request, res: Response, next: NextFunction) => {
+  const isDirect = isDirectLoopbackRequest(
+    req.socket.remoteAddress,
+    req.headers['cf-connecting-ip'],
+    req.headers['x-forwarded-for'],
+    req.headers.origin,
+    req.headers.host,
+  );
+
+  if (isDirect) return next();
+
+  const assertion = getSingleHeader(
+    req.headers['cf-access-jwt-assertion'],
+  );
+  const tunnelIsAllowed = gateway.webServerMode.enabled
+    && gateway.webServerMode.remoteManagementAllowed
+    && gateway.webServerMode.requireCloudflareAccess
+    && isCloudflareTunnelRequest(
+      req.socket.remoteAddress,
+      req.headers['cf-connecting-ip'],
+      req.headers.origin,
+      req.headers.host,
+    )
+    && assertion !== null
+    && await cloudflareAccess.verify(assertion, gateway.oauthConfig);
+
+  if (!tunnelIsAllowed) {
+    return res.status(403).json({ error: 'The control panel API is available only on this machine.' });
+  }
+
+  return next();
+});
+
 app.get('/api/status', (req: Request, res: Response) => {
   return res.json({
     gateway: gateway.config,
@@ -497,8 +544,8 @@ async function start() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`ByteBridge server running on http://0.0.0.0:${PORT}`);
+  app.listen(PORT, HOST, () => {
+    console.log(`ByteBridge server running on http://${HOST}:${PORT}`);
   });
 }
 

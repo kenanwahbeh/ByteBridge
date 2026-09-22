@@ -49,6 +49,49 @@ public class OAuthLoginTests
             location);
 
         Assert.DoesNotContain("127.0.0.1", location);
+
+        var state = ReadQueryParameter(location, "state");
+
+        Assert.NotEmpty(state);
+        Assert.Contains(
+            response.Headers.GetValues("Set-Cookie"),
+            value => value.Contains($"efs_oauth_state={state}")
+                && value.Contains("Secure"));
+    }
+
+    [Fact]
+    public async Task Callback_rejects_a_token_without_the_browser_login_state()
+    {
+        using var harness = StartWithOAuth(
+            redirectUri: "https://api.example.com/auth/callback");
+
+        using var response = await harness.Client.GetAsync(
+            "/auth/callback?cf_clearance_jwt=not-a-token");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Contains("OAuth state", body);
+    }
+
+    private static string ReadQueryParameter(
+        string url,
+        string name)
+    {
+        var query = new Uri(url).Query.TrimStart('?').Split('&');
+
+        foreach (var part in query)
+        {
+            var pair = part.Split('=', 2);
+
+            if (pair.Length == 2 && pair[0] == name)
+            {
+                return Uri.UnescapeDataString(pair[1]);
+            }
+        }
+
+        return string.Empty;
     }
 
     private static OAuthHarness StartWithOAuth(string redirectUri)

@@ -138,6 +138,13 @@ public sealed class GatewayServer : IDisposable
         _config.ApiKey = apiKey;
     }
 
+    public void UpdateOAuthConfig(OAuthConfig config)
+    {
+        _oauthConfig = config;
+        _oauthValidator?.UpdateConfig(config);
+        _sessionManager?.UpdateConfig(config);
+    }
+
     public void Start(GatewayConfig config)
     {
         lock (_sync)
@@ -1018,11 +1025,18 @@ public sealed class GatewayServer : IDisposable
             return;
         }
 
-        var state = Convert
-            .ToHexString(
-                System.Security.Cryptography
-                    .RandomNumberGenerator.GetBytes(16))
-            .ToLowerInvariant();
+        var state = _sessionManager.CreateLoginState(
+            GetOAuthClientKey(context.Request));
+
+        if (state == null)
+        {
+            await WriteJsonAsync(
+                context,
+                429,
+                new ErrorResponse(
+                    "Too many OAuth login attempts are pending. Try again shortly."));
+            return;
+        }
 
         var loginUrl =
             $"https://{teamDomain}/cdn-cgi/access/callback" +
@@ -1030,7 +1044,23 @@ public sealed class GatewayServer : IDisposable
             $"&state={state}";
 
         context.Response.StatusCode = 302;
+        context.Response.Headers["Set-Cookie"] =
+            OAuthSessionManager.FormatLoginStateCookie(state);
         context.Response.RedirectLocation = loginUrl;
+    }
+
+    private static string GetOAuthClientKey(
+        HttpListenerRequest request)
+    {
+        var forwarded = request.Headers["CF-Connecting-IP"];
+
+        if (IPAddress.TryParse(forwarded, out var clientAddress))
+        {
+            return clientAddress.ToString();
+        }
+
+        return request.RemoteEndPoint?.Address.ToString()
+            ?? "unknown";
     }
 
     /*
@@ -1064,12 +1094,34 @@ public sealed class GatewayServer : IDisposable
             return;
         }
 
+        var returnedState = context.Request.QueryString["state"];
+
+        var cookieState =
+            OAuthSessionManager.ExtractLoginStateFromCookie(
+                context.Request.Headers["Cookie"]);
+
+        if (!_sessionManager.ConsumeLoginState(
+                returnedState,
+                cookieState))
+        {
+            await WriteJsonAsync(
+                context,
+                400,
+                new ErrorResponse(
+                    "Missing, expired or invalid OAuth state."));
+            return;
+        }
+
         /*
-         * Cloudflare Access sends the JWT as a query parameter
-         * named "cf_clearance_jwt" or in the Authorization
-         * header.
+         * Cloudflare sends the application token to the origin in
+         * Cf-Access-Jwt-Assertion. Browsers also carry it in the
+         * CF_Authorization cookie. The older query/header forms remain
+         * accepted for clients already using them.
          */
-        var token = context.Request.QueryString["cf_clearance_jwt"]
+        var token = context.Request.Headers["Cf-Access-Jwt-Assertion"]
+            ?? OAuthSessionManager.ExtractCloudflareAccessTokenFromCookie(
+                context.Request.Headers["Cookie"])
+            ?? context.Request.QueryString["cf_clearance_jwt"]
             ?? context.Request.Headers["Authorization"];
 
         if (string.IsNullOrEmpty(token))

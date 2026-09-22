@@ -240,7 +240,7 @@ export class GatewayEngine {
 
   private stripLeadingNoise(sql: string): string {
     let index = 0;
-    while (index < sql.Length || index < sql.length) {
+    while (index < sql.length) {
       const char = sql[index];
       if (/\s/.test(char)) {
         index++;

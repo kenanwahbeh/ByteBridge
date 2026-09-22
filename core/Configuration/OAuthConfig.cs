@@ -60,6 +60,7 @@ public class OAuthConfig
         $"https://{TeamDomain}";
 
     public string JwksUrl =>
-        JwksUri
-        ?? $"https://{TeamDomain}/cdn-cgi/access/certs";
+        string.IsNullOrWhiteSpace(JwksUri)
+            ? $"https://{TeamDomain}/cdn-cgi/access/certs"
+            : JwksUri;
 }

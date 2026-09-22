@@ -1,6 +1,8 @@
 # Build output
 bin/
 obj/
+dist/
+node_modules/
 
 # Publish / packaging output
 # publish-fx is the framework-dependent tree the release path builds

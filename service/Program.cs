@@ -71,9 +71,28 @@ public static class Program
         {
             var database = provider.GetRequiredService<SqliteDatabase>();
 
+            return new CloudflareAccessValidator(
+                database.GetOAuthConfig());
+        });
+
+        builder.Services.AddSingleton(provider =>
+        {
+            var database = provider.GetRequiredService<SqliteDatabase>();
+
+            return new OAuthSessionManager(
+                database.GetOAuthConfig(),
+                database);
+        });
+
+        builder.Services.AddSingleton(provider =>
+        {
+            var database = provider.GetRequiredService<SqliteDatabase>();
+
             return new GatewayServer(
                 database,
-                new RequestLog(database.LogDirectory));
+                new RequestLog(database.LogDirectory),
+                provider.GetRequiredService<CloudflareAccessValidator>(),
+                provider.GetRequiredService<OAuthSessionManager>());
         });
 
         builder.Services.AddHostedService<GatewayWorker>();

@@ -41,6 +41,8 @@ public class FirebirdExecutorTests
     [InlineData("MERGE INTO CUSTOMERS USING T ON (1=1) WHEN MATCHED THEN DELETE")]
     [InlineData("-- looks harmless\nDELETE FROM CUSTOMERS")]
     [InlineData("/* hidden */ UPDATE CUSTOMERS SET NAME = 'x'")]
+    [InlineData("/**//**/DELETE FROM CUSTOMERS")]
+    [InlineData("/*!50000 DELETE FROM CUSTOMERS */")]
     public void Writes_are_refused(string sql)
     {
         Assert.False(FirebirdExecutor.IsReadOnlyStatement(sql));
@@ -53,6 +55,14 @@ public class FirebirdExecutorTests
     [InlineData("WITHDRAW FROM ACCOUNTS")]
     [InlineData("WITHOUT_X()")]
     public void A_word_that_merely_starts_with_a_keyword_is_not_a_read(string sql)
+    {
+        Assert.False(FirebirdExecutor.IsReadOnlyStatement(sql));
+    }
+
+    [Theory]
+    [InlineData("\uFEFFSELECT 1 FROM RDB$DATABASE")]
+    [InlineData("ＳＥＬＥＣＴ 1 FROM RDB$DATABASE")]
+    public void Confusable_or_hidden_prefixes_are_not_treated_as_reads(string sql)
     {
         Assert.False(FirebirdExecutor.IsReadOnlyStatement(sql));
     }

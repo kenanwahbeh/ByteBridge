@@ -38,6 +38,13 @@ public sealed class GatewayWorker : BackgroundService
     private GatewayConfig? _running;
 
     /*
+     * OAuth settings are independent of the listener binding. Keep the
+     * last applied snapshot so enabling Access, changing its audience or
+     * rotating its endpoint takes effect without restarting the service.
+     */
+    private OAuthConfig? _runningOAuth;
+
+    /*
      * A bind that failed is retried on the next poll rather than
      * killing the service, but without this every retry would log the
      * same line every five seconds and bury everything else.
@@ -108,6 +115,18 @@ public sealed class GatewayWorker : BackgroundService
     {
         var desired = _database.GetGatewayConfig();
 
+        var desiredOAuth = _database.GetOAuthConfig();
+
+        if (_runningOAuth == null ||
+            !SameOAuthConfig(_runningOAuth, desiredOAuth))
+        {
+            _gateway.UpdateOAuthConfig(desiredOAuth);
+            _runningOAuth = desiredOAuth;
+
+            _logger.LogInformation(
+                "Cloudflare Access settings changed; applying them.");
+        }
+
         if (!desired.AutoStart)
         {
             if (_gateway.IsRunning)
@@ -171,6 +190,16 @@ public sealed class GatewayWorker : BackgroundService
         || running.Port != desired.Port
         || running.MaxRows != desired.MaxRows
         || running.CommandTimeoutSeconds != desired.CommandTimeoutSeconds;
+
+    private static bool SameOAuthConfig(
+        OAuthConfig left,
+        OAuthConfig right) =>
+        left.Enabled == right.Enabled
+        && left.TeamDomain == right.TeamDomain
+        && left.Audience == right.Audience
+        && left.JwksUri == right.JwksUri
+        && left.SessionTimeoutMinutes == right.SessionTimeoutMinutes
+        && left.RedirectUri == right.RedirectUri;
 
     /*
      * HttpListener's "access denied", which means HTTP.SYS has no

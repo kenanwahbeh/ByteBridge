@@ -78,6 +78,17 @@ public class GatewayServerTests : IClassFixture<GatewayHarness>
     }
 
     [Fact]
+    public async Task An_abnormally_large_key_is_rejected_without_crashing()
+    {
+        var wrong = new string('a', 4096);
+
+        var (status, _) = await GatewayHarness.Read(
+            _gateway.Get("/databases", key: wrong));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, status);
+    }
+
+    [Fact]
     public async Task Bearer_authorization_is_accepted()
     {
         var request = new HttpRequestMessage(HttpMethod.Get, "/databases");
@@ -186,6 +197,79 @@ public class GatewayServerTests : IClassFixture<GatewayHarness>
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Contains("Invalid JSON", body);
+    }
+
+    [Theory]
+    [InlineData("{\"database\":[],\"sql\":\"SELECT 1\"}")]
+    [InlineData("{\"database\":\"Sales\",\"sql\":{}}")]
+    [InlineData("{\"database\":\"Sales\",\"sql\":\"SELECT 1\",\"parameters\":[]}")]
+    [InlineData("{\"database\":\"Sales\",\"sql\":\"SELECT 1\",\"maxRows\":2147483648}")]
+    public async Task Wrong_json_types_are_rejected(string json)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/query")
+        {
+            Content = new StringContent(
+                json,
+                System.Text.Encoding.UTF8,
+                "application/json")
+        };
+
+        request.Headers.Add("X-API-Key", _gateway.ApiKey);
+
+        using var response = await _gateway.Client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Excessively_deep_json_is_rejected()
+    {
+        var nested = "0";
+
+        for (var depth = 0; depth < 100; depth++)
+        {
+            nested = $"{{\"next\":{nested}}}";
+        }
+
+        var json =
+            $"{{\"database\":\"Sales\",\"sql\":\"SELECT 1\",\"parameters\":{{\"value\":{nested}}}}}";
+
+        var request = new HttpRequestMessage(HttpMethod.Post, "/query")
+        {
+            Content = new StringContent(
+                json,
+                System.Text.Encoding.UTF8,
+                "application/json")
+        };
+
+        request.Headers.Add("X-API-Key", _gateway.ApiKey);
+
+        using var response = await _gateway.Client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task A_duplicate_sql_property_cannot_hide_a_write()
+    {
+        const string json =
+            "{\"database\":\"Sales\",\"sql\":\"SELECT 1\",\"sql\":\"DELETE FROM CUSTOMERS\"}";
+
+        var request = new HttpRequestMessage(HttpMethod.Post, "/query")
+        {
+            Content = new StringContent(
+                json,
+                System.Text.Encoding.UTF8,
+                "application/json")
+        };
+
+        request.Headers.Add("X-API-Key", _gateway.ApiKey);
+
+        using var response = await _gateway.Client.SendAsync(request);
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("/execute", body);
     }
 
     [Fact]

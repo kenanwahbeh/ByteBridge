@@ -1,11 +1,9 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
 using System.Net.Http;
 using System.Security.Claims;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.IdentityModel.Tokens;
@@ -29,23 +27,61 @@ namespace ByteBridge.Gateway;
  */
 public sealed class CloudflareAccessValidator : IDisposable
 {
-    private readonly OAuthConfig _config;
+    private volatile OAuthConfig _config;
     private readonly HttpClient _http;
 
     /*
      * Cached JWKS keys, keyed by key ID (kid).
      * Refreshed when an unknown kid is encountered.
      */
-    private readonly ConcurrentDictionary<string, SecurityKey> _keys = new();
+    private volatile IReadOnlyDictionary<string, SecurityKey> _keys =
+        new Dictionary<string, SecurityKey>(StringComparer.Ordinal);
 
     private DateTime _lastRefresh = DateTime.MinValue;
-    private readonly TimeSpan _refreshInterval = TimeSpan.FromHours(1);
+
+    private DateTime _lastUnknownKidRefresh = DateTime.MinValue;
+
+    private static readonly TimeSpan RefreshInterval =
+        TimeSpan.FromHours(1);
+
+    private static readonly TimeSpan UnknownKidRefreshInterval =
+        TimeSpan.FromMinutes(1);
+
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
 
     public CloudflareAccessValidator(OAuthConfig config)
     {
         _config = config;
         _http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+    }
+
+    internal CloudflareAccessValidator(
+        OAuthConfig config,
+        HttpMessageHandler handler)
+    {
+        _config = config;
+        _http = new HttpClient(handler)
+        {
+            Timeout = TimeSpan.FromSeconds(10)
+        };
+    }
+
+    public void UpdateConfig(OAuthConfig config)
+    {
+        _refreshLock.Wait();
+
+        try
+        {
+            _config = config;
+            _keys = new Dictionary<string, SecurityKey>(
+                StringComparer.Ordinal);
+            _lastRefresh = DateTime.MinValue;
+            _lastUnknownKidRefresh = DateTime.MinValue;
+        }
+        finally
+        {
+            _refreshLock.Release();
+        }
     }
 
     /*
@@ -64,20 +100,46 @@ public sealed class CloudflareAccessValidator : IDisposable
         {
             var handler = new JwtSecurityTokenHandler();
 
+            if (!handler.CanReadToken(token))
+            {
+                return null;
+            }
+
+            var unvalidated = handler.ReadJwtToken(token);
+
+            if (!string.Equals(
+                    unvalidated.Header.Alg,
+                    SecurityAlgorithms.RsaSha256,
+                    StringComparison.Ordinal) ||
+                string.IsNullOrWhiteSpace(unvalidated.Header.Kid))
+            {
+                return null;
+            }
+
+            var signingKeys = await GetSigningKeysAsync(
+                unvalidated.Header.Kid);
+
+            if (signingKeys is null)
+            {
+                return null;
+            }
+
+            var config = _config;
+
             var validationParameters = new TokenValidationParameters
             {
                 ValidateIssuer = true,
-                ValidIssuer = _config.Issuer,
+                ValidIssuer = config.Issuer,
 
                 ValidateAudience = true,
-                ValidAudience = _config.Audience,
+                ValidAudience = config.Audience,
 
                 ValidateLifetime = true,
                 ClockSkew = TimeSpan.FromMinutes(2),
 
                 ValidateIssuerSigningKey = true,
-                IssuerSigningKeyResolver = (token, securityToken, kid, parameters) =>
-                    GetSigningKeysAsync(kid).GetAwaiter().GetResult()
+                ValidAlgorithms = [SecurityAlgorithms.RsaSha256],
+                IssuerSigningKeys = signingKeys.Values
             };
 
             var principal = handler.ValidateToken(
@@ -107,87 +169,92 @@ public sealed class CloudflareAccessValidator : IDisposable
             ?? principal?.FindFirst("email")?.Value;
     }
 
-    /*
-     * Returns signing keys for the given key ID, fetching
-     * from the JWKS endpoint if needed.
-     */
-    private async Task<IEnumerable<SecurityKey>> GetSigningKeysAsync(
+    private async Task<IReadOnlyDictionary<string, SecurityKey>?>
+        GetSigningKeysAsync(
         string kid)
     {
-        // Return cached key if available
-        if (_keys.TryGetValue(kid, out var cached))
+        var snapshot = _keys;
+        var keyIsCached = snapshot.ContainsKey(kid);
+
+        if (keyIsCached &&
+            DateTime.UtcNow - _lastRefresh < RefreshInterval)
         {
-            return [cached];
+            return snapshot;
         }
 
-        // Refresh the JWKS cache
-        await RefreshKeysAsync();
+        await RefreshKeysAsync(kid);
 
-        if (_keys.TryGetValue(kid, out var afterRefresh))
-        {
-            return [afterRefresh];
-        }
+        snapshot = _keys;
 
-        // Key still not found after refresh
-        return [];
+        return snapshot.ContainsKey(kid)
+            ? snapshot
+            : null;
     }
 
     /*
      * Fetches the JWKS from Cloudflare and caches the keys.
      */
-    private async Task RefreshKeysAsync()
+    private async Task RefreshKeysAsync(string requestedKid)
     {
-        // Avoid thundering herd
-        if (DateTime.UtcNow - _lastRefresh < _refreshInterval)
-        {
-            return;
-        }
-
         await _refreshLock.WaitAsync();
 
         try
         {
-            // Double-check after acquiring the lock
-            if (DateTime.UtcNow - _lastRefresh < _refreshInterval)
+            var now = DateTime.UtcNow;
+            var snapshot = _keys;
+            var keyIsCached = snapshot.ContainsKey(requestedKid);
+
+            if (keyIsCached &&
+                now - _lastRefresh < RefreshInterval)
             {
                 return;
             }
 
-            var response = await _http.GetAsync(_config.JwksUrl);
+            /*
+             * A random kid must not turn token validation into an
+             * unbounded HTTP client. The first fetch and a genuine new
+             * key are immediate; subsequent unknown kids share a short
+             * refresh cooldown.
+             */
+            if (!keyIsCached)
+            {
+                if (now - _lastUnknownKidRefresh <
+                    UnknownKidRefreshInterval)
+                {
+                    return;
+                }
+
+                _lastUnknownKidRefresh = now;
+            }
+
+            var config = _config;
+
+            using var response = await _http.GetAsync(config.JwksUrl);
             response.EnsureSuccessStatusCode();
 
             var json = await response.Content.ReadAsStringAsync();
-            var jwks = JsonSerializer.Deserialize<JsonElement>(json);
 
-            var keys = jwks.GetProperty("keys");
+            var nextKeys = ParseSigningKeys(json)
+                .Where(key => key is RsaSecurityKey)
+                .Where(key => !string.IsNullOrWhiteSpace(key.KeyId))
+                .ToDictionary(
+                    key => key.KeyId,
+                    StringComparer.Ordinal);
 
-            foreach (var keyElement in keys.EnumerateArray())
+            if (nextKeys.Count == 0)
             {
-                var kid = keyElement.GetProperty("kid").GetString();
-
-                if (string.IsNullOrEmpty(kid))
-                {
-                    continue;
-                }
-
-                var x5c = keyElement.GetProperty("x5c").GetString();
-
-                if (string.IsNullOrEmpty(x5c))
-                {
-                    continue;
-                }
-
-                // Convert the x5c certificate to a security key
-                var certBytes = Convert.FromBase64String(x5c);
-#pragma warning disable SYSLIB0057
-                var cert = new System.Security.Cryptography.X509Certificates.X509Certificate2(certBytes);
-#pragma warning restore SYSLIB0057
-                var securityKey = new X509SecurityKey(cert);
-
-                _keys[kid] = securityKey;
+                return;
             }
 
-            _lastRefresh = DateTime.UtcNow;
+            _keys = nextKeys;
+            _lastRefresh = now;
+
+            if (nextKeys.ContainsKey(requestedKid))
+            {
+                // A legitimate bootstrap/rotation must not consume the
+                // cooldown reserved for unknown attacker-controlled kids.
+                _lastUnknownKidRefresh = DateTime.MinValue;
+            }
         }
         catch
         {
@@ -197,6 +264,18 @@ public sealed class CloudflareAccessValidator : IDisposable
         {
             _refreshLock.Release();
         }
+    }
+
+    /*
+     * Cloudflare publishes ordinary RSA JWKs containing modulus (n) and
+     * exponent (e). JsonWebKeySet handles that standard representation as
+     * well as certificate-backed keys, instead of assuming x5c exists.
+     */
+    internal static IReadOnlyList<SecurityKey> ParseSigningKeys(string json)
+    {
+        return new JsonWebKeySet(json)
+            .GetSigningKeys()
+            .ToList();
     }
 
     public void Dispose()
