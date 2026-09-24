@@ -24,7 +24,7 @@ jobs:
             "assertion": "$JWT",
             "federation_rule_id": "fdrl_018idWre8F3V5MG6e52uqWMW",
             "organization_id": "30b1812f-b803-4e23-8e34-10331c212018",
-            "service_account_id": "svac_01WYXDYfgTicnRiXvyXxPz4H",
+            "service_account_id": "svac_016w7Hh6bG3cQjrNR5XUyTn9",
             "workspace_id": "wrkspc_017MHH9qLdToZj5bzHh1Kcmc"
           }
           JSON
