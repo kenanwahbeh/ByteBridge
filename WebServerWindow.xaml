@@ -33,13 +33,6 @@
                        Foreground="Gray"
                        TextWrapping="Wrap"/>
 
-            <Button x:Name="StartServiceButton"
-                    Padding="14,7"
-                    Margin="0,12,0,0"
-                    HorizontalAlignment="Left"
-                    Visibility="Collapsed"
-                    Click="StartServiceButton_Click"/>
-
             <Grid Margin="0,20,0,0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
@@ -58,6 +51,51 @@
                          Width="90"
                          Padding="8,7"
                          VerticalAlignment="Center"/>
+            </Grid>
+
+            <Grid Margin="0,16,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                    <TextBlock x:Name="LockoutAttemptsTextBlock"
+                               FontSize="15"
+                               FontWeight="SemiBold"/>
+                    <TextBlock x:Name="LockoutHintTextBlock"
+                               Margin="0,4,12,0"
+                               FontSize="12"
+                               Foreground="Gray"
+                               TextWrapping="Wrap"/>
+                </StackPanel>
+
+                <TextBox x:Name="LockoutAttemptsTextBox"
+                         Grid.Column="1"
+                         Width="90"
+                         Padding="8,7"
+                         VerticalAlignment="Center"
+                         LostFocus="LockoutAttemptsTextBox_LostFocus"/>
+            </Grid>
+
+            <Grid Margin="0,12,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock x:Name="LockoutMinutesTextBlock"
+                           Grid.Column="0"
+                           VerticalAlignment="Center"
+                           FontSize="15"
+                           FontWeight="SemiBold"/>
+
+                <TextBox x:Name="LockoutMinutesTextBox"
+                         Grid.Column="1"
+                         Width="90"
+                         Padding="8,7"
+                         VerticalAlignment="Center"
+                         LostFocus="LockoutMinutesTextBox_LostFocus"/>
             </Grid>
 
             <StackPanel Orientation="Horizontal"

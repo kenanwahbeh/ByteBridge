@@ -42,6 +42,14 @@ public sealed class RequestRecord
 
     public string? Database { get; set; }
 
+    /*
+     * The configured connection the request resolved to, by its own
+     * name. Database above is whatever the caller typed -- a name, an
+     * id, or nothing that exists -- and is only fit for the log. This is
+     * what the request counts are keyed on. Not written to the log.
+     */
+    public string? ConnectionName { get; set; }
+
     public string? Sql { get; set; }
 
     public int? Rows { get; set; }

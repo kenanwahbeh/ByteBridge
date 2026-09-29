@@ -13,6 +13,45 @@ file is the single source of truth for what shipped.
 
 ## [Unreleased]
 
+### Security
+
+- **Wrong API keys now cost the caller.** More than 10 wrong keys from
+  one caller inside a minute gets that caller a `429` with a
+  `Retry-After` for the next minute, before its key is even looked at.
+  A request that sends no key at all does not count, and a correct key
+  clears the tally. The limit is yours to set: **Web Server** in the
+  app has *Lock out after wrong keys* and *Lock out for (minutes)*
+  (0 turns it off), and `ByteBridge.Service.exe lockout show | on | off | set --attempts
+  <n> --window <seconds> --block <seconds>` does the same from a
+  terminal. Callers are told apart by the address Cloudflare reports;
+  `X-Forwarded-For` is ignored because its first entry is written by
+  the caller.
+- **`/stats` needs the API key.** It listed every connection's name to
+  anyone who could reach the hostname. The app sends its key when it
+  polls, so nothing changes there; a script that read `/stats` without
+  a key now gets `401`. Only `/health` is still open.
+- **Request counts only cover real connections.** The name a caller
+  typed used to be the counting key, so a client could grow the table
+  without bound with names that match nothing, and a request that named
+  a connection by its id was counted under the id, not the name.
+- **Cloudflare Access sessions are checked for cross-site requests.** A
+  `POST` that arrives on the session cookie alone has to be
+  `application/json` and, if the browser names an `Origin`, that origin
+  has to be the gateway's own host or the public hostname set for
+  sign-in. Requests on the API key are unchanged.
+- **Only RS256 tokens are accepted** from Cloudflare Access, and the
+  signed-in identity is the token's email address rather than its
+  opaque `sub` id.
+- **An unexpected error no longer echoes its message to the caller.**
+  A `500` says to look in the request log, where the detail is. Errors
+  Firebird reports for a statement still come back in full.
+
+### Changed
+
+- **The window-close dialog is two choices.** *Minimize to Tray* or
+  *Exit*, with a *Don't ask again* box; the × or Esc cancels. *Ask
+  before closing* in Settings turns the question back on.
+
 ## [1.2.0] - 2026-09-21
 
 ### Added

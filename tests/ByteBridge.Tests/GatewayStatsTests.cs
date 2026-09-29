@@ -19,7 +19,7 @@ public class GatewayStatsTests
     {
         for (var attempt = 0; attempt < 40; attempt++)
         {
-            var (_, body) = await GatewayHarness.Read(gateway.Get("/stats", key: ""));
+            var (_, body) = await GatewayHarness.Read(gateway.Get("/stats"));
 
             var requests = JsonDocument.Parse(body)
                 .RootElement
@@ -41,14 +41,69 @@ public class GatewayStatsTests
         return 0;
     }
 
+    /*
+     * /stats names every connection, so it is behind the key like the
+     * rest of the API. It used to be open on the reasoning that it held
+     * no data, but the names alone are something to keep off the
+     * internet.
+     */
     [Fact]
-    public async Task Stats_needs_no_api_key()
+    public async Task Stats_requires_the_api_key()
     {
         using var gateway = new GatewayHarness();
 
-        var (status, _) = await GatewayHarness.Read(gateway.Get("/stats", key: ""));
+        var (missing, _) = await GatewayHarness.Read(gateway.Get("/stats", key: ""));
+        var (wrong, _) = await GatewayHarness.Read(gateway.Get("/stats", key: "not-the-key"));
+        var (right, _) = await GatewayHarness.Read(gateway.Get("/stats"));
 
-        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal(HttpStatusCode.Unauthorized, missing);
+        Assert.Equal(HttpStatusCode.Unauthorized, wrong);
+        Assert.Equal(HttpStatusCode.OK, right);
+    }
+
+    /*
+     * The name a caller types is not a key. Counting it let one client
+     * fill the table with names that match nothing, and /stats would
+     * then have listed them back.
+     */
+    [Fact]
+    public async Task A_name_that_matches_no_connection_is_not_counted()
+    {
+        using var gateway = new GatewayHarness();
+
+        await GatewayHarness.Read(gateway.Post("/query", new
+        {
+            database = "no-such-connection",
+            sql = "SELECT 1 FROM RDB$DATABASE",
+        }));
+
+        // A marker request that is counted, so we know the loop has run.
+        await GatewayHarness.Read(gateway.Post("/query", new
+        {
+            database = "Archive",
+            sql = "SELECT 1 FROM RDB$DATABASE",
+        }));
+
+        await CountFor(gateway, "Archive", expected: 1);
+        await Task.Delay(200);
+
+        var (_, body) = await GatewayHarness.Read(gateway.Get("/stats"));
+
+        Assert.Equal("{\"requests\":{\"Archive\":1}}", body);
+    }
+
+    [Fact]
+    public async Task A_request_by_id_is_counted_under_the_connection_name()
+    {
+        using var gateway = new GatewayHarness();
+
+        await GatewayHarness.Read(gateway.Post("/query", new
+        {
+            database = gateway.Offline.Id,
+            sql = "SELECT 1 FROM RDB$DATABASE",
+        }));
+
+        Assert.Equal(1, await CountFor(gateway, "Archive", expected: 1));
     }
 
     [Fact]
@@ -81,7 +136,7 @@ public class GatewayStatsTests
         await GatewayHarness.Read(gateway.Get("/health", key: ""));
         await GatewayHarness.Read(gateway.Get("/databases"));
 
-        var (_, body) = await GatewayHarness.Read(gateway.Get("/stats", key: ""));
+        var (_, body) = await GatewayHarness.Read(gateway.Get("/stats"));
 
         Assert.Equal("{\"requests\":{}}", body);
     }

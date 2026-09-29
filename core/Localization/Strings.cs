@@ -134,6 +134,11 @@ public static class Strings
             ["InvalidPort"] = "Please enter a valid port between 1 and 65535.",
             ["ServiceError"] = "The ByteBridge service could not be started.\n\n{0}",
             ["ServiceTitle"] = "Service",
+            ["StopService"] = "Stop Service",
+            ["StopServiceConfirm"] = "Stopping the service takes the gateway offline. A tunnel pointed at this machine will return 502 until it is started again.\n\nStop it?",
+            ["ServiceStopError"] = "The ByteBridge service could not be stopped.\n\n{0}",
+            ["ServiceStoppedPrompt"] = "The ByteBridge service is not running, so the gateway is offline and a tunnel pointed at this machine will return 502.\n\nStart it now?",
+            ["ServiceNotInstalledMessage"] = "The ByteBridge service is not installed on this computer, so the gateway cannot run. Reinstall ByteBridge to add it.",
 
             // OAuth dialogs
             ["OAuthDisabled"] = "Cloudflare OAuth login has been disabled.\n\nUsers will need to use the API key to authenticate.",
@@ -155,6 +160,13 @@ public static class Strings
             // Settings
             ["AutoStart"] = "Start with Windows",
             ["AutoStartHint"] = "ByteBridge will start automatically when you log in.",
+            ["LockoutAttempts"] = "Lock out after wrong keys",
+            ["LockoutHint"] = "How many wrong API keys one caller may send in a minute before being refused for a while. 0 turns it off.",
+            ["LockoutMinutes"] = "Lock out for (minutes)",
+            ["InvalidLockout"] = "Attempts must be a number from 0 to 10000, and the lock-out length from 1 to 1440 minutes.",
+            ["DontAskAgain"] = "Don't ask again",
+            ["AskBeforeClosing"] = "Ask before closing",
+            ["AskBeforeClosingHint"] = "Choose between minimizing to the tray and exiting each time the window is closed.",
             ["Language"] = "Language",
             ["LanguageHint"] = "Select the display language",
             ["English"] = "English",
@@ -280,6 +292,11 @@ public static class Strings
             ["InvalidPort"] = "الرجاء إدخال منفذ صالح بين 1 و 65535.",
             ["ServiceError"] = "تعذر بدء خدمة ByteBridge.\n\n{0}",
             ["ServiceTitle"] = "الخدمة",
+            ["StopService"] = "إيقاف الخدمة",
+            ["StopServiceConfirm"] = "إيقاف الخدمة يُخرج البوابة عن العمل. سيُرجع أي نفق موجّه إلى هذا الجهاز خطأ 502 حتى تُشغَّل من جديد.\n\nهل تريد إيقافها؟",
+            ["ServiceStopError"] = "تعذر إيقاف خدمة ByteBridge.\n\n{0}",
+            ["ServiceStoppedPrompt"] = "خدمة ByteBridge لا تعمل، فالبوابة خارج الخدمة وأي نفق موجّه إلى هذا الجهاز سيُرجع خطأ 502.\n\nهل تريد تشغيلها الآن؟",
+            ["ServiceNotInstalledMessage"] = "خدمة ByteBridge غير مثبتة على هذا الجهاز، لذا لا يمكن تشغيل البوابة. أعد تثبيت ByteBridge لإضافتها.",
 
             // OAuth dialogs
             ["OAuthDisabled"] = "تم تعطيل تسجيل الدخول عبر Cloudflare OAuth.\n\nسيحتاج المستخدمون إلى استخدام مفتاح API للمصادقة.",
@@ -301,6 +318,13 @@ public static class Strings
             // Settings
             ["AutoStart"] = "البدء مع Windows",
             ["AutoStartHint"] = "سيبدأ ByteBridge تلقائياً عند تسجيل الدخول.",
+            ["LockoutAttempts"] = "الحظر بعد مفاتيح خاطئة",
+            ["LockoutHint"] = "عدد المفاتيح الخاطئة التي يجوز لمتصل واحد إرسالها في الدقيقة قبل رفضه لفترة. القيمة 0 تعطّل الحظر.",
+            ["LockoutMinutes"] = "مدة الحظر (بالدقائق)",
+            ["InvalidLockout"] = "عدد المحاولات رقم من 0 إلى 10000، ومدة الحظر من 1 إلى 1440 دقيقة.",
+            ["DontAskAgain"] = "لا تسأل مرة أخرى",
+            ["AskBeforeClosing"] = "السؤال عند الإغلاق",
+            ["AskBeforeClosingHint"] = "الاختيار بين التصغير إلى الصينية والخروج عند كل إغلاق للنافذة.",
             ["Language"] = "اللغة",
             ["LanguageHint"] = "اختر لغة العرض",
             ["English"] = "English",

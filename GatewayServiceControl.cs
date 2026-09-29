@@ -100,6 +100,22 @@ public sealed class GatewayServiceControl : IDisposable
             ControlTimeout);
     }
 
+    public void Stop()
+    {
+        using var controller = new ServiceController(ServiceName);
+
+        if (controller.Status == ServiceControllerStatus.Stopped)
+        {
+            return;
+        }
+
+        controller.Stop();
+
+        controller.WaitForStatus(
+            ServiceControllerStatus.Stopped,
+            ControlTimeout);
+    }
+
     /*
      * Asks the gateway itself, rather than trusting that a running
      * service means a listening socket. /health needs no API key, which
@@ -140,13 +156,32 @@ public sealed class GatewayServiceControl : IDisposable
      */
     public async Task<Dictionary<string, long>> GetStatsAsync(
         string baseUrl,
+        string apiKey,
         CancellationToken cancellationToken = default)
     {
         try
         {
-            var response = await _client.GetFromJsonAsync<StatsResponse>(
-                baseUrl.TrimEnd('/') + "/stats",
+            /*
+             * /stats names every connection, so it wants the key like the
+             * rest of the API. Sent per request rather than set on the
+             * shared client, since the key can be rotated while the
+             * window is open.
+             */
+            using var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                baseUrl.TrimEnd('/') + "/stats");
+
+            request.Headers.Add("X-API-Key", apiKey);
+
+            using var httpResponse = await _client.SendAsync(
+                request,
                 cancellationToken);
+
+            httpResponse.EnsureSuccessStatusCode();
+
+            var response =
+                await httpResponse.Content.ReadFromJsonAsync<StatsResponse>(
+                    cancellationToken: cancellationToken);
 
             return response?.Requests ?? new Dictionary<string, long>();
         }

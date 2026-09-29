@@ -4,8 +4,12 @@ The tunnel makes this reachable from the public internet, so treat the
 API key as a database credential.
 
 - Every endpoint except `/health` requires the key, in `X-API-Key` or
-  as `Authorization: Bearer`. It is 32 random bytes, generated on first
-  run and compared in constant time.
+  as `Authorization: Bearer`. That includes `/stats`, which names every
+  connection. The key is 32 random bytes, generated on first run and
+  compared in constant time.
+- Wrong keys are slowed down: by default, 10 wrong keys from one caller
+  in a minute earns that caller a `429` for the next minute (see
+  [Failed-key lockout](#failed-key-lockout)).
 - **New Key** rotates it without restarting the gateway. The running
   gateway picks the new key up within a few seconds, and from then on
   every client still sending the old one is refused.
@@ -29,6 +33,40 @@ Connections are stored in
 `C:\ProgramData\ByteBridge\bytebridge.db`. Firebird passwords are kept
 there in plain text, so that file deserves the same care as the
 credentials themselves.
+
+## Failed-key lockout
+
+A caller that sends too many wrong API keys is refused with
+`429 Too Many Requests` and a `Retry-After` header, before its key is
+looked at, so the block holds even if the next key is right. Requests
+that send no key at all are not counted, a correct key clears the
+tally, and `/health` is never blocked.
+
+The defaults are 10 wrong keys inside 60 seconds, blocking for 60
+seconds. Change them, or turn the limit off, whichever way suits you:
+
+- **In the app:** *Web Server* has *Lock out after wrong keys*
+  (`0` turns it off) and *Lock out for (minutes)*.
+- **From a terminal:**
+
+  ```bat
+  ByteBridge.Service.exe lockout show
+  ByteBridge.Service.exe lockout set --attempts 5 --window 30 --block 900
+  ByteBridge.Service.exe lockout off
+  ByteBridge.Service.exe lockout on
+  ```
+
+A change is picked up within a few seconds; the service does not need
+restarting, though it briefly re-binds its listener when it does.
+
+Callers are told apart by the address Cloudflare reports in
+`CF-Connecting-IP`, which Cloudflare overwrites, so a caller cannot
+choose it. Without a tunnel, that is the socket address. The tally is
+kept in memory: a restart forgives everyone.
+
+If you use Cloudflare's own rate limiting in front of the hostname as
+well, that is stronger, since it stops the traffic at the edge and never
+reaches this machine.
 
 ## Locking the tunnel to just you
 

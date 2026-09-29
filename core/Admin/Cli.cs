@@ -30,6 +30,9 @@ public static class Cli
           port <number>          Change the listening port
           key show               Print the API key
           key new                Replace the API key
+          lockout show           Show the failed-key limit
+          lockout on | off       Turn the failed-key limit on or off
+          lockout set [--attempts <n>] [--window <seconds>] [--block <seconds>]
 
           db list                List the configured databases
           db enable  <name>      Start answering for a database
@@ -56,6 +59,20 @@ public static class Cli
                            Access > Applications > Settings)
         --public-hostname  The hostname the tunnel serves, e.g. api.example.com;
                            Access sends visitors back to it after sign-in
+        """;
+
+    private const string LockoutSetUsage = """
+        lockout set [--attempts <n>] [--window <seconds>] [--block <seconds>]
+
+        --attempts  Wrong API keys one caller may send inside the window
+                    before being refused (1 to 10000; "lockout off" turns
+                    the limit off)
+        --window    How long those attempts are counted, in seconds
+                    (1 to 86400)
+        --block     How long the caller is then refused, in seconds
+                    (1 to 86400)
+
+        Anything left out keeps its current value.
         """;
 
     private const string AddUsage = """
@@ -121,6 +138,7 @@ public static class Cli
             "off" => SetRunning(database, false),
             "port" => SetPort(database, args),
             "key" => Key(database, args),
+            "lockout" => Lockout(database, args),
             "db" => Db(database, args),
             "oauth" => OAuth(database, args),
             _ => Unknown(args[0])
@@ -145,6 +163,7 @@ public static class Cli
         Console.WriteLine($"api key     {(string.IsNullOrEmpty(config.ApiKey) ? "not set" : "set (run: key show)")}");
         Console.WriteLine($"row cap     {config.MaxRows}");
         Console.WriteLine($"timeout     {config.CommandTimeoutSeconds}s");
+        Console.WriteLine($"lockout     {DescribeLockout(config)}");
         Console.WriteLine();
 
         if (connections.Count == 0)
@@ -261,6 +280,119 @@ public static class Cli
                 Console.Error.WriteLine("error: oauth takes 'show', 'set', 'on' or 'off'.");
                 return 1;
         }
+    }
+
+    private static string DescribeLockout(GatewayConfig config) =>
+        config.AuthMaxFailures == 0
+            ? "off"
+            : $"{config.AuthMaxFailures} wrong keys in {config.AuthWindowSeconds}s "
+              + $"blocks a caller for {config.AuthBlockSeconds}s";
+
+    private static int Lockout(SqliteDatabase database, string[] args)
+    {
+        var action = args.Length > 1 ? args[1].ToLowerInvariant() : "show";
+
+        var config = database.GetGatewayConfig();
+
+        switch (action)
+        {
+            case "show":
+                Console.WriteLine(DescribeLockout(config));
+                return 0;
+
+            case "off":
+                config.AuthMaxFailures = 0;
+                database.SaveGatewayConfig(config);
+
+                Console.WriteLine(
+                    "The failed-key limit is off. Wrong keys are refused "
+                    + "as before, but never make a caller wait.");
+                return 0;
+
+            case "on":
+                if (config.AuthMaxFailures == 0)
+                {
+                    config.AuthMaxFailures = new GatewayConfig().AuthMaxFailures;
+                    database.SaveGatewayConfig(config);
+                }
+
+                Console.WriteLine($"The failed-key limit is on: {DescribeLockout(config)}.");
+                return 0;
+
+            case "set":
+                return SetLockout(database, config, args);
+
+            default:
+                Console.Error.WriteLine("error: lockout takes 'show', 'on', 'off' or 'set'.");
+                return 1;
+        }
+    }
+
+    private static int SetLockout(
+        SqliteDatabase database,
+        GatewayConfig config,
+        string[] args)
+    {
+        var options = Options(args, 2);
+
+        if (options.ContainsKey("help"))
+        {
+            Console.WriteLine(LockoutSetUsage);
+            return 0;
+        }
+
+        if (options.Count == 0)
+        {
+            Console.Error.WriteLine("error: lockout set needs at least one of --attempts, --window, --block.");
+            return 1;
+        }
+
+        foreach (var name in options.Keys)
+        {
+            if (name is not ("attempts" or "window" or "block"))
+            {
+                Console.Error.WriteLine($"error: lockout set does not know --{name}.");
+                return 1;
+            }
+        }
+
+        bool TryRead(string name, int max, ref int target)
+        {
+            if (!options.TryGetValue(name, out var text))
+            {
+                return true;
+            }
+
+            if (int.TryParse(text, out var value) && value >= 1 && value <= max)
+            {
+                target = value;
+                return true;
+            }
+
+            Console.Error.WriteLine($"error: --{name} takes a number from 1 to {max}.");
+            return false;
+        }
+
+        var attempts = config.AuthMaxFailures;
+        var window = config.AuthWindowSeconds;
+        var block = config.AuthBlockSeconds;
+
+        if (!TryRead("attempts", 10000, ref attempts)
+            || !TryRead("window", 86400, ref window)
+            || !TryRead("block", 86400, ref block))
+        {
+            return 1;
+        }
+
+        config.AuthMaxFailures = attempts;
+        config.AuthWindowSeconds = window;
+        config.AuthBlockSeconds = block;
+
+        database.SaveGatewayConfig(config);
+
+        Console.WriteLine($"Saved: {DescribeLockout(config)}.");
+
+        return 0;
     }
 
     private static string Shown(string value) =>

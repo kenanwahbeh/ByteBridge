@@ -12,6 +12,7 @@ public partial class SettingsWindow : Window
 {
     private readonly SqliteDatabase _database;
     private readonly Action _onLanguageChanged;
+    private bool _loadingSettings;
 
     private const string AutoStartRegistryPath =
         @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
@@ -51,6 +52,37 @@ public partial class SettingsWindow : Window
 
         // Load auto-start
         AutoStartCheckBox.IsChecked = IsAutoStartEnabled();
+
+        // Ask before closing is on until a choice has been remembered
+        _loadingSettings = true;
+        AskCloseCheckBox.IsChecked =
+            string.IsNullOrEmpty(_database.GetSetting("App.CloseAction"));
+        _loadingSettings = false;
+    }
+
+    private void AskCloseCheckBox_Changed(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (_loadingSettings)
+        {
+            return;
+        }
+
+        // Turning it back on clears the remembered choice
+        if (AskCloseCheckBox.IsChecked == true)
+        {
+            _database.SetSetting("App.CloseAction", "");
+        }
+        else
+        {
+            /*
+             * Unticking has no choice to remember yet, so it falls back
+             * to the safe one -- minimize to tray -- until the dialog
+             * is answered again.
+             */
+            _database.SetSetting("App.CloseAction", "tray");
+        }
     }
 
     private void ApplyLocalization()
@@ -65,6 +97,8 @@ public partial class SettingsWindow : Window
         LanguageHintTextBlock.Text = Strings.Get("LanguageHint");
         AutoStartTextBlock.Text = Strings.Get("AutoStart");
         AutoStartHintTextBlock.Text = Strings.Get("AutoStartHint");
+        AskCloseTextBlock.Text = Strings.Get("AskBeforeClosing");
+        AskCloseHintTextBlock.Text = Strings.Get("AskBeforeClosingHint");
         DoneButton.Content = Strings.Get("Done");
     }
 

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Security.Cryptography;
@@ -102,6 +103,26 @@ public sealed class GatewayServer : IDisposable
         new(StringComparer.OrdinalIgnoreCase);
 
     /*
+     * Built from the settings at Start, so a changed limit takes effect
+     * with the rebind the service does for any listener setting. Null
+     * when the limit is switched off.
+     */
+    private volatile AuthFailureLimiter? _authFailures;
+
+    /*
+     * How a request proved who it was. Invalid means a key was sent and
+     * it was wrong -- the only case that counts against the caller --
+     * where None is a request that offered no key at all.
+     */
+    private enum AuthOutcome
+    {
+        None,
+        Invalid,
+        ApiKey,
+        Session
+    }
+
+    /*
      * The Cloudflare Access settings, the validator built from them and
      * the session manager, as one immutable snapshot. They used to be
      * three separate fields, so a request that read them across an
@@ -135,6 +156,8 @@ public sealed class GatewayServer : IDisposable
 
         _config = database.GetGatewayConfig();
 
+        _authFailures = BuildLimiter(_config);
+
         _log = log ?? new RequestLog(database.LogDirectory);
 
         _oauth = new OAuthState(
@@ -150,6 +173,14 @@ public sealed class GatewayServer : IDisposable
     public RequestLog Log => _log;
 
     public GatewayConfig Config => _config;
+
+    private static AuthFailureLimiter? BuildLimiter(GatewayConfig config) =>
+        config.AuthMaxFailures > 0
+            ? new AuthFailureLimiter(
+                config.AuthMaxFailures,
+                TimeSpan.FromSeconds(config.AuthWindowSeconds),
+                TimeSpan.FromSeconds(config.AuthBlockSeconds))
+            : null;
 
     public bool IsRunning =>
         _listener?.IsListening == true;
@@ -221,6 +252,7 @@ public sealed class GatewayServer : IDisposable
             }
 
             _config = config;
+            _authFailures = BuildLimiter(config);
             _listener = listener;
             _cancellation = new CancellationTokenSource();
 
@@ -437,26 +469,6 @@ public sealed class GatewayServer : IDisposable
             }
 
             /*
-             * /stats is unauthenticated for the same reason as /health:
-             * it exposes only how many requests each database has
-             * answered, never any data or SQL, and the desktop app polls
-             * it before a key is necessarily configured.
-             */
-            if (path == "/stats")
-            {
-                if (method != "GET")
-                {
-                    await WriteMethodNotAllowedAsync(context, "GET");
-                    return;
-                }
-
-                await DrainOrCloseAsync(context);
-
-                await WriteStatsAsync(context);
-                return;
-            }
-
-            /*
              * /auth/* endpoints handle OAuth login/logout.
              */
             if (path.StartsWith("/auth/", StringComparison.OrdinalIgnoreCase))
@@ -465,7 +477,50 @@ public sealed class GatewayServer : IDisposable
                 return;
             }
 
-            record.Authenticated = IsAuthorized(context.Request);
+            /*
+             * Cloudflare's own header, which it overwrites on the way in,
+             * so a caller cannot pick it. Without a tunnel there is only
+             * the socket peer. Never X-Forwarded-For: its first entry is
+             * whatever the caller wrote.
+             */
+            var callerKey =
+                context.Request.Headers["CF-Connecting-IP"]
+                ?? record.LocalPeer
+                ?? "unknown";
+
+            var limiter = _authFailures;
+
+            if (limiter != null
+                && limiter.IsBlocked(callerKey, out var retryAfter))
+            {
+                await DrainOrCloseAsync(context);
+
+                context.Response.Headers["Retry-After"] =
+                    ((int)retryAfter.TotalSeconds).ToString(
+                        CultureInfo.InvariantCulture);
+
+                await WriteJsonAsync(
+                    context,
+                    429,
+                    new ErrorResponse(
+                        "Too many failed attempts. Try again later."));
+
+                return;
+            }
+
+            var outcome = Authenticate(context.Request);
+
+            record.Authenticated =
+                outcome is AuthOutcome.ApiKey or AuthOutcome.Session;
+
+            if (outcome == AuthOutcome.Invalid)
+            {
+                limiter?.RecordFailure(callerKey);
+            }
+            else if (outcome == AuthOutcome.ApiKey)
+            {
+                limiter?.RecordSuccess(callerKey);
+            }
 
             if (!record.Authenticated)
             {
@@ -481,8 +536,45 @@ public sealed class GatewayServer : IDisposable
                 return;
             }
 
+            /*
+             * A browser attaches the session cookie to whatever a page
+             * asks it to send, so a request that arrives on the cookie
+             * alone has to prove it came from a page of ours. The API key
+             * needs no such check: it rides in a custom header a foreign
+             * page cannot add without a CORS preflight the gateway does
+             * not approve for credentials.
+             */
+            if (outcome == AuthOutcome.Session
+                && method == "POST"
+                && !IsSameSiteJsonRequest(context.Request, _oauth.Config))
+            {
+                await DrainOrCloseAsync(context);
+
+                await WriteJsonAsync(
+                    context,
+                    403,
+                    new ErrorResponse(
+                        "Cross-site request refused. Send JSON from the " +
+                        "gateway's own hostname."));
+
+                return;
+            }
+
             switch (path)
             {
+                case "/stats":
+
+                    if (method != "GET")
+                    {
+                        await WriteMethodNotAllowedAsync(context, "GET");
+                        return;
+                    }
+
+                    await DrainOrCloseAsync(context);
+
+                    await WriteStatsAsync(context);
+                    return;
+
                 case "/databases":
 
                     if (method != "GET")
@@ -539,6 +631,16 @@ public sealed class GatewayServer : IDisposable
         }
         catch (Exception ex)
         {
+            /*
+             * The detail goes to the request log, where the operator
+             * reads it; the caller gets a fixed line. An unexpected
+             * exception's message can carry paths, host names and other
+             * internals that are no business of whoever is on the other
+             * end of a tunnel. Errors Firebird itself reports for a
+             * statement are handled where they happen and still come
+             * back in full, because that is what the caller needs to fix
+             * the statement.
+             */
             record.Error = ex.Message;
 
             try
@@ -546,7 +648,9 @@ public sealed class GatewayServer : IDisposable
                 await WriteJsonAsync(
                     context,
                     500,
-                    new ErrorResponse(ex.Message));
+                    new ErrorResponse(
+                        "The gateway failed to handle this request. " +
+                        "The details are in the request log."));
             }
             catch
             {
@@ -579,9 +683,18 @@ public sealed class GatewayServer : IDisposable
 
             _log.Write(record);
 
-            if (record.Database is { Length: > 0 } database)
+            /*
+             * Only a connection the request actually resolved to. The
+             * name a caller typed is not a key: counting it would let one
+             * client grow this table without bound with names that match
+             * nothing, and /stats would list them back.
+             */
+            if (record.ConnectionName is { Length: > 0 } connectionName)
             {
-                _requestCounts.AddOrUpdate(database, 1, (_, count) => count + 1);
+                _requestCounts.AddOrUpdate(
+                    connectionName,
+                    1,
+                    (_, count) => count + 1);
             }
         }
     }
@@ -639,6 +752,7 @@ public sealed class GatewayServer : IDisposable
         var connection =
             await ResolveConnectionAsync(
                 context,
+                record,
                 request.Database);
 
         if (connection == null)
@@ -716,6 +830,7 @@ public sealed class GatewayServer : IDisposable
         var connection =
             await ResolveConnectionAsync(
                 context,
+                record,
                 request.Database);
 
         if (connection == null)
@@ -750,6 +865,7 @@ public sealed class GatewayServer : IDisposable
 
     private async Task<DatabaseConfig?> ResolveConnectionAsync(
         HttpListenerContext context,
+        RequestRecord record,
         string? identifier)
     {
         if (string.IsNullOrWhiteSpace(identifier))
@@ -795,6 +911,8 @@ public sealed class GatewayServer : IDisposable
 
             return null;
         }
+
+        record.ConnectionName = connection.Name;
 
         if (!connection.Enabled)
         {
@@ -925,7 +1043,7 @@ public sealed class GatewayServer : IDisposable
         context.Response.KeepAlive = false;
     }
 
-    private bool IsAuthorized(HttpListenerRequest request)
+    private AuthOutcome Authenticate(HttpListenerRequest request)
     {
         var sessions = _oauth.Sessions;
 
@@ -947,19 +1065,12 @@ public sealed class GatewayServer : IDisposable
 
                 if (user != null)
                 {
-                    return true;
+                    return AuthOutcome.Session;
                 }
             }
         }
 
         // Fall back to API key
-        var expected = _config.ApiKey;
-
-        if (string.IsNullOrEmpty(expected))
-        {
-            return false;
-        }
-
         var provided = request.Headers["X-API-Key"];
 
         if (string.IsNullOrEmpty(provided))
@@ -979,12 +1090,81 @@ public sealed class GatewayServer : IDisposable
 
         if (string.IsNullOrEmpty(provided))
         {
-            return false;
+            return AuthOutcome.None;
+        }
+
+        var expected = _config.ApiKey;
+
+        if (string.IsNullOrEmpty(expected))
+        {
+            return AuthOutcome.Invalid;
         }
 
         return CryptographicOperations.FixedTimeEquals(
             Encoding.UTF8.GetBytes(provided),
-            Encoding.UTF8.GetBytes(expected));
+            Encoding.UTF8.GetBytes(expected))
+            ? AuthOutcome.ApiKey
+            : AuthOutcome.Invalid;
+    }
+
+    /*
+     * For a request that came in on the session cookie alone: a JSON
+     * body, and an Origin -- when the browser names one -- that is this
+     * gateway's own hostname. That is either the Host the request was
+     * addressed to or the public hostname configured for sign-in, since
+     * a tunnel may or may not preserve Host on its way to the origin.
+     *
+     * A cross-site form or fetch cannot send application/json without a
+     * preflight, and a preflight for a credentialed request is never
+     * approved here, so the content type alone stops the simple cases;
+     * the Origin check covers a page on a sibling subdomain, which
+     * SameSite=Lax treats as the same site.
+     */
+    private static bool IsSameSiteJsonRequest(
+        HttpListenerRequest request,
+        OAuthConfig oauth)
+    {
+        var contentType = request.ContentType;
+
+        var mediaType =
+            contentType?.Split(';')[0].Trim();
+
+        if (!string.Equals(
+                mediaType,
+                "application/json",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var origin = request.Headers["Origin"];
+
+        if (string.IsNullOrEmpty(origin))
+        {
+            return true;
+        }
+
+        if (!Uri.TryCreate(origin, UriKind.Absolute, out var originUri))
+        {
+            return false;
+        }
+
+        if (string.Equals(
+                originUri.Authority,
+                request.Headers["Host"],
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return Uri.TryCreate(
+                   oauth.RedirectUri,
+                   UriKind.Absolute,
+                   out var publicUri)
+               && string.Equals(
+                   originUri.Authority,
+                   publicUri.Authority,
+                   StringComparison.OrdinalIgnoreCase);
     }
 
     /*

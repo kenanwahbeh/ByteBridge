@@ -74,11 +74,30 @@ public sealed class GatewayHarness : IDisposable
 
     public string ApiKey { get; private set; }
 
+    /*
+     * The settings file this gateway reads from, for a test that needs
+     * to break it on purpose.
+     */
+    public string SettingsDatabasePath => _root.CurrentDatabasePath;
+
     public DatabaseConfig Online { get; }
 
     public DatabaseConfig Offline { get; }
 
+    /*
+     * xUnit builds a class fixture from its one public constructor, so
+     * that stays the plain one; a test that needs different settings
+     * goes through With.
+     */
     public GatewayHarness()
+        : this(null)
+    {
+    }
+
+    public static GatewayHarness With(Action<GatewayConfig> configure) =>
+        new(configure);
+
+    private GatewayHarness(Action<GatewayConfig>? configure)
     {
         _root = new TempDataRoot();
 
@@ -112,6 +131,8 @@ public sealed class GatewayHarness : IDisposable
 
         var config = Database.GetGatewayConfig();
         config.Port = FreePort();
+
+        configure?.Invoke(config);
 
         ApiKey = config.ApiKey;
 

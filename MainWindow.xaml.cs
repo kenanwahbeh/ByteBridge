@@ -19,6 +19,12 @@ public partial class MainWindow : Window
 
     private readonly GatewayServiceControl _service = new();
 
+    private readonly GatewaySwitch _switch;
+
+    // True while a start or stop is waiting on Windows, so the refresh
+    // tick does not hand the button back before it is finished.
+    private bool _switching;
+
     /*
      * The window no longer holds the gateway; the service does. This
      * refreshes what the window shows about it, because the service
@@ -67,6 +73,8 @@ public partial class MainWindow : Window
 
         _database = new SqliteDatabase();
 
+        _switch = new GatewaySwitch(_database, _service);
+
         // Load saved language
         var savedLanguage = _database.GetSetting("App.Language");
         if (!string.IsNullOrEmpty(savedLanguage))
@@ -96,6 +104,120 @@ public partial class MainWindow : Window
         RoutedEventArgs e)
     {
         await UpdateStatusAsync();
+
+        await CheckServiceAtLaunchAsync();
+    }
+
+    /*
+     * The window hosts nothing itself, so all that opening it can do is
+     * notice when the service that does is not there, and say so. Only
+     * when the gateway is meant to be on: someone who turned it off on
+     * purpose is not asked about it again on every launch, the status
+     * line already says so and the button is one click.
+     */
+    private async Task CheckServiceAtLaunchAsync()
+    {
+        var state = _service.State();
+
+        if (state == ServiceState.NotInstalled)
+        {
+            MessageBox.Show(
+                this,
+                Strings.Get("ServiceNotInstalledMessage"),
+                Strings.Get("ServiceTitle"),
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+
+            return;
+        }
+
+        if (state != ServiceState.Stopped
+            || !_database.GetGatewayConfig().AutoStart)
+        {
+            return;
+        }
+
+        var answer = MessageBox.Show(
+            this,
+            Strings.Get("ServiceStoppedPrompt"),
+            Strings.Get("ServiceTitle"),
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+
+        if (answer == MessageBoxResult.Yes)
+        {
+            await SwitchGatewayAsync(on: true);
+        }
+    }
+
+    private async void ServiceToggleButton_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (_service.State() == ServiceState.Running)
+        {
+            var confirm = MessageBox.Show(
+                this,
+                Strings.Get("StopServiceConfirm"),
+                Strings.Get("ServiceTitle"),
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+
+            if (confirm != MessageBoxResult.Yes)
+            {
+                return;
+            }
+
+            await SwitchGatewayAsync(on: false);
+
+            return;
+        }
+
+        await SwitchGatewayAsync(on: true);
+    }
+
+    private async Task SwitchGatewayAsync(bool on)
+    {
+        _switching = true;
+        ServiceToggleButton.IsEnabled = false;
+
+        try
+        {
+            var problem = on
+                ? await _switch.TurnOnAsync()
+                : await _switch.TurnOffAsync();
+
+            if (problem != null)
+            {
+                MessageBox.Show(
+                    this,
+                    problem,
+                    Strings.Get("ServiceTitle"),
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
+        }
+        finally
+        {
+            _switching = false;
+        }
+
+        await UpdateStatusAsync();
+    }
+
+    /*
+     * Brought forward by a second copy of the app that was started and
+     * then closed itself, so there is only ever one.
+     */
+    public void BringToFront()
+    {
+        RestoreFromTray();
+
+        // Topmost flips once so Windows lets it past other windows.
+        Topmost = true;
+        Topmost = false;
+
+        Focus();
     }
 
     private void Window_Closing(
@@ -107,31 +229,45 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Show the close dialog
-        var dialog = new CloseDialogWindow
+        // A remembered choice skips the dialog; Settings can undo it.
+        var remembered = _database.GetSetting("App.CloseAction");
+        var result = remembered switch
         {
-            Owner = this
+            "tray" => CloseDialogResult.MinimizeToTray,
+            "exit" => CloseDialogResult.Exit,
+            _ => (CloseDialogResult?)null
         };
 
-        if (dialog.ShowDialog() != true)
+        if (result is null)
         {
-            // User cancelled
-            e.Cancel = true;
-            return;
+            var dialog = new CloseDialogWindow
+            {
+                Owner = this
+            };
+
+            if (dialog.ShowDialog() != true)
+            {
+                // User cancelled
+                e.Cancel = true;
+                return;
+            }
+
+            result = dialog.Result;
+
+            if (dialog.DontAskAgain)
+            {
+                _database.SetSetting(
+                    "App.CloseAction",
+                    result == CloseDialogResult.Exit ? "exit" : "tray");
+            }
         }
 
-        switch (dialog.Result)
+        switch (result)
         {
             case CloseDialogResult.MinimizeToTray:
                 // Minimize to tray instead of closing
                 e.Cancel = true;
                 MinimizeToTray();
-                break;
-
-            case CloseDialogResult.Settings:
-                // Open settings window
-                e.Cancel = true;
-                OpenSettings();
                 break;
 
             case CloseDialogResult.Exit:
@@ -400,9 +536,22 @@ public partial class MainWindow : Window
         StatusTextBlock.Text = $"{gatewayText}    ·    {Strings.Get(serviceKey)}";
         StatusTextBlock.Foreground = color;
 
+        ServiceToggleButton.Visibility =
+            state == ServiceState.NotInstalled
+                ? Visibility.Collapsed
+                : Visibility.Visible;
+
+        ServiceToggleButton.Content =
+            state == ServiceState.Running
+                ? Strings.Get("StopService")
+                : Strings.Get("StartService");
+
+        ServiceToggleButton.IsEnabled =
+            !_switching && state != ServiceState.Pending;
+
         _requestCounts =
             answering
-                ? await _service.GetStatsAsync(config.BaseUrl)
+                ? await _service.GetStatsAsync(config.BaseUrl, config.ApiKey)
                 : new Dictionary<string, long>();
 
         RefreshRequestCountLabels();
