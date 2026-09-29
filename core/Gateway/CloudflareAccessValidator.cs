@@ -92,6 +92,15 @@ public sealed class CloudflareAccessValidator : IDisposable
                 ClockSkew = TimeSpan.FromMinutes(2),
 
                 ValidateIssuerSigningKey = true,
+
+                /*
+                 * Cloudflare Access signs with RS256 and nothing else, so
+                 * nothing else is accepted. Left open, the token's own
+                 * header would choose the algorithm the signature is
+                 * checked with.
+                 */
+                ValidAlgorithms = [SecurityAlgorithms.RsaSha256],
+
                 IssuerSigningKeyResolver = (token, securityToken, kid, parameters) =>
                     GetSigningKeysAsync(kid).GetAwaiter().GetResult()
             };
@@ -118,9 +127,15 @@ public sealed class CloudflareAccessValidator : IDisposable
      */
     public static string? GetEmail(ClaimsPrincipal principal)
     {
-        return principal?.FindFirst("sub")?.Value
-            ?? principal?.FindFirst(ClaimTypes.Email)?.Value
-            ?? principal?.FindFirst("email")?.Value;
+        /*
+         * The address first. "sub" is Cloudflare's opaque id for the
+         * person, not an address, and is what a service token carries
+         * instead, so it is only the fallback.
+         */
+        return principal?.FindFirst(ClaimTypes.Email)?.Value
+            ?? principal?.FindFirst("email")?.Value
+            ?? principal?.FindFirst("sub")?.Value
+            ?? principal?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
     }
 
     /*

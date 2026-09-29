@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Settings"
         Width="500"
-        Height="350"
+        Height="440"
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
         Background="White">
@@ -90,6 +90,41 @@
                               VerticalAlignment="Center"
                               Checked="AutoStartCheckBox_Changed"
                               Unchecked="AutoStartCheckBox_Changed"/>
+                </Grid>
+
+            </Border>
+
+            <!-- Ask before closing -->
+            <Border Padding="16"
+                    CornerRadius="8"
+                    BorderThickness="1"
+                    BorderBrush="#DCDCDC"
+                    Margin="0,12,0,0">
+
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0">
+                        <TextBlock x:Name="AskCloseTextBlock"
+                                   Text="Ask before closing"
+                                   FontSize="15"
+                                   FontWeight="SemiBold"/>
+                        <TextBlock x:Name="AskCloseHintTextBlock"
+                                   Text="Choose between minimizing to the tray and exiting each time the window is closed."
+                                   FontSize="12"
+                                   Foreground="Gray"
+                                   TextWrapping="Wrap"
+                                   Margin="0,4,0,0"/>
+                    </StackPanel>
+
+                    <CheckBox x:Name="AskCloseCheckBox"
+                              Grid.Column="1"
+                              VerticalAlignment="Center"
+                              Checked="AskCloseCheckBox_Changed"
+                              Unchecked="AskCloseCheckBox_Changed"/>
                 </Grid>
 
             </Border>

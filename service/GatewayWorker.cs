@@ -264,7 +264,10 @@ public sealed class GatewayWorker : BackgroundService
         running.Host != desired.Host
         || running.Port != desired.Port
         || running.MaxRows != desired.MaxRows
-        || running.CommandTimeoutSeconds != desired.CommandTimeoutSeconds;
+        || running.CommandTimeoutSeconds != desired.CommandTimeoutSeconds
+        || running.AuthMaxFailures != desired.AuthMaxFailures
+        || running.AuthWindowSeconds != desired.AuthWindowSeconds
+        || running.AuthBlockSeconds != desired.AuthBlockSeconds;
 
     /*
      * HttpListener's "access denied", which means HTTP.SYS has no

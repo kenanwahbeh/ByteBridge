@@ -20,6 +20,11 @@ public partial class WebServerWindow : Window
 
     private readonly GatewayServiceControl _service;
 
+    private readonly GatewaySwitch _switch;
+
+    // True while a start or stop is waiting on Windows.
+    private bool _switching;
+
     private readonly DispatcherTimer _refresh = new()
     {
         Interval = TimeSpan.FromSeconds(2)
@@ -35,10 +40,14 @@ public partial class WebServerWindow : Window
 
         _database = database;
         _service = service;
+        _switch = new GatewaySwitch(database, service);
 
         ApplyLocalization();
 
-        GatewayPortTextBox.Text = _database.GetGatewayConfig().Port.ToString();
+        var config = _database.GetGatewayConfig();
+
+        GatewayPortTextBox.Text = config.Port.ToString();
+        ShowLockout(config);
 
         _refresh.Tick += async (_, _) => await UpdateGatewayUiAsync();
     }
@@ -59,15 +68,90 @@ public partial class WebServerWindow : Window
     {
         Title = Strings.Get("WebServerWindowTitle");
         PortTextBlock.Text = Strings.Get("Port");
+        LockoutAttemptsTextBlock.Text = Strings.Get("LockoutAttempts");
+        LockoutMinutesTextBlock.Text = Strings.Get("LockoutMinutes");
         CopyKeyButton.Content = Strings.Get("CopyApiKey");
         RegenerateKeyButton.Content = Strings.Get("NewKey");
-        StartServiceButton.Content = Strings.Get("StartService");
         CloseButton.Content = Strings.Get("Done");
     }
 
     private void CloseButton_Click(object sender, RoutedEventArgs e)
     {
         Close();
+    }
+
+    /*
+     * The block is stored in seconds, so the CLI can set any length; the
+     * box is in minutes, rounded up, and only written back when the
+     * person actually changes it.
+     */
+    private void ShowLockout(GatewayConfig config)
+    {
+        LockoutAttemptsTextBox.Text = config.AuthMaxFailures.ToString();
+
+        // The window is settable from the command line, so it is read, not assumed.
+        LockoutHintTextBlock.Text =
+            Strings.Format("LockoutHint", config.AuthWindowSeconds);
+
+        LockoutMinutesTextBox.Text =
+            ((config.AuthBlockSeconds + 59) / 60).ToString();
+
+        LockoutMinutesTextBox.IsEnabled = config.AuthMaxFailures > 0;
+    }
+
+    private void LockoutAttemptsTextBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        var config = _database.GetGatewayConfig();
+
+        if (!int.TryParse(LockoutAttemptsTextBox.Text.Trim(), out var attempts)
+            || attempts < 0
+            || attempts > 10000)
+        {
+            RejectLockoutInput(config);
+            return;
+        }
+
+        if (attempts != config.AuthMaxFailures)
+        {
+            config.AuthMaxFailures = attempts;
+
+            _database.SaveGatewayConfig(config);
+        }
+
+        ShowLockout(config);
+    }
+
+    private void LockoutMinutesTextBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        var config = _database.GetGatewayConfig();
+
+        if (!int.TryParse(LockoutMinutesTextBox.Text.Trim(), out var minutes)
+            || minutes < 1
+            || minutes > 1440)
+        {
+            RejectLockoutInput(config);
+            return;
+        }
+
+        if (minutes != (config.AuthBlockSeconds + 59) / 60)
+        {
+            config.AuthBlockSeconds = minutes * 60;
+
+            _database.SaveGatewayConfig(config);
+        }
+
+        ShowLockout(config);
+    }
+
+    private void RejectLockoutInput(GatewayConfig config)
+    {
+        MessageBox.Show(
+            Strings.Get("InvalidLockout"),
+            Strings.Get("AppTitle"),
+            MessageBoxButton.OK,
+            MessageBoxImage.Warning);
+
+        ShowLockout(config);
     }
 
     private async Task UpdateGatewayUiAsync()
@@ -86,11 +170,6 @@ public partial class WebServerWindow : Window
 
     private void RenderServiceState(ServiceState state)
     {
-        StartServiceButton.Visibility =
-            state == ServiceState.Stopped
-                ? Visibility.Visible
-                : Visibility.Collapsed;
-
         ServiceStatusTextBlock.Text = state switch
         {
             ServiceState.Running => Strings.Get("ServiceRunning"),
@@ -130,61 +209,86 @@ public partial class WebServerWindow : Window
             GatewayHintTextBlock.Text = Strings.Get("NotRunningHint");
         }
 
-        GatewayToggleButton.Content =
-            config.AutoStart ? Strings.Get("TurnOff") : Strings.Get("TurnOn");
+        /*
+         * On means the gateway is meant to listen and the service that
+         * hosts it is up. A service that is down while the setting says
+         * on reads as off here, because turning it on is exactly what
+         * brings it back.
+         */
+        var on = config.AutoStart && state == ServiceState.Running;
 
-        GatewayPortTextBox.IsEnabled = !config.AutoStart;
+        GatewayToggleButton.Content =
+            on ? Strings.Get("TurnOff") : Strings.Get("TurnOn");
+
+        GatewayToggleButton.IsEnabled =
+            !_switching && state != ServiceState.Pending;
+
+        GatewayPortTextBox.IsEnabled = !on;
     }
 
     private async void GatewayToggleButton_Click(object sender, RoutedEventArgs e)
     {
         var config = _database.GetGatewayConfig();
 
-        if (config.AutoStart)
+        var turningOff =
+            config.AutoStart && _service.State() == ServiceState.Running;
+
+        int? port = null;
+
+        if (turningOff)
         {
-            config.AutoStart = false;
-
-            _database.SaveGatewayConfig(config);
-
-            await UpdateGatewayUiAsync();
-
-            return;
-        }
-
-        var portText = GatewayPortTextBox.Text.Trim();
-
-        if (!int.TryParse(portText, out var port) || port < 1 || port > 65535)
-        {
-            MessageBox.Show(
-                Strings.Get("InvalidPort"),
-                Strings.Get("AppTitle"),
-                MessageBoxButton.OK,
+            var confirm = MessageBox.Show(
+                this,
+                Strings.Get("StopServiceConfirm"),
+                Strings.Get("ServiceTitle"),
+                MessageBoxButton.YesNo,
                 MessageBoxImage.Warning);
 
-            return;
+            if (confirm != MessageBoxResult.Yes)
+            {
+                return;
+            }
+        }
+        else
+        {
+            var portText = GatewayPortTextBox.Text.Trim();
+
+            if (!int.TryParse(portText, out var chosen) || chosen < 1 || chosen > 65535)
+            {
+                MessageBox.Show(
+                    Strings.Get("InvalidPort"),
+                    Strings.Get("AppTitle"),
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+
+                return;
+            }
+
+            port = chosen;
         }
 
-        config.Port = port;
-        config.AutoStart = true;
+        _switching = true;
+        GatewayToggleButton.IsEnabled = false;
 
-        _database.SaveGatewayConfig(config);
-
-        await UpdateGatewayUiAsync();
-    }
-
-    private async void StartServiceButton_Click(object sender, RoutedEventArgs e)
-    {
         try
         {
-            _service.Start();
+            var problem = turningOff
+                ? await _switch.TurnOffAsync()
+                : await _switch.TurnOnAsync(port);
+
+            if (problem != null)
+            {
+                MessageBox.Show(
+                    this,
+                    problem,
+                    Strings.Get("ServiceTitle"),
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
         }
-        catch (Exception ex)
+        finally
         {
-            MessageBox.Show(
-                Strings.Format("ServiceError", ex.Message),
-                Strings.Get("ServiceTitle"),
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
+            _switching = false;
         }
 
         await UpdateGatewayUiAsync();

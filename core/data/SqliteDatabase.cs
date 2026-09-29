@@ -657,6 +657,31 @@ public class SqliteDatabase
             config.CommandTimeoutSeconds = timeout;
         }
 
+        // Zero is a real value here: it turns the limit off.
+        if (int.TryParse(
+                GetSetting("Gateway.AuthMaxFailures"),
+                out var authMax) &&
+            authMax >= 0)
+        {
+            config.AuthMaxFailures = authMax;
+        }
+
+        if (int.TryParse(
+                GetSetting("Gateway.AuthWindowSeconds"),
+                out var authWindow) &&
+            authWindow > 0)
+        {
+            config.AuthWindowSeconds = authWindow;
+        }
+
+        if (int.TryParse(
+                GetSetting("Gateway.AuthBlockSeconds"),
+                out var authBlock) &&
+            authBlock > 0)
+        {
+            config.AuthBlockSeconds = authBlock;
+        }
+
         config.AutoStart =
             GetSetting("Gateway.AutoStart") != "0";
 
@@ -730,6 +755,15 @@ public class SqliteDatabase
 
             ("Gateway.CommandTimeoutSeconds",
                 config.CommandTimeoutSeconds.ToString(CultureInfo.InvariantCulture)),
+
+            ("Gateway.AuthMaxFailures",
+                config.AuthMaxFailures.ToString(CultureInfo.InvariantCulture)),
+
+            ("Gateway.AuthWindowSeconds",
+                config.AuthWindowSeconds.ToString(CultureInfo.InvariantCulture)),
+
+            ("Gateway.AuthBlockSeconds",
+                config.AuthBlockSeconds.ToString(CultureInfo.InvariantCulture)),
 
             ("Gateway.AutoStart", config.AutoStart ? "1" : "0")
         };
