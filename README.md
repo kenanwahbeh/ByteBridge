@@ -1,5 +1,7 @@
 # ByteBridge
 
+<a href="#support-the-project"><img src="docs/assets/sponsor-button.svg" alt="Sponsor this project" width="224" height="38"></a>
+
 A Windows desktop app that puts a small, authenticated HTTP API in
 front of your databases, so they can be reached from outside
 the machine through a tunnel such as Cloudflare Tunnel — without
