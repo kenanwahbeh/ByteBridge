@@ -3,7 +3,8 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
         Title="About ByteBridge"
-        Width="420"
+        Icon="Assets/bytebalance-logo.png"
+        Width="440"
         SizeToContent="Height"
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize">
@@ -15,20 +16,65 @@
 
         <StackPanel Grid.Row="0" Margin="24">
 
-            <TextBlock x:Name="AppTitleTextBlock"
-                       Text="ByteBridge"
-                       FontSize="24"
-                       FontWeight="Bold"/>
+            <!-- The maker's logo sits beside the product name, not under it. -->
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
 
-            <TextBlock x:Name="VersionTextBlock"
-                       Margin="0,6,0,0"
-                       FontSize="13"
-                       Foreground="Gray"/>
+                <Image Grid.Column="0"
+                       Source="Assets/bytebalance-logo.png"
+                       Width="88"
+                       Height="88"
+                       RenderOptions.BitmapScalingMode="HighQuality"
+                       VerticalAlignment="Center"/>
+
+                <StackPanel Grid.Column="1"
+                            Margin="16,0"
+                            VerticalAlignment="Center">
+
+                    <TextBlock x:Name="AppTitleTextBlock"
+                               Text="ByteBridge"
+                               FontSize="24"
+                               FontWeight="Bold"/>
+
+                    <TextBlock x:Name="VersionTextBlock"
+                               Margin="0,6,0,0"
+                               FontSize="13"
+                               Foreground="Gray"/>
+
+                </StackPanel>
+            </Grid>
 
             <TextBlock x:Name="DescriptionTextBlock"
                        Margin="0,16,0,0"
                        FontSize="13"
                        TextWrapping="Wrap"/>
+
+            <!-- Who made it, at the weight of a heading rather than a footnote. -->
+            <Border Margin="0,20,0,0"
+                    Padding="16,12"
+                    CornerRadius="6"
+                    BorderThickness="1"
+                    BorderBrush="#40808080">
+
+                <StackPanel>
+
+                    <TextBlock x:Name="MadeByTextBlock"
+                               FontSize="12"
+                               Foreground="Gray"/>
+
+                    <TextBlock Margin="0,4,0,0"
+                               FontSize="20"
+                               FontWeight="SemiBold">
+                        <Hyperlink NavigateUri="https://bytebalancetech.com"
+                                   RequestNavigate="MakerLink_RequestNavigate">ByteBalanceTech.com</Hyperlink>
+                    </TextBlock>
+
+                </StackPanel>
+
+            </Border>
 
             <StackPanel Orientation="Horizontal"
                         HorizontalAlignment="Right"

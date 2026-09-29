@@ -59,13 +59,18 @@ public partial class MainWindow : Window
     private bool _isClosing = false;
 
     /*
-     * Created lazily on the first minimize-to-tray, then just shown
-     * and hidden from there on rather than recreated each time --
+     * Created once, at launch, and left in the notification area for as
+     * long as the app runs, so the app can be found there whether its
+     * window is open or hidden. It is not recreated on each toggle:
      * NotifyIcon holds a live shell notification-area slot, and
-     * disposing and recreating it on every toggle is what makes tray
-     * icons flicker or land in the wrong spot.
+     * disposing and recreating it is what makes tray icons flicker or
+     * land in the wrong spot.
      */
     private System.Windows.Forms.NotifyIcon? _trayIcon;
+
+    private System.Windows.Forms.ToolStripItem? _trayOpenItem;
+
+    private System.Windows.Forms.ToolStripItem? _trayExitItem;
 
     public MainWindow()
     {
@@ -83,6 +88,9 @@ public partial class MainWindow : Window
         }
 
         ApplyLocalization();
+
+        // In the notification area from launch, not only after a minimize.
+        ShowTrayIcon();
 
         _refresh.Tick += async (_, _) => await UpdateStatusAsync();
 
@@ -296,33 +304,31 @@ public partial class MainWindow : Window
 
         _service.Dispose();
 
-        _trayIcon?.Dispose();
-        _trayIcon = null;
+        if (_trayIcon != null)
+        {
+            _trayIcon.Visible = false;
+            _trayIcon.Dispose();
+            _trayIcon = null;
+        }
     }
 
     /*
-     * Hides the window entirely -- not just off the taskbar -- and
-     * shows a notification-area icon in its place. The previous
-     * version set WindowState.Minimized with ShowInTaskbar false and
-     * nothing else: no taskbar entry and no tray icon either, so the
-     * window was simply gone until relaunched from the Start menu.
+     * Hides the window entirely -- not just off the taskbar. The
+     * notification-area icon is already there; it is what brings the
+     * window back. The previous version set WindowState.Minimized with
+     * ShowInTaskbar false and nothing else: no taskbar entry and no
+     * tray icon either, so the window was simply gone until relaunched
+     * from the Start menu.
      */
     private void MinimizeToTray()
     {
-        EnsureTrayIcon();
+        ShowTrayIcon();
 
         Hide();
-
-        _trayIcon!.Visible = true;
     }
 
     private void RestoreFromTray()
     {
-        if (_trayIcon != null)
-        {
-            _trayIcon.Visible = false;
-        }
-
         Show();
         WindowState = WindowState.Normal;
         ShowInTaskbar = true;
@@ -340,16 +346,34 @@ public partial class MainWindow : Window
             Environment.ProcessPath
             ?? System.Reflection.Assembly.GetExecutingAssembly().Location;
 
-        var icon =
-            System.Drawing.Icon.ExtractAssociatedIcon(exePath);
+        /*
+         * Asked for at the size the notification area really draws, so
+         * the picture made for that size is used rather than a larger
+         * one squeezed down. Falls back to the ordinary lookup.
+         */
+        System.Drawing.Icon? icon = null;
+
+        try
+        {
+            icon = System.Drawing.Icon.ExtractIcon(
+                exePath,
+                0,
+                System.Windows.Forms.SystemInformation.SmallIconSize.Width);
+        }
+        catch (Exception)
+        {
+            // Falls through to the plain lookup below.
+        }
+
+        icon ??= System.Drawing.Icon.ExtractAssociatedIcon(exePath);
 
         var menu = new System.Windows.Forms.ContextMenuStrip();
 
-        var openItem = menu.Items.Add(Strings.Get("TrayOpen"));
-        openItem.Click += (_, _) => RestoreFromTray();
+        _trayOpenItem = menu.Items.Add(Strings.Get("TrayOpen"));
+        _trayOpenItem.Click += (_, _) => RestoreFromTray();
 
-        var exitItem = menu.Items.Add(Strings.Get("ExitApp"));
-        exitItem.Click += (_, _) => ExitFromTray();
+        _trayExitItem = menu.Items.Add(Strings.Get("ExitApp"));
+        _trayExitItem.Click += (_, _) => ExitFromTray();
 
         _trayIcon = new System.Windows.Forms.NotifyIcon
         {
@@ -367,6 +391,34 @@ public partial class MainWindow : Window
         };
 
         _trayIcon.DoubleClick += (_, _) => RestoreFromTray();
+    }
+
+    private void ShowTrayIcon()
+    {
+        EnsureTrayIcon();
+
+        _trayIcon!.Visible = true;
+    }
+
+    // The language can change while the app is running.
+    private void UpdateTrayText()
+    {
+        if (_trayIcon == null)
+        {
+            return;
+        }
+
+        _trayIcon.Text = Strings.Get("AppTitle");
+
+        if (_trayOpenItem != null)
+        {
+            _trayOpenItem.Text = Strings.Get("TrayOpen");
+        }
+
+        if (_trayExitItem != null)
+        {
+            _trayExitItem.Text = Strings.Get("ExitApp");
+        }
     }
 
     private void ExitFromTray()
@@ -1006,6 +1058,8 @@ public partial class MainWindow : Window
             Strings.CurrentLanguage == "ar"
                 ? FlowDirection.RightToLeft
                 : FlowDirection.LeftToRight;
+
+        UpdateTrayText();
 
         // Refresh dynamic text
         _ = UpdateStatusAsync();

@@ -54,6 +54,15 @@ file is the single source of truth for what shipped.
 
 ### Changed
 
+- **A new app icon.** The ByteBalanceTech logo, taken from its website,
+  replaces the generic database icon everywhere the app shows one: the
+  program file, the window and its taskbar button, the notification
+  area, and the installers.
+- **The notification-area icon is there from the moment the app starts,**
+  not only after *Minimize to Tray*, and stays while the window is open.
+  Left-clicking it brings the window forward.
+- **About names its maker.** *About* now shows the ByteBalanceTech logo
+  and a link to ByteBalanceTech.com beside the version.
 - **The window-close dialog is two choices.** *Minimize to Tray* or
   *Exit*, with a *Don't ask again* box; the × or Esc cancels. *Ask
   before closing* in Settings turns the question back on.
