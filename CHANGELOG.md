@@ -18,19 +18,21 @@ file is the single source of truth for what shipped.
 - **Wrong API keys now cost the caller.** The 10th wrong key from
   one caller inside a minute is still answered `401`, but blocks that
   caller: its next request gets a `429` with a `Retry-After` for the
-  next minute, before its key is even looked at.
-  A request that sends no key at all does not count, and a correct key
-  clears the tally. The limit is yours to set: **Web Server** in the
-  app has *Lock out after wrong keys* and *Lock out for (minutes)*
-  (0 turns it off), and `ByteBridge.Service.exe lockout show | on | off | set --attempts
-  <n> --window <seconds> --block <seconds>` does the same from a
-  terminal. Callers are told apart by the address Cloudflare reports;
-  `X-Forwarded-For` is ignored because its first entry is written by
-  the caller.
+  next minute, before its key is even looked at. This applies wherever
+  a key is tested, `/auth/me` included, which used to be answered ahead
+  of the limit. A request that sends no key at all does not count, and
+  a correct key clears the tally. The limit is yours to set: **Web
+  Server** in the app has *Lock out after wrong keys* and *Lock out for
+  (minutes)* (0 turns it off), and `ByteBridge.Service.exe lockout show
+  | on | off | set --attempts <n> --window <seconds> --block <seconds>`
+  does the same from a terminal. Callers are told apart by the address
+  Cloudflare reports; `X-Forwarded-For` is ignored because its first
+  entry is written by the caller.
 - **`/stats` needs the API key.** It listed every connection to anyone
   who could reach the hostname. The app sends its key when it
   polls, so nothing changes there; a script that read `/stats` without
-  a key now gets `401`. Only `/health` is still open.
+  a key now gets `401`, and a signed-in Cloudflare Access session on
+  its own gets `403`. Only `/health` is still open.
 - **Request counts are kept per connection.** The name a caller typed
   used to be the counting key, so a client could grow the table without
   bound with names that match nothing, and a connection reached once by

@@ -23,13 +23,28 @@ public partial class App : Application
 
     private const string ShowSignalName = @"Local\ByteBridge.ControlPanel.Show";
 
+    private const string ShownAckName = @"Local\ByteBridge.ControlPanel.Shown";
+
     private Mutex? _instance;
 
     private EventWaitHandle? _showSignal;
 
+    private EventWaitHandle? _shownAck;
+
     protected override void OnStartup(StartupEventArgs e)
     {
-        _instance = new Mutex(true, InstanceName, out var first);
+        bool first;
+
+        try
+        {
+            _instance = new Mutex(true, InstanceName, out first);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Held by something that will not share it, so not a ByteBridge.
+            _instance = null;
+            first = false;
+        }
 
         /*
          * Holding the names proves nothing about who holds them: any
@@ -71,17 +86,38 @@ public partial class App : Application
             return;
         }
 
-        _showSignal = new EventWaitHandle(
-            false,
-            EventResetMode.AutoReset,
-            ShowSignalName);
-
-        var listener = new Thread(WaitForSecondCopy)
+        try
         {
-            IsBackground = true
-        };
+            _showSignal = new EventWaitHandle(
+                false,
+                EventResetMode.AutoReset,
+                ShowSignalName);
 
-        listener.Start();
+            _shownAck = new EventWaitHandle(
+                false,
+                EventResetMode.AutoReset,
+                ShownAckName);
+
+            var listener = new Thread(WaitForSecondCopy)
+            {
+                IsBackground = true
+            };
+
+            listener.Start();
+        }
+        catch (Exception ex) when (
+            ex is UnauthorizedAccessException
+            or WaitHandleCannotBeOpenedException)
+        {
+            /*
+             * Another program holds one of the names and will not share
+             * it. This copy still opens; it just cannot be brought
+             * forward by a later launch, which then says so.
+             */
+            _showSignal?.Dispose();
+            _showSignal = null;
+            _shownAck = null;
+        }
 
         base.OnStartup(e);
 
@@ -158,7 +194,14 @@ public partial class App : Application
     }
 
     /*
-     * The first copy creates its event a moment after taking the mutex,
+     * Knocks, and waits to be answered. Setting an event proves nothing
+     * on its own: it may be one another program created, or the window it
+     * belongs to may be stuck. The running copy sets the second event
+     * only after it has asked its window to come forward, so an answer
+     * means it was reached, and no answer is reported instead of being
+     * mistaken for success.
+     *
+     * The first copy creates its events a moment after taking the mutex,
      * so a second one started in that gap is given a little while.
      */
     private static bool SignalRunningCopy()
@@ -168,10 +211,14 @@ public partial class App : Application
             try
             {
                 using var signal = EventWaitHandle.OpenExisting(ShowSignalName);
+                using var answer = EventWaitHandle.OpenExisting(ShownAckName);
+
+                // Whatever answered an earlier knock is not an answer to this one.
+                answer.Reset();
 
                 signal.Set();
 
-                return true;
+                return answer.WaitOne(TimeSpan.FromSeconds(5));
             }
             catch (WaitHandleCannotBeOpenedException)
             {
@@ -188,15 +235,30 @@ public partial class App : Application
 
     private void WaitForSecondCopy()
     {
-        while (_showSignal!.WaitOne())
+        var signal = _showSignal!;
+        var answer = _shownAck!;
+
+        try
         {
-            Dispatcher.BeginInvoke(() => (MainWindow as MainWindow)?.BringToFront());
+            while (signal.WaitOne())
+            {
+                // Synchronous on purpose: the answer goes out only once the
+                // window has really been asked, and never if it is stuck.
+                Dispatcher.Invoke(() => (MainWindow as MainWindow)?.BringToFront());
+
+                answer.Set();
+            }
+        }
+        catch (ObjectDisposedException)
+        {
+            // The app is closing.
         }
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
         _showSignal?.Dispose();
+        _shownAck?.Dispose();
 
         try
         {

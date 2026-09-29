@@ -275,6 +275,76 @@ public class GatewayLockoutTests
     }
 
     /*
+     * /auth/me answers 200 for a right key, so it tests keys like any
+     * other endpoint. It used to be dispatched ahead of the lockout,
+     * which made it a place to guess keys without limit.
+     */
+    [Fact]
+    public async Task Wrong_keys_sent_to_auth_me_count_toward_the_lockout()
+    {
+        using var gateway = GatewayHarness.With(c => c.AuthMaxFailures = 3);
+
+        for (var i = 0; i < 3; i++)
+        {
+            var (status, _) = await GatewayHarness.Read(
+                gateway.Get("/auth/me", key: "wrong"));
+
+            Assert.Equal(HttpStatusCode.Unauthorized, status);
+        }
+
+        // Blocked on every endpoint, not only the one that was guessed at.
+        using var elsewhere = await gateway.Get("/databases");
+        using var again = await gateway.Get("/auth/me");
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, elsewhere.StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, again.StatusCode);
+    }
+
+    [Fact]
+    public async Task A_caller_blocked_elsewhere_cannot_probe_keys_through_auth_me()
+    {
+        using var gateway = GatewayHarness.With(c => c.AuthMaxFailures = 2);
+
+        for (var i = 0; i < 2; i++)
+        {
+            await GatewayHarness.Read(gateway.Get("/databases", key: "wrong"));
+        }
+
+        using var response = await gateway.Get("/auth/me");
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Auth_me_without_credentials_does_not_count()
+    {
+        using var gateway = GatewayHarness.With(c => c.AuthMaxFailures = 3);
+
+        for (var i = 0; i < 8; i++)
+        {
+            var (status, _) = await GatewayHarness.Read(
+                gateway.Get("/auth/me", key: ""));
+
+            Assert.Equal(HttpStatusCode.Unauthorized, status);
+        }
+
+        var (right, _) = await GatewayHarness.Read(gateway.Get("/databases"));
+
+        Assert.Equal(HttpStatusCode.OK, right);
+    }
+
+    [Fact]
+    public async Task Auth_me_still_answers_a_right_key()
+    {
+        using var gateway = new GatewayHarness();
+
+        var (status, body) = await GatewayHarness.Read(gateway.Get("/auth/me"));
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Contains("api-key", body);
+    }
+
+    /*
      * X-Forwarded-For's first entry is whatever the caller wrote, so
      * rotating it must not buy a fresh allowance.
      */
@@ -480,6 +550,28 @@ public class SessionCsrfTests
             return response.StatusCode;
         }
 
+        public async Task<HttpStatusCode> Get(
+            string path,
+            bool withCookie,
+            bool withKey)
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get, path);
+
+            if (withCookie)
+            {
+                request.Headers.Add("Cookie", SessionCookie);
+            }
+
+            if (withKey)
+            {
+                request.Headers.Add("X-API-Key", ApiKey);
+            }
+
+            using var response = await Client.SendAsync(request);
+
+            return response.StatusCode;
+        }
+
         public void Dispose()
         {
             Client.Dispose();
@@ -567,6 +659,30 @@ public class SessionCsrfTests
      * A browser that holds the session cookie and also sends the key must
      * not have the key refused because the cookie checks ran first.
      */
+    /*
+     * /stats is the app's own business and is documented as needing the
+     * key. A signed-in session can use the rest of the API, but not this.
+     */
+    [Fact]
+    public async Task A_signed_in_session_alone_cannot_read_stats()
+    {
+        using var harness = new SessionHarness();
+
+        Assert.Equal(
+            HttpStatusCode.Forbidden,
+            await harness.Get("/stats", withCookie: true, withKey: false));
+    }
+
+    [Fact]
+    public async Task Stats_answers_the_key_even_when_the_session_cookie_is_sent_too()
+    {
+        using var harness = new SessionHarness();
+
+        Assert.Equal(
+            HttpStatusCode.OK,
+            await harness.Get("/stats", withCookie: true, withKey: true));
+    }
+
     [Fact]
     public async Task A_valid_key_is_honoured_even_when_the_session_cookie_is_sent_too()
     {

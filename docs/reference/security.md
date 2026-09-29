@@ -5,7 +5,8 @@ API key as a database credential.
 
 - Every endpoint except `/health` requires the key, in `X-API-Key` or
   as `Authorization: Bearer`. That includes `/stats`, which lists every
-  connection. The key is 32 random bytes, generated on first run and
+  connection and, unlike the rest, is not open to a signed-in Access
+  session on its own. The key is 32 random bytes, generated on first run and
   compared in constant time.
 - Wrong keys are slowed down: by default, once a caller has sent 10
   wrong keys in a minute, its next requests get a `429` for the next
@@ -42,7 +43,8 @@ looked at, so the block holds even if the next key is right. The wrong
 key that reaches the limit is still answered `401`; it is the next
 request that meets the `429`. Requests that send no key at all are not
 counted, a correct key clears the tally, and `/health` is never
-blocked.
+blocked. `/auth/me`, which also answers a right key, counts like any
+other endpoint.
 
 The defaults are 10 wrong keys inside 60 seconds, blocking for 60
 seconds. Change them, or turn the limit off, whichever way suits you:

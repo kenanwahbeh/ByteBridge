@@ -469,9 +469,14 @@ public sealed class GatewayServer : IDisposable
             }
 
             /*
-             * /auth/* endpoints handle OAuth login/logout.
+             * /auth/* endpoints handle OAuth login/logout. Not /auth/me:
+             * it answers 200 for a right API key, so it tests keys like
+             * any other endpoint and has to sit behind the lockout below.
+             * Dispatched from here it was a place to guess keys without
+             * limit.
              */
-            if (path.StartsWith("/auth/", StringComparison.OrdinalIgnoreCase))
+            if (path.StartsWith("/auth/", StringComparison.OrdinalIgnoreCase)
+                && path != "/auth/me")
             {
                 await HandleAuthAsync(context, path, cancellationToken);
                 return;
@@ -586,6 +591,27 @@ public sealed class GatewayServer : IDisposable
                         return;
                     }
 
+                    /*
+                     * The request counts are for the app that runs the
+                     * gateway, and that app holds the key. A signed-in
+                     * session reaches /databases, /query and /execute, but
+                     * usage figures are not something it needs, and
+                     * /stats is documented as a key endpoint.
+                     */
+                    if (outcome != AuthOutcome.ApiKey)
+                    {
+                        await DrainOrCloseAsync(context);
+
+                        await WriteJsonAsync(
+                            context,
+                            403,
+                            new ErrorResponse(
+                                "/stats needs the API key. Send it in the " +
+                                "X-API-Key header."));
+
+                        return;
+                    }
+
                     await DrainOrCloseAsync(context);
 
                     await WriteStatsAsync(context);
@@ -629,6 +655,14 @@ public sealed class GatewayServer : IDisposable
                     }
 
                     await HandleExecuteAsync(context, record, cancellationToken);
+                    return;
+
+                case "/auth/me":
+
+                    // Authenticated above; this only says who.
+                    await DrainOrCloseAsync(context);
+
+                    await HandleMeAsync(context);
                     return;
 
                 default:
@@ -1188,7 +1222,8 @@ public sealed class GatewayServer : IDisposable
      * /auth/login   - Redirects to Cloudflare Access login
      * /auth/callback - Handles the OAuth callback
      * /auth/logout  - Clears the session
-     * /auth/me      - Returns the current user info
+     * (/auth/me - Returns the current user info; handled in
+     *  HandleContextAsync, behind the failed-key lockout.)
      */
     private async Task HandleAuthAsync(
         HttpListenerContext context,
@@ -1209,10 +1244,6 @@ public sealed class GatewayServer : IDisposable
 
             case "/auth/logout":
                 await HandleLogoutAsync(context);
-                return;
-
-            case "/auth/me":
-                await HandleMeAsync(context);
                 return;
 
             default:
