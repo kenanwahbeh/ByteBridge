@@ -68,6 +68,7 @@ public static class Strings
             ["AboutTitle"] = "About ByteBridge",
             ["AboutVersion"] = "Version {0}",
             ["AboutDescription"] = "HTTP gateway for your databases.",
+            ["AboutMadeBy"] = "Developed by",
             ["AboutOpenLogs"] = "Open Log Folder",
             ["AboutClose"] = "Close",
 
@@ -226,6 +227,7 @@ public static class Strings
             ["AboutTitle"] = "حول ByteBridge",
             ["AboutVersion"] = "الإصدار {0}",
             ["AboutDescription"] = "بوابة HTTP لقواعد بياناتك.",
+            ["AboutMadeBy"] = "تطوير",
             ["AboutOpenLogs"] = "فتح مجلد السجلات",
             ["AboutClose"] = "إغلاق",
 
