@@ -162,7 +162,7 @@ public sealed class GatewayServiceControl : IDisposable
         try
         {
             /*
-             * /stats names every connection, so it wants the key like the
+             * /stats lists every connection, so it wants the key like the
              * rest of the API. Sent per request rather than set on the
              * shared client, since the key can be rotated while the
              * window is open.

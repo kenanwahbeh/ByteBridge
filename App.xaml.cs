@@ -11,13 +11,15 @@ namespace ByteBridge;
 public partial class App : Application
 {
     /*
-     * Machine-wide, not per session: the app controls one Windows
-     * service, so two copies -- even one per signed-in user -- would be
-     * two people driving the same switch without seeing each other.
+     * One copy per Windows session, not per machine. Each signed-in user
+     * has their own desktop, so a copy running in someone else's session
+     * is no use to them; a machine-wide name would have left the second
+     * user with no window at all. It also keeps another user's program
+     * from creating the name first and stopping the app from opening.
      */
-    private const string InstanceName = @"Global\ByteBridge.ControlPanel";
+    private const string InstanceName = @"Local\ByteBridge.ControlPanel";
 
-    private const string ShowSignalName = @"Global\ByteBridge.ControlPanel.Show";
+    private const string ShowSignalName = @"Local\ByteBridge.ControlPanel.Show";
 
     private Mutex? _instance;
 
@@ -31,18 +33,27 @@ public partial class App : Application
         {
             /*
              * Tell the copy that is already running to come forward,
-             * then leave without ever creating a window. This runs
-             * before base.OnStartup because that is what opens the
-             * StartupUri window.
+             * then leave without ever creating a window. There is no
+             * StartupUri to build one behind our back: WPF opens that
+             * after OnStartup returns even when Shutdown has been asked
+             * for, so the window is created below, by hand, and only by
+             * the first copy.
              */
-            try
+            if (!SignalRunningCopy())
             {
-                using var signal = EventWaitHandle.OpenExisting(ShowSignalName);
-                signal.Set();
-            }
-            catch (WaitHandleCannotBeOpenedException)
-            {
-                // The first copy is still starting; it will be in front anyway.
+                /*
+                 * Something holds the name but is not answering, so
+                 * leaving without a word would look like the app refusing
+                 * to open.
+                 */
+                MessageBox.Show(
+                    "ByteBridge is already running in this Windows session, "
+                    + "but its window could not be reached.\n\n"
+                    + "If you cannot see it, end ByteBridge in Task Manager "
+                    + "and start it again.",
+                    "ByteBridge",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
             }
 
             Shutdown();
@@ -73,6 +84,41 @@ public partial class App : Application
         ApplicationThemeManager.ApplySystemTheme();
 
         DispatcherUnhandledException += OnDispatcherUnhandledException;
+
+        var window = new MainWindow();
+
+        MainWindow = window;
+
+        window.Show();
+    }
+
+    /*
+     * The first copy creates its event a moment after taking the mutex,
+     * so a second one started in that gap is given a little while.
+     */
+    private static bool SignalRunningCopy()
+    {
+        for (var attempt = 0; attempt < 10; attempt++)
+        {
+            try
+            {
+                using var signal = EventWaitHandle.OpenExisting(ShowSignalName);
+
+                signal.Set();
+
+                return true;
+            }
+            catch (WaitHandleCannotBeOpenedException)
+            {
+                Thread.Sleep(100);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return false;
+            }
+        }
+
+        return false;
     }
 
     private void WaitForSecondCopy()

@@ -38,6 +38,16 @@ public sealed class GatewaySwitch
 
     public async Task<string?> TurnOnAsync(int? port = null)
     {
+        /*
+         * Refused before anything is saved. The settings loader ignores a
+         * port outside 1 to 65535, so keeping one would have started the
+         * gateway on the old port and reported that it worked.
+         */
+        if (port is < 1 or > 65535)
+        {
+            return Strings.Get("InvalidPort");
+        }
+
         if (_service.State() == ServiceState.NotInstalled)
         {
             return Strings.Get("ServiceNotInstalledMessage");

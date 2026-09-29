@@ -148,6 +148,55 @@ public sealed class GatewayHarness : IDisposable
         };
     }
 
+    /*
+     * A second, offline connection under an existing name, as a settings
+     * file from before names had to be unique could hold. It goes in
+     * around the checks AddConnection makes, and stays offline so nothing
+     * tries to reach a database.
+     */
+    public DatabaseConfig AddLegacyConnectionNamed(string name)
+    {
+        var connection = new DatabaseConfig
+        {
+            Name = name,
+            Server = "127.0.0.1",
+            Port = 3050,
+            Username = "SYSDBA",
+            Password = "not-a-real-password",
+            Database = "/data/" + Guid.NewGuid().ToString("N") + ".fdb",
+            Enabled = false
+        };
+
+        using var sqlite = new Microsoft.Data.Sqlite.SqliteConnection(
+            $"Data Source={SettingsDatabasePath}");
+
+        sqlite.Open();
+
+        using var command = sqlite.CreateCommand();
+
+        command.CommandText = """
+            INSERT INTO Databases
+                (Id, Name, Server, Port, Username, Password, DatabaseValue,
+                 Enabled, LastTestSuccessful, LastTestedAt, ConnectionKey)
+            VALUES
+                ($id, $name, $server, $port, $user, $password, $database,
+                 0, 0, NULL, $key);
+            """;
+
+        command.Parameters.AddWithValue("$id", connection.Id);
+        command.Parameters.AddWithValue("$name", connection.Name);
+        command.Parameters.AddWithValue("$server", connection.Server);
+        command.Parameters.AddWithValue("$port", connection.Port);
+        command.Parameters.AddWithValue("$user", connection.Username);
+        command.Parameters.AddWithValue("$password", connection.Password);
+        command.Parameters.AddWithValue("$database", connection.Database);
+        command.Parameters.AddWithValue("$key", connection.ConnectionKey);
+
+        command.ExecuteNonQuery();
+
+        return connection;
+    }
+
     public void RotateApiKey()
     {
         ApiKey = Database.RegenerateApiKey();

@@ -1,5 +1,6 @@
 using System;
 using System.Windows;
+using System.Windows.Input;
 using ByteBridge.Localization;
 
 namespace ByteBridge;
@@ -35,6 +36,15 @@ public partial class CloseDialogWindow : Window
         TrayButton.Content = Strings.Get("MinimizeToTray");
         ExitButton.Content = Strings.Get("ExitApp");
         DontAskCheckBox.Content = Strings.Get("DontAskAgain");
+    }
+
+    // No Cancel button any more, so Esc is what cancels from the keyboard.
+    private void Window_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape)
+        {
+            DialogResult = false;
+        }
     }
 
     private void TrayButton_Click(object sender, RoutedEventArgs e)

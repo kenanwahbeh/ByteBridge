@@ -4,7 +4,7 @@ The tunnel makes this reachable from the public internet, so treat the
 API key as a database credential.
 
 - Every endpoint except `/health` requires the key, in `X-API-Key` or
-  as `Authorization: Bearer`. That includes `/stats`, which names every
+  as `Authorization: Bearer`. That includes `/stats`, which lists every
   connection. The key is 32 random bytes, generated on first run and
   compared in constant time.
 - Wrong keys are slowed down: by default, 10 wrong keys from one caller
@@ -38,9 +38,11 @@ credentials themselves.
 
 A caller that sends too many wrong API keys is refused with
 `429 Too Many Requests` and a `Retry-After` header, before its key is
-looked at, so the block holds even if the next key is right. Requests
-that send no key at all are not counted, a correct key clears the
-tally, and `/health` is never blocked.
+looked at, so the block holds even if the next key is right. The wrong
+key that reaches the limit is still answered `401`; it is the next
+request that meets the `429`. Requests that send no key at all are not
+counted, a correct key clears the tally, and `/health` is never
+blocked.
 
 The defaults are 10 wrong keys inside 60 seconds, blocking for 60
 seconds. Change them, or turn the limit off, whichever way suits you:
@@ -61,7 +63,11 @@ restarting, though it briefly re-binds its listener when it does.
 
 Callers are told apart by the address Cloudflare reports in
 `CF-Connecting-IP`, which Cloudflare overwrites, so a caller cannot
-choose it. Without a tunnel, that is the socket address. The tally is
+choose it. Without a tunnel, that is the socket address. The gateway
+listens on loopback only, so the one caller who can send that header
+itself is a program already running on this machine: it can dodge the
+count, or run up another address's, but it still needs the key to get
+anything. The header is honoured only from a loopback peer. The tally is
 kept in memory: a restart forgives everyone.
 
 If you use Cloudflare's own rate limiting in front of the hostname as

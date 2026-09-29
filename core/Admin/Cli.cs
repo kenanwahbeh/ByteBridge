@@ -341,6 +341,17 @@ public static class Cli
             return 0;
         }
 
+        /*
+         * Options() skips anything that is not a --key or the value after
+         * one, so "--attempts 5 garbage" would otherwise save the 5 and
+         * say nothing about the rest.
+         */
+        if (FirstStrayArgument(args, 2) is { } stray)
+        {
+            Console.Error.WriteLine($"error: lockout set does not understand '{stray}'.");
+            return 1;
+        }
+
         if (options.Count == 0)
         {
             Console.Error.WriteLine("error: lockout set needs at least one of --attempts, --window, --block.");
@@ -627,6 +638,29 @@ public static class Cli
         Console.WriteLine($"{name} added and answering requests.");
 
         return 0;
+    }
+
+    /*
+     * The first argument that is neither a --key nor the value taken by
+     * one, read the same way Options reads them.
+     */
+    private static string? FirstStrayArgument(string[] args, int from)
+    {
+        for (var i = from; i < args.Length; i++)
+        {
+            if (!args[i].StartsWith("--", StringComparison.Ordinal))
+            {
+                return args[i];
+            }
+
+            if (i + 1 < args.Length
+                && !args[i + 1].StartsWith("--", StringComparison.Ordinal))
+            {
+                i++;
+            }
+        }
+
+        return null;
     }
 
     /*

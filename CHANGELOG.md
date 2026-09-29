@@ -15,8 +15,8 @@ file is the single source of truth for what shipped.
 
 ### Security
 
-- **Wrong API keys now cost the caller.** More than 10 wrong keys from
-  one caller inside a minute gets that caller a `429` with a
+- **Wrong API keys now cost the caller.** The 10th wrong key from
+  one caller inside a minute earns that caller a `429` with a
   `Retry-After` for the next minute, before its key is even looked at.
   A request that sends no key at all does not count, and a correct key
   clears the tally. The limit is yours to set: **Web Server** in the
@@ -26,14 +26,17 @@ file is the single source of truth for what shipped.
   terminal. Callers are told apart by the address Cloudflare reports;
   `X-Forwarded-For` is ignored because its first entry is written by
   the caller.
-- **`/stats` needs the API key.** It listed every connection's name to
-  anyone who could reach the hostname. The app sends its key when it
+- **`/stats` needs the API key.** It listed every connection to anyone
+  who could reach the hostname. The app sends its key when it
   polls, so nothing changes there; a script that read `/stats` without
   a key now gets `401`. Only `/health` is still open.
-- **Request counts only cover real connections.** The name a caller
-  typed used to be the counting key, so a client could grow the table
-  without bound with names that match nothing, and a request that named
-  a connection by its id was counted under the id, not the name.
+- **Request counts are kept per connection.** The name a caller typed
+  used to be the counting key, so a client could grow the table without
+  bound with names that match nothing, and a connection reached once by
+  name and once by id was counted under two keys. They are now keyed by
+  the connection's id, which is also what `/stats` lists, so two
+  connections that share a name from an older settings file are counted
+  apart.
 - **Cloudflare Access sessions are checked for cross-site requests.** A
   `POST` that arrives on the session cookie alone has to be
   `application/json` and, if the browser names an `Origin`, that origin

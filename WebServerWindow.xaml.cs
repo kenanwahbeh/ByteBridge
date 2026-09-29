@@ -69,7 +69,6 @@ public partial class WebServerWindow : Window
         Title = Strings.Get("WebServerWindowTitle");
         PortTextBlock.Text = Strings.Get("Port");
         LockoutAttemptsTextBlock.Text = Strings.Get("LockoutAttempts");
-        LockoutHintTextBlock.Text = Strings.Get("LockoutHint");
         LockoutMinutesTextBlock.Text = Strings.Get("LockoutMinutes");
         CopyKeyButton.Content = Strings.Get("CopyApiKey");
         RegenerateKeyButton.Content = Strings.Get("NewKey");
@@ -89,6 +88,10 @@ public partial class WebServerWindow : Window
     private void ShowLockout(GatewayConfig config)
     {
         LockoutAttemptsTextBox.Text = config.AuthMaxFailures.ToString();
+
+        // The window is settable from the command line, so it is read, not assumed.
+        LockoutHintTextBlock.Text =
+            Strings.Format("LockoutHint", config.AuthWindowSeconds);
 
         LockoutMinutesTextBox.Text =
             ((config.AuthBlockSeconds + 59) / 60).ToString();

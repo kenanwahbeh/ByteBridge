@@ -43,12 +43,13 @@ public sealed class RequestRecord
     public string? Database { get; set; }
 
     /*
-     * The configured connection the request resolved to, by its own
-     * name. Database above is whatever the caller typed -- a name, an
-     * id, or nothing that exists -- and is only fit for the log. This is
-     * what the request counts are keyed on. Not written to the log.
+     * The configured connection the request resolved to, by its id.
+     * Database above is whatever the caller typed -- a name, an id, or
+     * nothing that exists -- and is only fit for the log. This is what
+     * the request counts are keyed on, and an id, unlike a name, belongs
+     * to one connection. Not written to the log.
      */
-    public string? ConnectionName { get; set; }
+    public string? ConnectionId { get; set; }
 
     public string? Sql { get; set; }
 

@@ -6,15 +6,16 @@ namespace ByteBridge.Tests;
 
 /*
  * /stats backs the request-count shown on each connection card in the
- * window. It only needs to be right, not fast, so the same poll-until
- * pattern as RequestLoggingTests is used: the count is updated after
- * the response is already on its way back to the caller.
+ * window, keyed by connection id. It only needs to be right, not fast,
+ * so the same poll-until pattern as RequestLoggingTests is used: the
+ * count is updated after the response is already on its way back to
+ * the caller.
  */
 public class GatewayStatsTests
 {
     private static async Task<long> CountFor(
         GatewayHarness gateway,
-        string database,
+        string connectionId,
         long expected)
     {
         for (var attempt = 0; attempt < 40; attempt++)
@@ -26,7 +27,7 @@ public class GatewayStatsTests
                 .GetProperty("requests");
 
             var seen =
-                requests.TryGetProperty(database, out var count)
+                requests.TryGetProperty(connectionId, out var count)
                     ? count.GetInt64()
                     : 0;
 
@@ -42,10 +43,10 @@ public class GatewayStatsTests
     }
 
     /*
-     * /stats names every connection, so it is behind the key like the
+     * /stats lists every connection, so it is behind the key like the
      * rest of the API. It used to be open on the reasoning that it held
-     * no data, but the names alone are something to keep off the
-     * internet.
+     * no data, but a list of what is behind the tunnel is something to
+     * keep off the internet.
      */
     [Fact]
     public async Task Stats_requires_the_api_key()
@@ -84,16 +85,18 @@ public class GatewayStatsTests
             sql = "SELECT 1 FROM RDB$DATABASE",
         }));
 
-        await CountFor(gateway, "Archive", expected: 1);
+        await CountFor(gateway, gateway.Offline.Id, expected: 1);
         await Task.Delay(200);
 
         var (_, body) = await GatewayHarness.Read(gateway.Get("/stats"));
 
-        Assert.Equal("{\"requests\":{\"Archive\":1}}", body);
+        Assert.Equal(
+            $"{{\"requests\":{{\"{gateway.Offline.Id}\":1}}}}",
+            body);
     }
 
     [Fact]
-    public async Task A_request_by_id_is_counted_under_the_connection_name()
+    public async Task A_request_by_id_and_one_by_name_count_toward_the_same_connection()
     {
         using var gateway = new GatewayHarness();
 
@@ -103,7 +106,44 @@ public class GatewayStatsTests
             sql = "SELECT 1 FROM RDB$DATABASE",
         }));
 
-        Assert.Equal(1, await CountFor(gateway, "Archive", expected: 1));
+        await GatewayHarness.Read(gateway.Post("/query", new
+        {
+            database = "Archive",
+            sql = "SELECT 1 FROM RDB$DATABASE",
+        }));
+
+        Assert.Equal(2, await CountFor(gateway, gateway.Offline.Id, expected: 2));
+    }
+
+    /*
+     * A settings file from before names had to be unique can hold two
+     * connections with one name. Counting by name would run their
+     * requests together and put the same total on both cards.
+     */
+    [Fact]
+    public async Task Two_connections_that_share_a_name_are_counted_apart()
+    {
+        using var gateway = new GatewayHarness();
+
+        var twin = gateway.AddLegacyConnectionNamed("Archive");
+
+        await GatewayHarness.Read(gateway.Post("/query", new
+        {
+            database = gateway.Offline.Id,
+            sql = "SELECT 1 FROM RDB$DATABASE",
+        }));
+
+        for (var i = 0; i < 2; i++)
+        {
+            await GatewayHarness.Read(gateway.Post("/query", new
+            {
+                database = twin.Id,
+                sql = "SELECT 1 FROM RDB$DATABASE",
+            }));
+        }
+
+        Assert.Equal(2, await CountFor(gateway, twin.Id, expected: 2));
+        Assert.Equal(1, await CountFor(gateway, gateway.Offline.Id, expected: 1));
     }
 
     [Fact]
@@ -125,7 +165,7 @@ public class GatewayStatsTests
             parameters = new Dictionary<string, object> { ["id"] = 2 },
         }));
 
-        Assert.Equal(2, await CountFor(gateway, "Archive", expected: 2));
+        Assert.Equal(2, await CountFor(gateway, gateway.Offline.Id, expected: 2));
     }
 
     [Fact]

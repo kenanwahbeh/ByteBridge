@@ -478,13 +478,29 @@ public sealed class GatewayServer : IDisposable
             }
 
             /*
-             * Cloudflare's own header, which it overwrites on the way in,
-             * so a caller cannot pick it. Without a tunnel there is only
-             * the socket peer. Never X-Forwarded-For: its first entry is
-             * whatever the caller wrote.
+             * Who is asking, for the lockout. Behind a tunnel the socket
+             * peer is always cloudflared on this machine, so the address
+             * that tells callers apart is the one Cloudflare puts in
+             * CF-Connecting-IP -- which it overwrites on the way in, so
+             * nobody on the internet can choose it. Never X-Forwarded-For:
+             * its first entry is whatever the caller wrote.
+             *
+             * That trust rests on one assumption: the listener is bound to
+             * loopback (the settings loader refuses anything else), so the
+             * only caller who can send the header without Cloudflare is a
+             * program already running on this machine. It can dodge the
+             * count or run up another address's, but it still needs the key
+             * to get anything, so the header is honoured only from a
+             * loopback peer and the assumption is not left implicit.
              */
+            var fromLoopback =
+                context.Request.RemoteEndPoint is { } peer
+                && IPAddress.IsLoopback(peer.Address);
+
             var callerKey =
-                context.Request.Headers["CF-Connecting-IP"]
+                (fromLoopback
+                    ? context.Request.Headers["CF-Connecting-IP"]
+                    : null)
                 ?? record.LocalPeer
                 ?? "unknown";
 
@@ -684,15 +700,18 @@ public sealed class GatewayServer : IDisposable
             _log.Write(record);
 
             /*
-             * Only a connection the request actually resolved to. The
-             * name a caller typed is not a key: counting it would let one
-             * client grow this table without bound with names that match
-             * nothing, and /stats would list them back.
+             * Only a connection the request actually resolved to, and by
+             * its id. The name a caller typed is not a key: counting it
+             * would let one client grow this table without bound with
+             * names that match nothing, and /stats would list them back.
+             * Nor is the connection's own name: a settings file from
+             * before names had to be unique can give one name to two
+             * connections, and their counts would run together.
              */
-            if (record.ConnectionName is { Length: > 0 } connectionName)
+            if (record.ConnectionId is { Length: > 0 } connectionId)
             {
                 _requestCounts.AddOrUpdate(
-                    connectionName,
+                    connectionId,
                     1,
                     (_, count) => count + 1);
             }
@@ -912,7 +931,7 @@ public sealed class GatewayServer : IDisposable
             return null;
         }
 
-        record.ConnectionName = connection.Name;
+        record.ConnectionId = connection.Id;
 
         if (!connection.Enabled)
         {
@@ -1045,32 +1064,6 @@ public sealed class GatewayServer : IDisposable
 
     private AuthOutcome Authenticate(HttpListenerRequest request)
     {
-        var sessions = _oauth.Sessions;
-
-        // Check session cookie first
-        if (sessions != null &&
-            sessions.Enabled)
-        {
-            var cookieHeader =
-                request.Headers["Cookie"];
-
-            var token =
-                OAuthSessionManager.ExtractTokenFromCookie(
-                    cookieHeader);
-
-            if (token != null)
-            {
-                var user =
-                    sessions.ValidateSession(token);
-
-                if (user != null)
-                {
-                    return AuthOutcome.Session;
-                }
-            }
-        }
-
-        // Fall back to API key
         var provided = request.Headers["X-API-Key"];
 
         if (string.IsNullOrEmpty(provided))
@@ -1088,22 +1081,44 @@ public sealed class GatewayServer : IDisposable
             }
         }
 
-        if (string.IsNullOrEmpty(provided))
-        {
-            return AuthOutcome.None;
-        }
-
         var expected = _config.ApiKey;
 
-        if (string.IsNullOrEmpty(expected))
+        /*
+         * A correct key comes first. The key rides in a header a foreign
+         * page cannot add, so a request that carries one is not what the
+         * cookie checks are for -- and when a browser sends both, the
+         * cookie must not get to turn a valid key into a refusal.
+         */
+        var keyMatches =
+            !string.IsNullOrEmpty(provided)
+            && !string.IsNullOrEmpty(expected)
+            && CryptographicOperations.FixedTimeEquals(
+                Encoding.UTF8.GetBytes(provided),
+                Encoding.UTF8.GetBytes(expected));
+
+        if (keyMatches)
         {
-            return AuthOutcome.Invalid;
+            return AuthOutcome.ApiKey;
         }
 
-        return CryptographicOperations.FixedTimeEquals(
-            Encoding.UTF8.GetBytes(provided),
-            Encoding.UTF8.GetBytes(expected))
-            ? AuthOutcome.ApiKey
+        var sessions = _oauth.Sessions;
+
+        if (sessions != null &&
+            sessions.Enabled)
+        {
+            var token =
+                OAuthSessionManager.ExtractTokenFromCookie(
+                    request.Headers["Cookie"]);
+
+            if (token != null &&
+                sessions.ValidateSession(token) != null)
+            {
+                return AuthOutcome.Session;
+            }
+        }
+
+        return string.IsNullOrEmpty(provided)
+            ? AuthOutcome.None
             : AuthOutcome.Invalid;
     }
 

@@ -564,6 +564,24 @@ public class SessionCsrfTests
     }
 
     /*
+     * A browser that holds the session cookie and also sends the key must
+     * not have the key refused because the cookie checks ran first.
+     */
+    [Fact]
+    public async Task A_valid_key_is_honoured_even_when_the_session_cookie_is_sent_too()
+    {
+        using var harness = new SessionHarness();
+
+        Assert.Equal(
+            HttpStatusCode.NotFound,
+            await harness.PostQuery(
+                "text/plain",
+                "https://evil.example",
+                withCookie: true,
+                withKey: true));
+    }
+
+    /*
      * The key rides in a header a foreign page cannot add, so a request
      * that carries it is not what this check is for -- and a caller
      * that sends text/plain with the key has always been served.

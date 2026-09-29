@@ -248,6 +248,25 @@ public class CliTests
         Assert.Equal(60, config.AuthBlockSeconds);
     }
 
+    [Theory]
+    [InlineData("--attempts", "5", "garbage")]
+    [InlineData("garbage", "--attempts", "5")]
+    [InlineData("--attempts", "5", "6")]
+    public void Lockout_set_refuses_an_argument_it_does_not_understand_and_saves_nothing(
+        string first,
+        string second,
+        string third)
+    {
+        using var root = new TempDataRoot();
+        var database = root.OpenDatabase();
+
+        var (code, _, error) = Run(database, "lockout", "set", first, second, third);
+
+        Assert.Equal(1, code);
+        Assert.Contains("does not understand", error);
+        Assert.Equal(10, database.GetGatewayConfig().AuthMaxFailures);
+    }
+
     [Fact]
     public void Lockout_set_with_nothing_to_set_is_an_error()
     {

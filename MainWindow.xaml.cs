@@ -42,9 +42,9 @@ public partial class MainWindow : Window
 
     /*
      * How many requests the gateway has answered for each database,
-     * keyed by connection name -- the same identifier a client sends
-     * in "database". Refreshed on the same tick as the status line;
-     * empty whenever the gateway is not answering.
+     * keyed by connection id, which is what /stats reports and, unlike
+     * a name, belongs to one connection. Refreshed on the same tick as
+     * the status line; empty whenever the gateway is not answering.
      */
     private Dictionary<string, long> _requestCounts = new();
 
@@ -567,7 +567,7 @@ public partial class MainWindow : Window
             }
 
             label.Text =
-                _requestCounts.TryGetValue(connection.Name, out var count)
+                _requestCounts.TryGetValue(connection.Id, out var count)
                     ? Strings.Format("RequestCount", count)
                     : Strings.Get("RequestCountUnknown");
         }
@@ -750,7 +750,7 @@ public partial class MainWindow : Window
             FontSize = 12,
             Foreground = Brushes.Gray,
             Text =
-                _requestCounts.TryGetValue(connection.Name, out var count)
+                _requestCounts.TryGetValue(connection.Id, out var count)
                     ? Strings.Format("RequestCount", count)
                     : Strings.Get("RequestCountUnknown")
         };
