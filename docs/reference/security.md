@@ -7,9 +7,9 @@ API key as a database credential.
   as `Authorization: Bearer`. That includes `/stats`, which lists every
   connection. The key is 32 random bytes, generated on first run and
   compared in constant time.
-- Wrong keys are slowed down: by default, 10 wrong keys from one caller
-  in a minute earns that caller a `429` for the next minute (see
-  [Failed-key lockout](#failed-key-lockout)).
+- Wrong keys are slowed down: by default, once a caller has sent 10
+  wrong keys in a minute, its next requests get a `429` for the next
+  minute (see [Failed-key lockout](#failed-key-lockout)).
 - **New Key** rotates it without restarting the gateway. The running
   gateway picks the new key up within a few seconds, and from then on
   every client still sending the old one is refused.

@@ -1,3 +1,5 @@
+using System.ComponentModel;
+using System.Diagnostics;
 using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
@@ -29,7 +31,15 @@ public partial class App : Application
     {
         _instance = new Mutex(true, InstanceName, out var first);
 
-        if (!first)
+        /*
+         * Holding the names proves nothing about who holds them: any
+         * program in this session can create a mutex and an event under
+         * these names before ByteBridge starts, and would otherwise be
+         * able to stop the app from ever opening. So a copy only gives
+         * way to a ByteBridge that is really running here; a name held
+         * by anything else is ignored and this copy opens as usual.
+         */
+        if (!first && AnotherCopyIsRunning())
         {
             /*
              * Tell the copy that is already running to come forward,
@@ -42,7 +52,7 @@ public partial class App : Application
             if (!SignalRunningCopy())
             {
                 /*
-                 * Something holds the name but is not answering, so
+                 * A ByteBridge is running but is not answering, so
                  * leaving without a word would look like the app refusing
                  * to open.
                  */
@@ -90,6 +100,61 @@ public partial class App : Application
         MainWindow = window;
 
         window.Show();
+    }
+
+    /*
+     * True when another copy of this same program is running in this
+     * Windows session: the same executable, not just the same name.
+     */
+    private static bool AnotherCopyIsRunning()
+    {
+        var path = Environment.ProcessPath;
+
+        if (path == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            using var me = Process.GetCurrentProcess();
+
+            foreach (var other in Process.GetProcessesByName(me.ProcessName))
+            {
+                using (other)
+                {
+                    if (other.Id == me.Id || other.SessionId != me.SessionId)
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        if (string.Equals(
+                                other.MainModule?.FileName,
+                                path,
+                                StringComparison.OrdinalIgnoreCase))
+                        {
+                            return true;
+                        }
+                    }
+                    catch (Win32Exception)
+                    {
+                        // Its path cannot be read, so it cannot be vouched for.
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // It exited while it was being looked at.
+                    }
+                }
+            }
+        }
+        catch (InvalidOperationException)
+        {
+            // Processes could not be listed; carry on as the only copy.
+        }
+
+        return false;
     }
 
     /*

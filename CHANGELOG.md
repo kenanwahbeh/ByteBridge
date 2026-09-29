@@ -16,8 +16,9 @@ file is the single source of truth for what shipped.
 ### Security
 
 - **Wrong API keys now cost the caller.** The 10th wrong key from
-  one caller inside a minute earns that caller a `429` with a
-  `Retry-After` for the next minute, before its key is even looked at.
+  one caller inside a minute is still answered `401`, but blocks that
+  caller: its next request gets a `429` with a `Retry-After` for the
+  next minute, before its key is even looked at.
   A request that sends no key at all does not count, and a correct key
   clears the tally. The limit is yours to set: **Web Server** in the
   app has *Lock out after wrong keys* and *Lock out for (minutes)*
