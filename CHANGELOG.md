@@ -13,6 +13,21 @@ file is the single source of truth for what shipped.
 
 ## [Unreleased]
 
+### Added
+
+- **Help → User Guide**, also on **F1**, opens a step-by-step guide
+  with pictures of every screen, written for people who have never
+  programmed. It opens in Arabic when the window is in Arabic. The
+  guide also explains the idea behind ByteBridge in everyday words,
+  every button and option, and what each status message and error
+  number means.
+- **Help → Visit ByteBalanceTech.com** opens the maker's website, the
+  same one *About* links to. The guide and the documentation site
+  carry the ByteBalanceTech name and logo too.
+- **A guide for contributors,** *How the code fits together*, mapping
+  the projects, the processes, how the control panel and the service
+  share one settings file, and where each kind of change belongs.
+
 ### Security
 
 - **Wrong API keys now cost the caller.** The 10th wrong key from
@@ -53,6 +68,10 @@ file is the single source of truth for what shipped.
   Firebird reports for a statement still come back in full.
 
 ### Changed
+
+- **The empty window points at the right menu.** With no databases
+  added, the window used to say to click *+ Add Data*, a button that is
+  no longer there. It now says *File → New Database…*.
 
 - **A new app icon.** The ByteBalanceTech logo, taken from its website,
   replaces the generic database icon everywhere the app shows one: the
