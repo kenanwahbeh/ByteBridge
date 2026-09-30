@@ -536,6 +536,72 @@ public partial class MainWindow : Window
         window.ShowDialog();
     }
 
+    /*
+     * The plain-language guide, in the language the window is showing.
+     *
+     * These point at the docs folder on GitHub, which renders the same
+     * Markdown the GitBook site is built from. Once that site is
+     * published, swap these two for its pages; nothing else changes.
+     */
+    private const string UserGuideUrlEnglish =
+        "https://github.com/kenanwahbeh/ByteBridge/blob/main/docs/guide/README.md";
+
+    private const string UserGuideUrlArabic =
+        "https://github.com/kenanwahbeh/ByteBridge/blob/main/docs/ar/README.md";
+
+    // The maker's site, the same one About links to.
+    private const string WebsiteUrl = "https://bytebalancetech.com";
+
+    private void UserGuideMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        OpenUserGuide();
+    }
+
+    private void WebsiteMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        OpenInBrowser(WebsiteUrl);
+    }
+
+    protected override void OnPreviewKeyDown(KeyEventArgs e)
+    {
+        if (e.Key == Key.F1 && Keyboard.Modifiers == ModifierKeys.None)
+        {
+            e.Handled = true;
+            OpenUserGuide();
+            return;
+        }
+
+        base.OnPreviewKeyDown(e);
+    }
+
+    private void OpenUserGuide()
+    {
+        OpenInBrowser(
+            Strings.CurrentLanguage == "ar"
+                ? UserGuideUrlArabic
+                : UserGuideUrlEnglish);
+    }
+
+    private void OpenInBrowser(string url)
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(
+                new System.Diagnostics.ProcessStartInfo(url)
+                {
+                    UseShellExecute = true
+                });
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                ex.Message,
+                Strings.Get("AppTitle"),
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+    }
+
     // ---- Gateway status ----------------------------------------------
 
     /*
@@ -1052,6 +1118,8 @@ public partial class MainWindow : Window
         OptionsMenuItem.Header = Strings.Get("MenuOptions");
 
         HelpMenuItem.Header = Strings.Get("MenuHelp");
+        UserGuideMenuItem.Header = Strings.Get("MenuHelpGuide");
+        WebsiteMenuItem.Header = Strings.Get("MenuHelpWebsite");
         AboutMenuItem.Header = Strings.Get("MenuHelpAbout");
 
         FlowDirection =

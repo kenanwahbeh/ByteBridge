@@ -25,5 +25,25 @@ loopback.
 4; the default port is 3050). Other database engines may be added in
 future versions.
 
-Start with [Installation](getting-started/installation.md), then the
-[Quick start](getting-started/quick-start.md) walkthrough.
+## Where to start
+
+| You are… | Start here |
+| --- | --- |
+| Setting ByteBridge up on your computer, with no programming background | [Getting started, in pictures](guide/README.md) |
+| تُعدّ ByteBridge على جهازك دون خبرة في البرمجة، وتفضّل العربية | [البداية بالصور](ar/README.md) |
+| An administrator or developer connecting to the API | [Installation](getting-started/installation.md), then the [Quick start](getting-started/quick-start.md) |
+| Working on ByteBridge's own code | [How the code fits together](developers/architecture.md) |
+
+**Help → User Guide** (or **F1**) in the app opens the picture guide in
+the language the window is using.
+
+## Who makes it
+
+<img src="assets/bytebalance-logo.png" alt="ByteBalanceTech logo" width="72" align="left">
+
+ByteBridge is developed by **ByteBalanceTech** —
+[bytebalancetech.com](https://bytebalancetech.com). In the app,
+**Help → Visit ByteBalanceTech.com** opens the site, and
+**Help → About ByteBridge** shows the version and the maker.
+
+<br clear="left">

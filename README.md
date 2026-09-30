@@ -27,6 +27,11 @@ loopback.
 4; the default port is 3050). Other database engines may be added in
 future versions.
 
+**Not a developer?** The [picture guide](docs/guide/README.md) walks
+through setting ByteBridge up step by step, with no technical
+background needed — also [in Arabic](docs/ar/README.md). In the app,
+**Help → User Guide** (or **F1**) opens it.
+
 ## Install
 
 Grab an installer from the
@@ -112,14 +117,15 @@ machine with a desktop you never need any of this.
 
 ## Quick start
 
-1. **Add a database.** Click **+ Add Data**, fill in the database
-   server, port, user, password and database path or alias, and use
-   **Test Connection** before saving.
-2. **Turn it Online.** The card's toggle tests the connection first and
-   stays Offline if it fails. Only Online connections answer requests.
-3. **Check the gateway.** The **Gateway API** panel should read
-   *Answering — http://127.0.0.1:8080*, with *Service: running* beneath
-   it. Press **Copy API Key**.
+1. **Add a database.** Choose **File → New Database…**, fill in the
+   database server, port, user, password and database path or alias,
+   and use **Test Connection** before saving.
+2. **Turn it Online.** The card's **Online** button tests the
+   connection first and stays Offline if it fails. Only Online
+   connections answer requests.
+3. **Check the gateway.** The status line under the menu bar should
+   read *● Answering — http://127.0.0.1:8080 · Service: running*. Open
+   **Web Server** from the menu bar and press **Copy API Key**.
 4. **Start the tunnel.**
 
    ```

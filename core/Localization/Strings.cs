@@ -34,6 +34,8 @@ public static class Strings
             ["MenuCloudflareTunnel"] = "Cloudflare Tunnel",
             ["MenuOptions"] = "Options",
             ["MenuHelp"] = "Help",
+            ["MenuHelpGuide"] = "User Guide",
+            ["MenuHelpWebsite"] = "Visit ByteBalanceTech.com",
             ["MenuHelpAbout"] = "About ByteBridge",
             ["MenuHelpOpenLogs"] = "Open Log Folder",
 
@@ -98,7 +100,7 @@ public static class Strings
             ["NotRunningHint"] = "The service that hosts the gateway is not running, so a tunnel pointed at this machine will return 502.",
 
             // Connections
-            ["NoDatabases"] = "No databases configured.\n\nClick + Add Data to create a connection.",
+            ["NoDatabases"] = "No databases configured.\n\nUse File → New Database… to create a connection.",
             ["Online"] = "● Online",
             ["Offline"] = "● Offline",
             ["OfflineButton"] = "Offline",
@@ -193,6 +195,8 @@ public static class Strings
             ["MenuCloudflareTunnel"] = "نفق Cloudflare",
             ["MenuOptions"] = "خيارات",
             ["MenuHelp"] = "تعليمات",
+            ["MenuHelpGuide"] = "دليل الاستخدام",
+            ["MenuHelpWebsite"] = "زيارة موقع ByteBalanceTech.com",
             ["MenuHelpAbout"] = "حول ByteBridge",
             ["MenuHelpOpenLogs"] = "فتح مجلد السجلات",
 
@@ -257,7 +261,7 @@ public static class Strings
             ["NotRunningHint"] = "الخدمة التي تستضيف البوابة غير تعمل، لذا سيُرجع النفق الموجّه إلى هذا الجهاز خطأ 502.",
 
             // Connections
-            ["NoDatabases"] = "لا توجد قواعد بيانات مُعدّة.\n\nانقر على + إضافة بيانات لإنشاء اتصال.",
+            ["NoDatabases"] = "لا توجد قواعد بيانات مُعدّة.\n\nاستخدم ملف ← قاعدة بيانات جديدة... لإنشاء اتصال.",
             ["Online"] = "● متصل",
             ["Offline"] = "● غير متصل",
             ["OfflineButton"] = "غير متصل",

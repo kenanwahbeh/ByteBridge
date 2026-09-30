@@ -5,7 +5,7 @@ JSON API on loopback, so a Cloudflare Tunnel running on the same
 machine has something to forward requests to.
 
 The listener starts with the machine. Its status, port and API key are
-shown in the **Gateway API** panel of the control panel window.
+shown in the **Web Server** window, on the control panel's menu bar.
 The gateway itself runs as the `ByteBridge` Windows service, so it is
 up whether or not that window is open.
 

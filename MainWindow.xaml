@@ -43,6 +43,9 @@
             <MenuItem x:Name="OptionsMenuItem" Click="OptionsMenuItem_Click"/>
 
             <MenuItem x:Name="HelpMenuItem">
+                <MenuItem x:Name="UserGuideMenuItem" InputGestureText="F1" Click="UserGuideMenuItem_Click"/>
+                <MenuItem x:Name="WebsiteMenuItem" Click="WebsiteMenuItem_Click"/>
+                <Separator/>
                 <MenuItem x:Name="AboutMenuItem" Click="AboutMenuItem_Click"/>
             </MenuItem>
 

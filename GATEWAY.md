@@ -5,7 +5,7 @@ JSON API on loopback, so a Cloudflare Tunnel running on the same
 machine has something to forward requests to.
 
 The listener starts with the machine. Its status, port and API key are
-shown in the **Gateway API** panel of the control panel window.
+shown in the **Web Server** window, on the control panel's menu bar.
 The gateway itself runs as the `ByteBridge` Windows service, so it is
 up whether or not that window is open.
 
@@ -235,8 +235,8 @@ leaves the other.
 ## Troubleshooting
 
 **502 from the tunnel, or Cloudflare error 1033** — nothing is
-listening on the port `cloudflared` forwards to. Check the Gateway
-API panel says **Answering**, and that its port matches the tunnel's
+listening on the port `cloudflared` forwards to. Check the status line in
+the window says **Answering**, and that its port matches the tunnel's
 `service:` URL. On the machine itself:
 
 ```
@@ -247,7 +247,7 @@ curl http://127.0.0.1:8080/health
 An empty `netstat` means the gateway is stopped.
 
 **"Port 8080 is already in use"** — something else holds it. Change
-the port in the Gateway API panel and update the tunnel config to
+the port in **Web Server** and update the tunnel config to
 match, or free the port:
 
 ```
