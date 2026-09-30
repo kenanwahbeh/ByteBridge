@@ -50,12 +50,11 @@ If you do not know the server, path, user or password, the person or
 company that installed your accounting or business software does. Ask
 them for "the Firebird connection details".
 
-## 4. Switch it Online
+## 4. Online and Offline
 
-A new database starts **Offline**, which means ByteBridge will not
-answer anything about it. Press the **Online** button on its card and
-confirm. ByteBridge tests the connection first; if the test fails, the
-card stays Offline and tells you why.
+A database you add is **Online** as soon as you press **Finish**, as
+long as the test succeeded. Online means ByteBridge answers requests
+about it.
 
 The word on the card tells you where things stand:
 
@@ -65,9 +64,12 @@ The word on the card tells you where things stand:
 | **● Offline** in grey | Switched off. Nothing is answered for it. |
 | **● Offline** in red | Switched on, but the database is not answering — see [When something is wrong](when-something-is-wrong.md). |
 
-Press **Offline** on the card any time you want to stop all outside
-access to that database — for example, while you are doing
-maintenance. It takes effect immediately.
+The button on the card is named for what pressing it does. Press
+**Offline** any time you want to stop all outside access to that
+database — for example, while you are doing maintenance. It takes
+effect immediately. Press **Online** to bring it back; ByteBridge tests
+the connection first, and if the test fails the card stays Offline and
+tells you why.
 
 To change a database's details later, use **Edit** on its card. To
 remove it, use **Delete**. Deleting removes it from ByteBridge only;

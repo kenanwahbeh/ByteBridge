@@ -120,9 +120,10 @@ machine with a desktop you never need any of this.
 1. **Add a database.** Choose **File → New Database…**, fill in the
    database server, port, user, password and database path or alias,
    and use **Test Connection** before saving.
-2. **Turn it Online.** The card's **Online** button tests the
-   connection first and stays Offline if it fails. Only Online
-   connections answer requests.
+2. **Check it is Online.** A connection saved after a successful test
+   is Online straight away, and only Online connections answer
+   requests. The button on its card takes it **Offline** and back; going
+   Online tests the connection first and stays Offline if that fails.
 3. **Check the gateway.** The status line under the menu bar should
    read *● Answering — http://127.0.0.1:8080 · Service: running*. Open
    **Web Server** from the menu bar and press **Copy API Key**.

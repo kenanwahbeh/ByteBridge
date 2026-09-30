@@ -361,15 +361,6 @@ def wizard_test(lang):
     return wizard(lang, 4, body)
 
 
-def main_offline(lang):
-    t = TEXT[lang]
-    c = Canvas(lang, 900, 250, "ByteBridge")
-    menu_bar(c, t)
-    status_line(c, t)
-    spot = card(c, t, 128, online=False, requests=t["requests_0"])
-    c.mark(1, *spot)
-    return c
-
 
 def main_online(lang):
     t = TEXT[lang]
@@ -428,10 +419,9 @@ SCREENS = {
     "3-server-details": wizard_server,
     "4-credentials": wizard_credentials,
     "5-test-and-finish": wizard_test,
-    "6-turn-online": main_offline,
-    "7-all-good": main_online,
-    "8-copy-api-key": web_server,
-    "9-key-copied": key_copied,
+    "6-all-good": main_online,
+    "7-copy-api-key": web_server,
+    "8-key-copied": key_copied,
 }
 
 

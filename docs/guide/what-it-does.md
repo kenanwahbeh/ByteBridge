@@ -46,7 +46,7 @@ flowchart LR
 | You (the owner of the computer) | Your developer or IT person |
 | --- | --- |
 | Install ByteBridge. | Sets up the Cloudflare tunnel. |
-| Add your database and switch it **Online**. | Builds the app or website that asks ByteBridge for data. |
+| Add your database and check it shows **Online**. | Builds the app or website that asks ByteBridge for data. |
 | Copy the **API key** and give it to your developer privately. | Keeps the key secret and uses it in every request. |
 | Glance at the status line now and then. | Tells you if requests start failing. |
 

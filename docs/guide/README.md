@@ -7,7 +7,7 @@
 
 <br clear="left">
 
-Five steps take you from a freshly installed ByteBridge to a database
+Four steps take you from a freshly installed ByteBridge to a database
 your developer can use. Follow the red numbers in each picture: they
 show what to click, in order.
 
@@ -66,18 +66,12 @@ message tells you what went wrong — see
 
 ---
 
-## Step 3 — Switch it Online
+## Step 3 — Check everything is green
 
-Your database now has a card, and it says **Offline**. Press **Online**
-on the card (**1**) and confirm.
+Your database now has a card in the window. Because the test
+succeeded, it is **Online** already — there is nothing to switch on.
 
-![The new card, Offline, with the Online button highlighted](../assets/screens/en/6-turn-online.svg)
-
----
-
-## Step 4 — Check everything is green
-
-![Everything working: green status line and a green Online card](../assets/screens/en/7-all-good.svg)
+![Everything working: green status line and a green Online card](../assets/screens/en/6-all-good.svg)
 
 1. The line at the top says **● Answering** and **Service: running**,
    in green.
@@ -86,18 +80,22 @@ on the card (**1**) and confirm.
 If either is not green, see
 [When something is wrong](when-something-is-wrong.md).
 
+> **Careful:** the button on the card says **Offline** because that is
+> what pressing it *does*. Leave it alone unless you want to stop
+> outside access to that database.
+
 ---
 
-## Step 5 — Give your developer the key
+## Step 4 — Give your developer the key
 
 Open **Web Server** from the menu bar (**3** in the picture above).
 Press **Copy API Key** (**1**).
 
-![The Web Server window with Copy API Key highlighted](../assets/screens/en/8-copy-api-key.svg)
+![The Web Server window with Copy API Key highlighted](../assets/screens/en/7-copy-api-key.svg)
 
 ByteBridge confirms the key is copied. Press **OK**.
 
-![The message confirming the key was copied](../assets/screens/en/9-key-copied.svg)
+![The message confirming the key was copied](../assets/screens/en/8-key-copied.svg)
 
 Now paste it (**Ctrl+V**) into a **private** message to your developer,
 together with the connection name from Step 2.

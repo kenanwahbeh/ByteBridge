@@ -88,8 +88,9 @@ Take `POST /query` arriving through the tunnel:
    `X-Forwarded-For`) is checked against `AuthFailureLimiter`; a locked
    out caller gets `429` before its key is even read.
 4. The key (`X-API-Key` or `Authorization: Bearer`) is compared in
-   constant time. With Cloudflare Access enabled, a valid Access JWT or
-   session cookie is accepted instead.
+   constant time. With Cloudflare Access enabled, a session cookie is
+   accepted instead. The Access JWT itself is never accepted here: it
+   is validated once, at `/auth/callback`, which creates that session.
 5. The connection is looked up **from SQLite, on this request** — so
    toggling Online/Offline in the panel applies immediately. Unknown
    name → `404`; Offline → `409`.
@@ -149,8 +150,11 @@ table, so no schema change is needed), expose it in the window and in
 `core/Admin/Cli.cs` so Server Core can reach it too, and — if the
 running listener has to react — compare it in `GatewayWorker`.
 
-**A new endpoint.** Route it in `GatewayServer`, decide explicitly
-whether it needs the key (everything except `/health` does), record it
+**A new endpoint.** Route it in `GatewayServer` and decide explicitly
+whether it needs the key. Data endpoints do. The exceptions today are
+`/health` and the sign-in routes (`/auth/login`, `/auth/callback`,
+`/auth/logout`), which are dispatched before authentication because
+they have to work for someone who has not signed in yet. Record it
 in the request log, add tests in `GatewayServerTests`, and document it
 in `docs/reference/api-reference.md` and `GATEWAY.md`. A new endpoint
 is a MINOR version bump.

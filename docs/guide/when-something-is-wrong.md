@@ -22,8 +22,8 @@ one of these:
 - The computer that holds the database is off, or the database server
   program on it is stopped. Start it again; the card turns green by
   itself within a minute or so.
-- Its password or path changed. Use **Edit** on the card, then **Test
-  Connection**.
+- Its password or path changed, or it was saved without a successful
+  test. Use **Edit** on the card, then **Test Connection**.
 
 ## "Connection failed" when adding or switching on a database
 
@@ -57,9 +57,13 @@ Have these ready; they answer most questions straight away:
 2. Exactly what the status line says, or a screenshot of the window.
 3. The log: **Help → About ByteBridge → Open Log Folder** opens a
    folder with one file per day. Send the file for the day the problem
-   happened. It lists requests and the queries they ran, never the
-   values sent with them — but it does contain table names, so send it
-   only to people you trust.
+   happened.
+
+The log records each request and the text of the query it ran. That
+text names your tables and columns, and if a developer wrote a value
+straight into a query — a customer's name or email, say — that value
+is in the log too. Open the file and look before you send it, and send
+it only to people you trust.
 
 **Never send the API key or a database password** to anyone offering
 help unless they are the person who is meant to have it. Nobody
