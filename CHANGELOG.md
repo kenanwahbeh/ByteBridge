@@ -13,6 +13,8 @@ file is the single source of truth for what shipped.
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-09-30
+
 ### Added
 
 - **Help → User Guide**, also on **F1**, opens a step-by-step guide
@@ -376,7 +378,8 @@ file is the single source of truth for what shipped.
 
 - Settings live in `C:\ProgramData\ByteBridge\bytebridge.db`.
 
-[Unreleased]: https://github.com/kenanwahbeh/ByteBridge/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/kenanwahbeh/ByteBridge/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/kenanwahbeh/ByteBridge/compare/v1.2.0...v2.0.0
 [1.2.0]: https://github.com/kenanwahbeh/ByteBridge/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/kenanwahbeh/ByteBridge/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/kenanwahbeh/ByteBridge/compare/v1.0.0...v1.0.1
