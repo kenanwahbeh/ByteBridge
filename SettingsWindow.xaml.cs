@@ -1,4 +1,5 @@
 using System;
+using System.Security.Principal;
 using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Win32;
@@ -58,6 +59,103 @@ public partial class SettingsWindow : Window
         AskCloseCheckBox.IsChecked =
             string.IsNullOrEmpty(_database.GetSetting("App.CloseAction"));
         _loadingSettings = false;
+
+        /*
+         * Writing is off until an administrator turns it on. The app is
+         * built to run elevated, so this is normally always true; the
+         * check is for the day someone launches it some other way, when
+         * the box is shown as it stands but cannot be changed.
+         */
+        _loadingSettings = true;
+        AllowWritingCheckBox.IsChecked = _database.GetAllowWrites();
+        AllowWritingCheckBox.IsEnabled = IsAdministrator();
+        _loadingSettings = false;
+    }
+
+    private static bool IsAdministrator()
+    {
+        using var identity = WindowsIdentity.GetCurrent();
+
+        return new WindowsPrincipal(identity)
+            .IsInRole(WindowsBuiltInRole.Administrator);
+    }
+
+    private void AllowWritingCheckBox_Changed(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (_loadingSettings)
+        {
+            return;
+        }
+
+        var wanted = AllowWritingCheckBox.IsChecked == true;
+
+        if (!IsAdministrator())
+        {
+            RestoreAllowWritingBox(!wanted);
+
+            MessageBox.Show(
+                this,
+                Strings.Get("AllowWritingNeedsAdmin"),
+                Strings.Get("Settings"),
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning,
+                MessageBoxResult.OK,
+                ReadingOptions());
+
+            return;
+        }
+
+        // Turning writing on is the risky direction, so it asks first.
+        if (wanted)
+        {
+            var answer = MessageBox.Show(
+                this,
+                Strings.Get("AllowWritingConfirm"),
+                Strings.Get("AllowWriting"),
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning,
+                MessageBoxResult.No,
+                ReadingOptions());
+
+            if (answer != MessageBoxResult.Yes)
+            {
+                RestoreAllowWritingBox(false);
+
+                return;
+            }
+        }
+
+        try
+        {
+            _database.SetAllowWrites(wanted);
+        }
+        catch (Exception error)
+        {
+            RestoreAllowWritingBox(!wanted);
+
+            MessageBox.Show(
+                this,
+                Strings.Format("AllowWritingError", error.Message),
+                Strings.Get("Settings"),
+                MessageBoxButton.OK,
+                MessageBoxImage.Error,
+                MessageBoxResult.OK,
+                ReadingOptions());
+        }
+    }
+
+    private static MessageBoxOptions ReadingOptions() =>
+        Strings.CurrentLanguage == "ar"
+            ? MessageBoxOptions.RightAlign | MessageBoxOptions.RtlReading
+            : MessageBoxOptions.None;
+
+    private void RestoreAllowWritingBox(bool value)
+    {
+        _loadingSettings = true;
+        AllowWritingCheckBox.IsChecked = value;
+        _loadingSettings = false;
     }
 
     private void AskCloseCheckBox_Changed(
@@ -99,6 +197,8 @@ public partial class SettingsWindow : Window
         AutoStartHintTextBlock.Text = Strings.Get("AutoStartHint");
         AskCloseTextBlock.Text = Strings.Get("AskBeforeClosing");
         AskCloseHintTextBlock.Text = Strings.Get("AskBeforeClosingHint");
+        AllowWritingTextBlock.Text = Strings.Get("AllowWriting");
+        AllowWritingHintTextBlock.Text = Strings.Get("AllowWritingHint");
         DoneButton.Content = Strings.Get("Done");
     }
 

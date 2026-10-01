@@ -317,7 +317,7 @@ public static class Cli
 
                 Console.WriteLine(
                     "Writing is ON. /execute now runs any statement for anyone "
-                    + "who holds the API key or is signed in through Cloudflare Access.");
+                    + "who holds the API key or is signed in through ByteBridge's Cloudflare login.");
                 Console.Error.WriteLine("Turn it off again with: writes off");
                 return 0;
 

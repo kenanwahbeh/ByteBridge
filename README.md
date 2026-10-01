@@ -172,19 +172,29 @@ API key as a database credential.
 
 - Every endpoint except `/health` requires the key, in `X-API-Key` or
   as `Authorization: Bearer`. It is 32 random bytes, generated on first
-  run and compared in constant time.
+  run and compared in constant time. When Cloudflare login is set up in
+  ByteBridge, a valid session from that login is accepted instead on
+  every endpoint but `/stats`, which always needs the key. Cloudflare
+  Access in front of the tunnel is a separate layer and does not replace
+  that check.
 - **New Key** rotates it without restarting the gateway. The running
   gateway picks the new key up within a few seconds, and from then on
   every client still sending the old one is refused.
 - Send values in `parameters`, never concatenated into `sql`; they are
   bound as Firebird parameters, so a value cannot become SQL.
-- ByteBridge only reads. `/query` refuses anything that is not a
-  `SELECT` or `WITH`, and runs what it accepts in a transaction that
-  Firebird itself holds read-only, so a statement cannot change rows.
+- ByteBridge only reads until an administrator ticks **Options → Allow
+  writing**. `/query` refuses anything that is not a `SELECT` or `WITH`
+  either way, and runs what it accepts in a transaction that Firebird
+  itself holds read-only, so a statement sent to it cannot change rows.
   Generators change outside transactions, so `GEN_ID` with a step other
   than 0 and `NEXT VALUE FOR` are refused as well; a procedure that
   moves one inside its own body can only be stopped by limiting the
-  Firebird user.
+  Firebird user. While writing is off, `/execute` answers `403`. While
+  it is on, anyone holding the API key, or signed in through ByteBridge's
+  Cloudflare login, can run any statement: change and delete data and
+  change the structure of your databases. Cloudflare Access in front of
+  the tunnel is an extra layer, not a replacement for the key. Leave
+  writing off unless you need it, and turn it off again afterwards.
 - The listener binds to `127.0.0.1` only, and a request body over 1 MB
   is refused.
 - Anything holding the key can read whatever the Firebird user of an
