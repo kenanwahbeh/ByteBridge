@@ -48,6 +48,12 @@ the **Copy API Key** button. **New Key** rotates it without restarting
 the gateway: the running gateway picks the new key up within a few
 seconds, and refuses the old one from then on.
 
+When Cloudflare login is set up in ByteBridge, a valid session from
+that login is accepted in place of the key, on every endpoint except
+`/stats`, which always needs the key. **Cloudflare Access** in front of
+the tunnel is a separate layer: it decides who reaches the machine, and
+it does not replace the gateway's own check.
+
 `/health` is deliberately open so the tunnel can be verified before
 any key is involved. It returns no data from any database.
 

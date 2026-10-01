@@ -172,7 +172,11 @@ API key as a database credential.
 
 - Every endpoint except `/health` requires the key, in `X-API-Key` or
   as `Authorization: Bearer`. It is 32 random bytes, generated on first
-  run and compared in constant time.
+  run and compared in constant time. When Cloudflare login is set up in
+  ByteBridge, a valid session from that login is accepted instead on
+  every endpoint but `/stats`, which always needs the key. Cloudflare
+  Access in front of the tunnel is a separate layer and does not replace
+  that check.
 - **New Key** rotates it without restarting the gateway. The running
   gateway picks the new key up within a few seconds, and from then on
   every client still sending the old one is refused.
