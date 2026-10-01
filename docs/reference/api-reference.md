@@ -16,10 +16,14 @@ up whether or not that window is open.
 | GET    | `/health`    | no   | Liveness. Use it to test the tunnel.     |
 | GET    | `/databases` | yes  | List the configured connections.         |
 | POST   | `/query`     | yes  | Run a `SELECT` / `WITH` and get rows.    |
-| POST   | `/execute`   | yes  | Run an `INSERT` / `UPDATE` / `DELETE`.   |
 
-`/query` rejects anything that is not a `SELECT` or a `WITH` so a
-read path cannot write by accident. Use `/execute` for writes.
+ByteBridge only reads. `/query` takes a `SELECT` or a `WITH` and nothing
+else, and runs it in a transaction that Firebird itself holds
+read-only, so a statement cannot change rows however it is written.
+Generators change outside transactions, so `GEN_ID` with a step other
+than 0 and `NEXT VALUE FOR` are refused as well. A procedure that moves
+a generator inside its own body cannot be seen from here; limit the
+Firebird user if that matters.
 
 ## Authentication
 
@@ -77,23 +81,6 @@ were left unread — narrow the query or page through it.
 Always pass values through `parameters` rather than concatenating
 them into `sql`; they are bound as Firebird parameters, so a value
 cannot turn into SQL.
-
-Write:
-
-```bash
-curl -X POST https://your-tunnel.example.com/execute \
-  -H "X-API-Key: $KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-        "database": "Sales",
-        "sql": "UPDATE CUSTOMERS SET NAME = @name WHERE ID = @id",
-        "parameters": { "id": 42, "name": "Acme Limited" }
-      }'
-```
-
-```json
-{ "rowsAffected": 1, "elapsedMs": 8 }
-```
 
 ## Types
 

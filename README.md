@@ -160,7 +160,6 @@ machine with a desktop you never need any of this.
 | GET | `/health` | no |
 | GET | `/databases` | yes |
 | POST | `/query` | yes — `SELECT` / `WITH` only |
-| POST | `/execute` | yes — `INSERT` / `UPDATE` / `DELETE` |
 
 [**GATEWAY.md**](GATEWAY.md) has the request and response shapes, the
 Firebird-to-JSON type mapping, the status codes, a named-tunnel
@@ -179,12 +178,17 @@ API key as a database credential.
   every client still sending the old one is refused.
 - Send values in `parameters`, never concatenated into `sql`; they are
   bound as Firebird parameters, so a value cannot become SQL.
-- `/query` refuses anything that is not a `SELECT` or `WITH`, so a read
-  path cannot write by accident.
+- ByteBridge only reads. `/query` refuses anything that is not a
+  `SELECT` or `WITH`, and runs what it accepts in a transaction that
+  Firebird itself holds read-only, so a statement cannot change rows.
+  Generators change outside transactions, so `GEN_ID` with a step other
+  than 0 and `NEXT VALUE FOR` are refused as well; a procedure that
+  moves one inside its own body can only be stopped by limiting the
+  Firebird user.
 - The listener binds to `127.0.0.1` only, and a request body over 1 MB
   is refused.
-- Anything holding the key can run arbitrary SQL against the Online
-  connections. If the data is sensitive, put
+- Anything holding the key can read whatever the Firebird user of an
+  Online connection can read. If the data is sensitive, put
   [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/)
   in front of the hostname as well, so callers are authenticated at
   Cloudflare's edge before a request reaches the machine at all.

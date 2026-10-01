@@ -63,7 +63,7 @@ into the app twice.
 | Folder | Holds |
 | --- | --- |
 | `Gateway/GatewayServer.cs` | The listener: routing, auth, CORS, body limits, JSON shapes, the Cloudflare Access login routes. |
-| `Gateway/FirebirdExecutor.cs` | Opens a connection, binds `parameters`, runs the statement, maps Firebird types to JSON. Also the read-only guard for `/query`. `internal` — callers go through `GatewayServer`. |
+| `Gateway/FirebirdExecutor.cs` | Opens a connection, binds `parameters`, runs the statement, maps Firebird types to JSON. Also the text guard for `/query`, which itself runs in a read-only Firebird transaction. `internal` — callers go through `GatewayServer`. |
 | `Gateway/AuthFailureLimiter.cs` | The wrong-key lockout, keyed by `CF-Connecting-IP`. |
 | `Gateway/CloudflareAccessValidator.cs`, `OAuthSessionManager.cs` | Optional Cloudflare Access (JWT) sign-in and the session cookie it produces. |
 | `Gateway/ConnectionHealthMonitor.cs` | Probes every enabled connection once a minute so "online" reflects now. |

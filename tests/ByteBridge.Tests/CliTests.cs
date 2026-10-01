@@ -375,6 +375,85 @@ public class CliTests
         Assert.Contains("Ghost", error);
     }
 
+    // ---- The writes switch --------------------------------------------
+
+    [Fact]
+    public void Writing_is_off_until_someone_turns_it_on()
+    {
+        using var root = new TempDataRoot();
+        var database = root.OpenDatabase();
+
+        Assert.False(database.GetAllowWrites());
+
+        var (code, output, _) = Run(database, "writes");
+
+        Assert.Equal(0, code);
+        Assert.Equal("off", output.Trim());
+    }
+
+    [Fact]
+    public void Writes_on_and_off_move_the_switch_and_say_so()
+    {
+        using var root = new TempDataRoot();
+        var database = root.OpenDatabase();
+
+        var (code, output, _) = Run(database, "writes", "on");
+
+        Assert.Equal(0, code);
+        Assert.True(database.GetAllowWrites());
+        Assert.Contains("Writing is ON", output);
+        Assert.Equal("on", Run(database, "writes", "show").Out.Trim());
+
+        Assert.Equal(0, Run(database, "writes", "off").Code);
+        Assert.False(database.GetAllowWrites());
+    }
+
+    [Fact]
+    public void Writes_refuses_a_word_it_does_not_know_and_leaves_the_switch_alone()
+    {
+        using var root = new TempDataRoot();
+        var database = root.OpenDatabase();
+
+        var (code, _, error) = Run(database, "writes", "maybe");
+
+        Assert.Equal(1, code);
+        Assert.Contains("'show', 'on' or 'off'", error);
+        Assert.False(database.GetAllowWrites());
+    }
+
+    [Fact]
+    public void Writes_refuses_extra_words_rather_than_ignoring_them()
+    {
+        using var root = new TempDataRoot();
+        var database = root.OpenDatabase();
+
+        var (code, _, error) = Run(database, "writes", "on", "please");
+
+        Assert.Equal(1, code);
+        Assert.Contains("please", error);
+        Assert.False(database.GetAllowWrites());
+    }
+
+    [Fact]
+    public void Status_mentions_writing_only_while_it_is_on()
+    {
+        using var root = new TempDataRoot();
+        var database = root.OpenDatabase();
+
+        Assert.DoesNotContain("writing", Run(database, "status").Out);
+
+        database.SetAllowWrites(true);
+
+        Assert.Contains("writing", Run(database, "status").Out);
+    }
+
+    [Fact]
+    public void The_usage_does_not_advertise_the_switch()
+    {
+        Assert.DoesNotContain("writes", Cli.Usage);
+        Assert.DoesNotContain("writing", Cli.Usage);
+    }
+
     [Fact]
     public void Help_prints_the_usage_and_succeeds()
     {

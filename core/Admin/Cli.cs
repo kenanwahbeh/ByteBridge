@@ -139,6 +139,7 @@ public static class Cli
             "port" => SetPort(database, args),
             "key" => Key(database, args),
             "lockout" => Lockout(database, args),
+            "writes" => Writes(database, args),
             "db" => Db(database, args),
             "oauth" => OAuth(database, args),
             _ => Unknown(args[0])
@@ -164,6 +165,13 @@ public static class Cli
         Console.WriteLine($"row cap     {config.MaxRows}");
         Console.WriteLine($"timeout     {config.CommandTimeoutSeconds}s");
         Console.WriteLine($"lockout     {DescribeLockout(config)}");
+
+        // Said only when it is on: a gateway left able to write should show it.
+        if (database.GetAllowWrites())
+        {
+            Console.WriteLine("writing     ON (turn it off with: writes off)");
+        }
+
         Console.WriteLine();
 
         if (connections.Count == 0)
@@ -278,6 +286,49 @@ public static class Cli
 
             default:
                 Console.Error.WriteLine("error: oauth takes 'show', 'set', 'on' or 'off'.");
+                return 1;
+        }
+    }
+
+    /*
+     * Left out of Usage and out of the documentation on purpose: it is
+     * the one switch nobody is expected to come across by themselves.
+     * Whether /execute answers is read from the settings on every
+     * request, so this takes effect at once.
+     */
+    private static int Writes(SqliteDatabase database, string[] args)
+    {
+        if (args.Length > 2)
+        {
+            Console.Error.WriteLine($"error: writes does not understand '{args[2]}'.");
+            return 1;
+        }
+
+        var action = args.Length > 1 ? args[1].ToLowerInvariant() : "show";
+
+        switch (action)
+        {
+            case "show":
+                Console.WriteLine(database.GetAllowWrites() ? "on" : "off");
+                return 0;
+
+            case "on":
+                database.SetAllowWrites(true);
+
+                Console.WriteLine(
+                    "Writing is ON. /execute now runs any statement for anyone "
+                    + "who holds the API key or is signed in through Cloudflare Access.");
+                Console.Error.WriteLine("Turn it off again with: writes off");
+                return 0;
+
+            case "off":
+                database.SetAllowWrites(false);
+
+                Console.WriteLine("Writing is off. The gateway only reads.");
+                return 0;
+
+            default:
+                Console.Error.WriteLine("error: writes takes 'show', 'on' or 'off'.");
                 return 1;
         }
     }
