@@ -100,7 +100,9 @@ public partial class SettingsWindow : Window
                 Strings.Get("AllowWritingNeedsAdmin"),
                 Strings.Get("Settings"),
                 MessageBoxButton.OK,
-                MessageBoxImage.Warning);
+                MessageBoxImage.Warning,
+                MessageBoxResult.OK,
+                ReadingOptions());
 
             return;
         }
@@ -114,7 +116,8 @@ public partial class SettingsWindow : Window
                 Strings.Get("AllowWriting"),
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Warning,
-                MessageBoxResult.No);
+                MessageBoxResult.No,
+                ReadingOptions());
 
             if (answer != MessageBoxResult.Yes)
             {
@@ -137,9 +140,16 @@ public partial class SettingsWindow : Window
                 Strings.Format("AllowWritingError", error.Message),
                 Strings.Get("Settings"),
                 MessageBoxButton.OK,
-                MessageBoxImage.Error);
+                MessageBoxImage.Error,
+                MessageBoxResult.OK,
+                ReadingOptions());
         }
     }
+
+    private static MessageBoxOptions ReadingOptions() =>
+        Strings.CurrentLanguage == "ar"
+            ? MessageBoxOptions.RightAlign | MessageBoxOptions.RtlReading
+            : MessageBoxOptions.None;
 
     private void RestoreAllowWritingBox(bool value)
     {
