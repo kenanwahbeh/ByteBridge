@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Settings"
         Width="500"
-        Height="440"
+        Height="540"
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
         Background="White">
@@ -125,6 +125,41 @@
                               VerticalAlignment="Center"
                               Checked="AskCloseCheckBox_Changed"
                               Unchecked="AskCloseCheckBox_Changed"/>
+                </Grid>
+
+            </Border>
+
+            <!-- Allow writing -->
+            <Border Padding="16"
+                    CornerRadius="8"
+                    BorderThickness="1"
+                    BorderBrush="#DCDCDC"
+                    Margin="0,12,0,0">
+
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0">
+                        <TextBlock x:Name="AllowWritingTextBlock"
+                                   Text="Allow writing"
+                                   FontSize="15"
+                                   FontWeight="SemiBold"/>
+                        <TextBlock x:Name="AllowWritingHintTextBlock"
+                                   Text="Off: the gateway only reads."
+                                   FontSize="12"
+                                   Foreground="Gray"
+                                   TextWrapping="Wrap"
+                                   Margin="0,4,0,0"/>
+                    </StackPanel>
+
+                    <CheckBox x:Name="AllowWritingCheckBox"
+                              Grid.Column="1"
+                              VerticalAlignment="Center"
+                              Checked="AllowWritingCheckBox_Changed"
+                              Unchecked="AllowWritingCheckBox_Changed"/>
                 </Grid>
 
             </Border>

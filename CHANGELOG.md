@@ -15,9 +15,11 @@ file is the single source of truth for what shipped.
 
 ### Changed
 
-- **ByteBridge only reads.** `/execute` is turned off and answers `403`,
-  so a script that wrote through the gateway stops working; contact
-  ByteBalanceTech if you need writing. `/query` now runs in a
+- **ByteBridge only reads, unless you turn writing on.** `/execute` is
+  off and answers `403`, so a script that wrote through the gateway
+  stops working until an administrator ticks **Options → Allow
+  writing**, which asks for confirmation and takes effect on the
+  next request. `/query` now runs in a
   transaction that Firebird itself holds read-only, so a `SELECT` that
   calls a procedure which writes is refused by the database rather than
   trusted not to. Statements that move a generator (`GEN_ID` with a

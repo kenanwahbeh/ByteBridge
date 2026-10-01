@@ -16,13 +16,17 @@ API key as a database credential.
   every client still sending the old one is refused.
 - Send values in `parameters`, never concatenated into `sql`; they are
   bound as Firebird parameters, so a value cannot become SQL.
-- ByteBridge only reads. `/query` refuses anything that is not a
-  `SELECT` or `WITH`, and runs what it accepts in a transaction that
-  Firebird itself holds read-only, so a statement cannot change rows.
+- ByteBridge only reads until an administrator ticks **Options → Allow
+  writing**. `/query` refuses anything that is not a `SELECT` or `WITH`
+  either way, and runs what it accepts in a transaction that Firebird
+  itself holds read-only, so a statement sent to it cannot change rows.
   Generators change outside transactions, so `GEN_ID` with a step other
   than 0 and `NEXT VALUE FOR` are refused as well; a procedure that
   moves one inside its own body can only be stopped by limiting the
-  Firebird user.
+  Firebird user. While writing is off, `/execute` answers `403`. While
+  it is on, anyone holding the API key, or signed in through Cloudflare
+  Access, can change and delete data, so leave it off unless you need
+  it and turn it off again afterwards.
 - The listener binds to `127.0.0.1` only, and a request body over 1 MB
   is refused.
 - Anything holding the key can read whatever the Firebird user of an

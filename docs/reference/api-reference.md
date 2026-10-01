@@ -16,14 +16,20 @@ up whether or not that window is open.
 | GET    | `/health`    | no   | Liveness. Use it to test the tunnel.     |
 | GET    | `/databases` | yes  | List the configured connections.         |
 | POST   | `/query`     | yes  | Run a `SELECT` / `WITH` and get rows.    |
+| POST   | `/execute`   | yes  | Run an `INSERT` / `UPDATE` / `DELETE`. Only while **Allow writing** is on. |
 
-ByteBridge only reads. `/query` takes a `SELECT` or a `WITH` and nothing
+ByteBridge only reads unless an administrator ticks **Options → Allow
+writing** in the app. `/query` takes a `SELECT` or a `WITH` and nothing
 else, and runs it in a transaction that Firebird itself holds
-read-only, so a statement cannot change rows however it is written.
-Generators change outside transactions, so `GEN_ID` with a step other
-than 0 and `NEXT VALUE FOR` are refused as well. A procedure that moves
-a generator inside its own body cannot be seen from here; limit the
-Firebird user if that matters.
+read-only, so a statement sent to it cannot change rows however it is
+written. Generators change outside transactions, so `GEN_ID` with a
+step other than 0 and `NEXT VALUE FOR` are refused as well. A procedure
+that moves a generator inside its own body cannot be seen from here;
+limit the Firebird user if that matters.
+
+`/execute` is for writes and answers `403` while **Allow writing** is
+off, which is how ByteBridge ships. The setting takes effect on the
+next request, with no restart.
 
 ## Authentication
 
@@ -78,6 +84,23 @@ curl -X POST https://your-tunnel.example.com/query \
 `truncated` is `true` when the result hit the row cap and more rows
 were left unread — narrow the query or page through it.
 
+Write, with **Allow writing** on:
+
+```bash
+curl -X POST https://your-tunnel.example.com/execute \
+  -H "X-API-Key: $KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+        "database": "Sales",
+        "sql": "UPDATE CUSTOMERS SET NAME = @name WHERE ID = @id",
+        "parameters": { "id": 42, "name": "Acme Limited" }
+      }'
+```
+
+```json
+{ "rowsAffected": 1, "elapsedMs": 8 }
+```
+
 Always pass values through `parameters` rather than concatenating
 them into `sql`; they are bound as Firebird parameters, so a value
 cannot turn into SQL.
@@ -101,6 +124,7 @@ cannot turn into SQL.
 | 400  | Bad request body, a write sent to `/query`, or invalid SQL.       |
 | 400  | `database` names more than one connection; send its `id` instead. |
 | 401  | Missing or wrong API key.                                         |
+| 403  | `/execute` while **Allow writing** is off.                        |
 | 404  | Unknown endpoint, or no connection matches `database`.            |
 | 405  | Wrong HTTP method for the endpoint.                               |
 | 409  | The connection exists but is **Offline** in the app.              |
