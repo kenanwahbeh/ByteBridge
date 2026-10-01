@@ -24,9 +24,11 @@ API key as a database credential.
   than 0 and `NEXT VALUE FOR` are refused as well; a procedure that
   moves one inside its own body can only be stopped by limiting the
   Firebird user. While writing is off, `/execute` answers `403`. While
-  it is on, anyone holding the API key, or signed in through Cloudflare
-  Access, can change and delete data, so leave it off unless you need
-  it and turn it off again afterwards.
+  it is on, anyone holding the API key, or signed in through ByteBridge's
+  Cloudflare login, can run any statement: change and delete data and
+  change the structure of your databases. Cloudflare Access in front of
+  the tunnel is an extra layer, not a replacement for the key. Leave
+  writing off unless you need it, and turn it off again afterwards.
 - The listener binds to `127.0.0.1` only, and a request body over 1 MB
   is refused.
 - Anything holding the key can read whatever the Firebird user of an

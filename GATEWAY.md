@@ -16,7 +16,7 @@ up whether or not that window is open.
 | GET    | `/health`    | no   | Liveness. Use it to test the tunnel.     |
 | GET    | `/databases` | yes  | List the configured connections.         |
 | POST   | `/query`     | yes  | Run a `SELECT` / `WITH` and get rows.    |
-| POST   | `/execute`   | yes  | Run an `INSERT` / `UPDATE` / `DELETE`. Only while **Allow writing** is on. |
+| POST   | `/execute`   | yes  | Run a statement that changes data or structure. Only while **Allow writing** is on. |
 
 ByteBridge only reads unless an administrator ticks **Options → Allow
 writing** in the app. `/query` takes a `SELECT` or a `WITH` and nothing
@@ -29,7 +29,10 @@ limit the Firebird user if that matters.
 
 `/execute` is for writes and answers `403` while **Allow writing** is
 off, which is how ByteBridge ships. The setting takes effect on the
-next request, with no restart.
+next request, with no restart. Once it is on, `/execute` runs whatever
+statement it is given: `INSERT`, `UPDATE` and `DELETE`, and also
+statements that change the structure of the database. It can do
+whatever the Firebird user can.
 
 ## Authentication
 

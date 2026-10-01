@@ -118,7 +118,8 @@ in if you decide you want it.
   choose between *Minimize to Tray* and *Exit*.
 - **Allow writing** — off, which is how ByteBridge ships, means it
   only reads your databases. Ticking it lets programs that hold the
-  API key also change and delete data. It asks you to confirm, only
+  API key also change and delete data, and even the structure of the
+  databases. It asks you to confirm, only
   an administrator can change it, and it is best left off unless you
   need it.
 
