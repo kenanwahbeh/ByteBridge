@@ -674,7 +674,9 @@ public sealed class GatewayServer : IDisposable
                         404,
                         new ErrorResponse(
                             $"Unknown endpoint \"{path}\". " +
-                            "Available: /health, /stats, /databases, /query, /execute."));
+                            (_database.GetAllowWrites()
+                                ? "Available: /health, /stats, /databases, /query, /execute."
+                                : "Available: /health, /stats, /databases, /query.")));
 
                     return;
             }
@@ -797,7 +799,9 @@ public sealed class GatewayServer : IDisposable
                 400,
                 new ErrorResponse(
                     "/query only accepts SELECT or WITH statements. " +
-                    "Use /execute for writes."));
+                    (_database.GetAllowWrites()
+                        ? "Use /execute for writes."
+                        : "This gateway is read-only.")));
 
             return;
         }
@@ -879,6 +883,27 @@ public sealed class GatewayServer : IDisposable
 
         record.Sql = request.Sql;
         record.Database = request.Database;
+
+        /*
+         * Off unless an administrator has turned writing on at the
+         * machine. Read on each request, so changing it needs no
+         * restart. Checked after the statement is recorded, so an
+         * attempt shows up in the request log, and before the
+         * connection is looked up, so a refused write never gets as far
+         * as a database.
+         */
+        if (!_database.GetAllowWrites())
+        {
+            record.Error = "Refused: this gateway is read-only.";
+
+            await WriteJsonAsync(
+                context,
+                403,
+                new ErrorResponse(
+                    "This gateway is read-only. /execute is turned off."));
+
+            return;
+        }
 
         var connection =
             await ResolveConnectionAsync(

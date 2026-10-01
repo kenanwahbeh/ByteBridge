@@ -185,7 +185,7 @@ public class AdversarialInputTests
         }));
 
         Assert.Equal(HttpStatusCode.BadRequest, status);
-        Assert.Contains("/execute", body);
+        Assert.Contains("read-only", body);
     }
 
     [Fact]

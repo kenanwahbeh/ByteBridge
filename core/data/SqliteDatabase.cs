@@ -607,6 +607,21 @@ public class SqliteDatabase
     }
 
     /*
+     * Whether /execute may run statements at all. False until an
+     * administrator turns it on at the machine, so a gateway that has
+     * never been told otherwise only reads.
+     *
+     * Kept out of GatewayConfig on purpose. The control panel loads that
+     * object whole and saves it back whole, so a copy read before this
+     * moved would quietly put the old value back.
+     */
+    public bool GetAllowWrites() =>
+        GetSetting("Gateway.AllowWrites") == "1";
+
+    public void SetAllowWrites(bool allowed) =>
+        SetSetting("Gateway.AllowWrites", allowed ? "1" : "0");
+
+    /*
      * Loads the gateway settings, filling in defaults for
      * anything that has never been saved.
      *

@@ -216,13 +216,14 @@ public class GatewayServerTests : IClassFixture<GatewayHarness>
     [InlineData("INSERT INTO CUSTOMERS (ID) VALUES (1)")]
     [InlineData("DROP TABLE CUSTOMERS")]
     [InlineData("EXECUTE PROCEDURE WIPE")]
-    public async Task Query_refuses_a_write_and_points_at_execute(string sql)
+    public async Task Query_refuses_a_write_and_says_the_gateway_is_read_only(string sql)
     {
         var (status, body) = await GatewayHarness.Read(
             _gateway.Post("/query", new { database = "Sales", sql }));
 
         Assert.Equal(HttpStatusCode.BadRequest, status);
-        Assert.Contains("/execute", body);
+        Assert.Contains("read-only", body);
+        Assert.DoesNotContain("/execute", body);
     }
 
     [Theory]

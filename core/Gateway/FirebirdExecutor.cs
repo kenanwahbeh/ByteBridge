@@ -47,9 +47,34 @@ internal static class FirebirdExecutor
 
         await connection.OpenAsync(cancellationToken);
 
+        /*
+         * Every /query runs in a transaction that Firebird itself holds
+         * read-only, so a statement the text check lets through -- a
+         * SELECT from a procedure that writes, say -- is refused by the
+         * engine ("attempted update during read-only transaction")
+         * instead of being trusted not to write.
+         *
+         * Read committed with record versions is the usual setting for
+         * a read-only transaction: it sees what is committed as each
+         * statement starts, and does not hold back the server's clean-up
+         * of old row versions while a long result is being read.
+         */
+        await using var transaction =
+            await connection.BeginTransactionAsync(
+                new FbTransactionOptions
+                {
+                    TransactionBehavior =
+                        FbTransactionBehavior.Read |
+                        FbTransactionBehavior.ReadCommitted |
+                        FbTransactionBehavior.RecVersion |
+                        FbTransactionBehavior.NoWait
+                },
+                cancellationToken);
+
         await using var command =
             connection.CreateCommand();
 
+        command.Transaction = transaction;
         command.CommandText = sql;
         command.CommandTimeout = commandTimeoutSeconds;
 
@@ -140,11 +165,12 @@ internal static class FirebirdExecutor
     }
 
     /*
-     * Guards /query against accidental writes.
+     * A quick, plain refusal for a write sent to /query.
      *
-     * This is a convenience split between the two endpoints,
-     * not a security boundary: anything holding the API key can
-     * still reach /execute.
+     * It is not what keeps /query from writing: the read-only
+     * transaction in QueryAsync is. So it only has to be right about
+     * the ordinary case, and a statement that gets past it still
+     * cannot change anything.
      */
     public static bool IsReadOnlyStatement(string sql)
     {

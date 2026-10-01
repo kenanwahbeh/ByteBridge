@@ -11,7 +11,7 @@ pages for you.*
 Your business keeps its information — customers, invoices, stock — in a
 **database** on a computer in the office. ByteBridge lets a program
 somewhere else (a website, a phone app, a report built by your
-developer) read and update that information **safely**, without anyone
+developer) read that information **safely**, without anyone
 opening your office network to the internet.
 
 ## An everyday picture
@@ -59,7 +59,7 @@ flowchart LR
 - **The computer must stay on.** If it is switched off or asleep, the
   app on the other end cannot reach your data.
 - **The API key is like the key to your records room.** Anyone who has
-  it can read and change the databases you switched Online. Share it
+  it can read the databases you switched Online. Share it
   only with people you trust, and never post it in a group chat.
 - **Nothing is sent anywhere by ByteBridge on its own.** It only answers
   requests that arrive with the right key.

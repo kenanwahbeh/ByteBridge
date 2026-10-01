@@ -13,6 +13,16 @@ file is the single source of truth for what shipped.
 
 ## [Unreleased]
 
+### Changed
+
+- **ByteBridge only reads.** `/execute` is turned off and answers `403`,
+  so a script that wrote through the gateway stops working; contact
+  ByteBalanceTech if you need writing. `/query` now runs in a
+  transaction that Firebird itself holds read-only, so a `SELECT` that
+  calls a procedure which writes is refused by the database rather than
+  trusted not to. The guide no longer says the API key lets its holder
+  change data.
+
 ## [2.0.0] - 2026-09-30
 
 ### Added
