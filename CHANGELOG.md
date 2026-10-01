@@ -20,7 +20,9 @@ file is the single source of truth for what shipped.
   ByteBalanceTech if you need writing. `/query` now runs in a
   transaction that Firebird itself holds read-only, so a `SELECT` that
   calls a procedure which writes is refused by the database rather than
-  trusted not to. The guide no longer says the API key lets its holder
+  trusted not to. Statements that move a generator (`GEN_ID` with a
+  step other than 0, `NEXT VALUE FOR`) are refused as well, because a
+  generator changes outside any transaction. The guide no longer says the API key lets its holder
   change data.
 
 ## [2.0.0] - 2026-09-30

@@ -30,6 +30,34 @@ public class FirebirdExecutorTests
     }
 
     [Theory]
+    [InlineData("SELECT GEN_ID(G_CUSTOMERS, 1) FROM RDB$DATABASE")]
+    [InlineData("select gen_id(g_customers,-1) from rdb$database")]
+    [InlineData("SELECT GEN_ID ( \"G_Customers\" , 10 ) FROM RDB$DATABASE")]
+    [InlineData("SELECT GEN_ID(G, @step) FROM RDB$DATABASE")]
+    [InlineData("SELECT GEN_ID(G, 0 + 1) FROM RDB$DATABASE")]
+    [InlineData("SELECT NEXT VALUE FOR G_CUSTOMERS FROM RDB$DATABASE")]
+    [InlineData("SELECT next\r\n value  for G FROM RDB$DATABASE")]
+    [InlineData("SELECT /* peek */ GEN_ID(G, 0), GEN_ID(G, 1) FROM RDB$DATABASE")]
+    [InlineData("SELECT GEN_ID /* hide */ (G, 1) FROM RDB$DATABASE")]
+    public void A_statement_that_moves_a_generator_is_noticed(string sql)
+    {
+        Assert.True(FirebirdExecutor.AdvancesSequence(sql));
+    }
+
+    [Theory]
+    [InlineData("SELECT GEN_ID(G_CUSTOMERS, 0) FROM RDB$DATABASE")]
+    [InlineData("SELECT GEN_ID( \"G_Customers\" ,0 ) FROM RDB$DATABASE")]
+    [InlineData("SELECT 'GEN_ID(G, 1)' FROM RDB$DATABASE")]
+    [InlineData("SELECT 1 FROM RDB$DATABASE -- GEN_ID(G, 1)")]
+    [InlineData("SELECT 1 /* NEXT VALUE FOR G */ FROM RDB$DATABASE")]
+    [InlineData("SELECT 'it''s GEN_ID(G, 1)' FROM RDB$DATABASE")]
+    [InlineData("SELECT ID, NAME FROM CUSTOMERS")]
+    public void Peeking_at_a_generator_or_mentioning_one_is_not_moving_it(string sql)
+    {
+        Assert.False(FirebirdExecutor.AdvancesSequence(sql));
+    }
+
+    [Theory]
     [InlineData("DELETE FROM CUSTOMERS")]
     [InlineData("UPDATE CUSTOMERS SET NAME = 'x'")]
     [InlineData("INSERT INTO CUSTOMERS (ID) VALUES (1)")]

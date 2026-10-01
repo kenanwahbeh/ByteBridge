@@ -18,7 +18,11 @@ API key as a database credential.
   bound as Firebird parameters, so a value cannot become SQL.
 - ByteBridge only reads. `/query` refuses anything that is not a
   `SELECT` or `WITH`, and runs what it accepts in a transaction that
-  Firebird itself holds read-only, so a statement cannot change data.
+  Firebird itself holds read-only, so a statement cannot change rows.
+  Generators change outside transactions, so `GEN_ID` with a step other
+  than 0 and `NEXT VALUE FOR` are refused as well; a procedure that
+  moves one inside its own body can only be stopped by limiting the
+  Firebird user.
 - The listener binds to `127.0.0.1` only, and a request body over 1 MB
   is refused.
 - Anything holding the key can read whatever the Firebird user of an

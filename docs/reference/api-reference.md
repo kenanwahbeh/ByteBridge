@@ -19,7 +19,11 @@ up whether or not that window is open.
 
 ByteBridge only reads. `/query` takes a `SELECT` or a `WITH` and nothing
 else, and runs it in a transaction that Firebird itself holds
-read-only, so a statement cannot change data however it is written.
+read-only, so a statement cannot change rows however it is written.
+Generators change outside transactions, so `GEN_ID` with a step other
+than 0 and `NEXT VALUE FOR` are refused as well. A procedure that moves
+a generator inside its own body cannot be seen from here; limit the
+Firebird user if that matters.
 
 ## Authentication
 

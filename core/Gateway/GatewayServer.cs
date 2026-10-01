@@ -806,6 +806,23 @@ public sealed class GatewayServer : IDisposable
             return;
         }
 
+        /*
+         * Whether writing is on or off: a generator moves outside any
+         * transaction, so the read-only one does not stop a SELECT from
+         * advancing it, and /query is a read endpoint either way.
+         */
+        if (FirebirdExecutor.AdvancesSequence(request.Sql))
+        {
+            await WriteJsonAsync(
+                context,
+                400,
+                new ErrorResponse(
+                    "/query does not accept a statement that moves a generator: " +
+                    "GEN_ID with a step other than 0, or NEXT VALUE FOR."));
+
+            return;
+        }
+
         var connection =
             await ResolveConnectionAsync(
                 context,

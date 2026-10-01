@@ -111,6 +111,26 @@ public class WritingSwitchTests
         Assert.Contains("/execute", on);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Query_refuses_a_statement_that_moves_a_generator(bool writing)
+    {
+        using var gateway = new GatewayHarness();
+
+        gateway.Database.SetAllowWrites(writing);
+
+        // "Sales" is never reached: the refusal comes before any lookup.
+        var (status, body) = await GatewayHarness.Read(gateway.Post("/query", new
+        {
+            database = "Sales",
+            sql = "SELECT GEN_ID(G_CUSTOMERS, 1) FROM RDB$DATABASE"
+        }));
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Contains("generator", body);
+    }
+
     [Fact]
     public void Saving_the_gateway_settings_does_not_undo_the_switch()
     {
