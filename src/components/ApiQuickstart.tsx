@@ -26,9 +26,9 @@ export const ApiQuickstart: React.FC<ApiQuickstartProps> = ({ config }) => {
       cmd: `curl -X POST ${config.baseUrl}/query \\\n  -H "X-API-Key: ${config.apiKey}" \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "database": "Sales",\n    "sql": "SELECT ID, NAME, BALANCE FROM CUSTOMERS WHERE ID = @id",\n    "parameters": { "id": 101 },\n    "maxRows": 100\n  }'`,
     },
     {
-      title: '4. Execute Write Statement (/execute)',
-      desc: 'Execute INSERT, UPDATE, or DELETE statements safely.',
-      cmd: `curl -X POST ${config.baseUrl}/execute \\\n  -H "X-API-Key: ${config.apiKey}" \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "database": "Sales",\n    "sql": "UPDATE CUSTOMERS SET BALANCE = @bal WHERE ID = @id",\n    "parameters": { "id": 101, "bal": 15000.00 }\n  }'`,
+      title: '4. Read-Only Query Mode (No Write / No Edit Option)',
+      desc: 'ByteBridge operates strictly as a read-only query gateway. Data modifications are disabled.',
+      cmd: `# Data modifications (INSERT, UPDATE, DELETE) are not permitted on this gateway.\n# All client access is strictly for read-only SQL queries on /query:\n\ncurl -X POST ${config.baseUrl}/query \\\n  -H "X-API-Key: ${config.apiKey}" \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "database": "Sales",\n    "sql": "SELECT COUNT(*) AS TOTAL_ORDERS FROM ORDERS",\n    "maxRows": 100\n  }'`,
     },
     {
       title: '5. Cloudflare Dual Tunnel (Data on :8080, Control Panel on :3000)',

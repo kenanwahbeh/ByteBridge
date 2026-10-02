@@ -93,7 +93,7 @@ export class GatewayEngine {
         databaseGateway: {
           id: 'database',
           name: 'Database Gateway Tunnel (Data API)',
-          nameAr: 'نفق بوابة البيانات (Data Gateway)',
+          nameAr: 'Database Gateway Tunnel (Data API)',
           targetPort: 8080,
           protocol: 'http',
           subdomain: 'db-gateway-edge.bytebridge.io',
@@ -108,7 +108,7 @@ export class GatewayEngine {
         controlPanel: {
           id: 'control_panel',
           name: 'Web Server Control Panel Tunnel (Remote UI & Mgmt)',
-          nameAr: 'نفق لوحة التحكم عن بعد (Server Web UI)',
+          nameAr: 'Web Server Control Panel Tunnel (Remote UI & Mgmt)',
           targetPort: 3000,
           protocol: 'http',
           subdomain: 'panel-remote.bytebridge.io',
@@ -128,6 +128,7 @@ export class GatewayEngine {
       {
         id: 'conn-sales-01',
         name: 'Sales',
+        type: 'Firebird',
         server: '127.0.0.1',
         port: 3050,
         username: 'SYSDBA',
@@ -135,23 +136,27 @@ export class GatewayEngine {
         database: 'C:\\data\\sales.fdb',
         enabled: true,
         lastTestSuccessful: true,
-        lastTestedAt: new Date(Date.now() - 3600000).toISOString(),
+        lastTestedAt: new Date(Date.now() - 3 * 60000).toISOString(),
+        lastLatencyMs: 14,
       },
       {
         id: 'conn-inventory-02',
         name: 'Inventory',
+        type: 'SQLite',
         server: '127.0.0.1',
-        port: 3050,
-        username: 'SYSDBA',
-        password: 'masterkey',
-        database: 'C:\\data\\inventory.fdb',
+        port: 0,
+        username: 'admin',
+        password: '',
+        database: 'C:\\data\\inventory.sqlite',
         enabled: true,
         lastTestSuccessful: true,
-        lastTestedAt: new Date(Date.now() - 7200000).toISOString(),
+        lastTestedAt: new Date(Date.now() - 7 * 60000).toISOString(),
+        lastLatencyMs: 8,
       },
       {
         id: 'conn-accounting-03',
         name: 'Accounting',
+        type: 'Firebird',
         server: '192.168.1.50',
         port: 3050,
         username: 'SYSDBA',
@@ -159,12 +164,80 @@ export class GatewayEngine {
         database: 'C:\\db\\accounting.fdb',
         enabled: false,
         lastTestSuccessful: false,
-        lastTestedAt: new Date(Date.now() - 86400000).toISOString(),
+        lastTestedAt: new Date(Date.now() - 15 * 60000).toISOString(),
+        lastErrorMessage: 'Host 192.168.1.50:3050 unreachable (ETIMEDOUT)',
+      },
+      {
+        id: 'conn-analytics-04',
+        name: 'Analytics DW',
+        type: 'PostgreSQL',
+        server: '10.0.0.15',
+        port: 5432,
+        username: 'analytics_user',
+        password: 'dw_password',
+        database: 'dw_production',
+        enabled: true,
+        lastTestSuccessful: true,
+        lastTestedAt: new Date(Date.now() - 1 * 60000).toISOString(),
+        lastLatencyMs: 12,
       },
     ];
 
-    // Seed initial request logs
+    // Seed realistic request logs across the last 10 minutes
+    const now = Date.now();
+    const seedRequests = [
+      // Sales requests
+      { db: 'Sales', minAgo: 8.5, status: 200, ms: 14, sql: 'SELECT ID, NAME, BALANCE FROM CUSTOMERS WHERE ID = @id' },
+      { db: 'Sales', minAgo: 8.2, status: 200, ms: 12, sql: 'SELECT * FROM ORDERS WHERE STATUS = @status' },
+      { db: 'Sales', minAgo: 6.8, status: 200, ms: 16, sql: 'SELECT COUNT(*) FROM CUSTOMERS' },
+      { db: 'Sales', minAgo: 6.3, status: 200, ms: 15, sql: 'SELECT * FROM CUSTOMERS ORDER BY BALANCE DESC' },
+      { db: 'Sales', minAgo: 4.5, status: 200, ms: 11, sql: 'SELECT TOTAL_AMOUNT FROM ORDERS WHERE ID = @id' },
+      { db: 'Sales', minAgo: 4.1, status: 200, ms: 13, sql: 'SELECT ID, NAME FROM CUSTOMERS' },
+      { db: 'Sales', minAgo: 2.7, status: 200, ms: 18, sql: 'SELECT * FROM ORDERS' },
+      { db: 'Sales', minAgo: 2.2, status: 200, ms: 14, sql: 'SELECT BALANCE FROM CUSTOMERS WHERE ID = 101' },
+      { db: 'Sales', minAgo: 1.1, status: 200, ms: 10, sql: 'SELECT ID, NAME, EMAIL FROM CUSTOMERS' },
+      { db: 'Sales', minAgo: 0.4, status: 200, ms: 12, sql: 'SELECT * FROM ORDERS WHERE CUSTOMER_ID = 101' },
+      
+      // Inventory requests
+      { db: 'Inventory', minAgo: 9.1, status: 200, ms: 7, sql: 'SELECT * FROM PRODUCTS WHERE CATEGORY = @cat' },
+      { db: 'Inventory', minAgo: 7.4, status: 200, ms: 8, sql: 'SELECT SKU, NAME, STOCK_QTY FROM PRODUCTS' },
+      { db: 'Inventory', minAgo: 5.6, status: 200, ms: 6, sql: 'SELECT * FROM PRODUCTS WHERE STOCK_QTY < 50' },
+      { db: 'Inventory', minAgo: 5.2, status: 200, ms: 9, sql: 'SELECT UNIT_PRICE FROM PRODUCTS WHERE ID = 201' },
+      { db: 'Inventory', minAgo: 3.1, status: 200, ms: 7, sql: 'SELECT * FROM PRODUCTS' },
+      { db: 'Inventory', minAgo: 0.8, status: 200, ms: 8, sql: 'SELECT COUNT(*) FROM PRODUCTS' },
+
+      // Analytics DW requests
+      { db: 'Analytics DW', minAgo: 8.0, status: 200, ms: 22, sql: 'SELECT DATE_TRUNC("month", ORDER_DATE), SUM(TOTAL_AMOUNT) FROM ORDERS GROUP BY 1' },
+      { db: 'Analytics DW', minAgo: 6.0, status: 200, ms: 19, sql: 'SELECT COUNTRY, AVG(BALANCE) FROM CUSTOMERS GROUP BY COUNTRY' },
+      { db: 'Analytics DW', minAgo: 2.5, status: 200, ms: 25, sql: 'SELECT CATEGORY, COUNT(*) FROM PRODUCTS GROUP BY CATEGORY' },
+      { db: 'Analytics DW', minAgo: 1.0, status: 200, ms: 18, sql: 'SELECT STATUS, COUNT(*) FROM ORDERS GROUP BY STATUS' },
+
+      // Accounting (failing request)
+      { db: 'Accounting', minAgo: 9.5, status: 502, ms: 3000, error: 'Host 192.168.1.50:3050 unreachable (ETIMEDOUT)' },
+    ];
+
+    // Append seed logs in chronological order
+    seedRequests
+      .sort((a, b) => b.minAgo - a.minAgo)
+      .forEach(sr => {
+        this.appendLog({
+          at: new Date(now - Math.round(sr.minAgo * 60000)).toISOString(),
+          method: 'POST',
+          path: '/query',
+          status: sr.status,
+          elapsedMs: sr.ms,
+          localPeer: '127.0.0.1',
+          clientIp: '127.0.0.1',
+          authenticated: true,
+          database: sr.db,
+          sql: sr.sql,
+          rows: sr.status === 200 ? 5 : undefined,
+          error: sr.error,
+        });
+      });
+
     this.appendLog({
+      at: new Date(now - 30000).toISOString(),
       method: 'GET',
       path: '/health',
       status: 200,
@@ -172,19 +245,6 @@ export class GatewayEngine {
       localPeer: '127.0.0.1',
       clientIp: '127.0.0.1',
       authenticated: true,
-    });
-
-    this.appendLog({
-      method: 'POST',
-      path: '/query',
-      status: 200,
-      elapsedMs: 14,
-      localPeer: '127.0.0.1',
-      clientIp: '127.0.0.1',
-      authenticated: true,
-      database: 'Sales',
-      sql: 'SELECT ID, NAME, BALANCE FROM CUSTOMERS WHERE ID = @id',
-      rows: 1,
     });
   }
 
@@ -207,7 +267,7 @@ export class GatewayEngine {
   public appendLog(logData: Partial<RequestLogItem>): RequestLogItem {
     const item: RequestLogItem = {
       id: crypto.randomUUID(),
-      at: new Date().toISOString(),
+      at: logData.at || new Date().toISOString(),
       method: logData.method || 'GET',
       path: logData.path || '/',
       status: logData.status || 200,
@@ -240,7 +300,7 @@ export class GatewayEngine {
 
   private stripLeadingNoise(sql: string): string {
     let index = 0;
-    while (index < sql.Length || index < sql.length) {
+    while (index < sql.length) {
       const char = sql[index];
       if (/\s/.test(char)) {
         index++;

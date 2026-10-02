@@ -7,8 +7,11 @@ export interface DatabaseConfig {
   password?: string;
   database: string;
   enabled: boolean;
+  type?: string;
   lastTestSuccessful?: boolean;
   lastTestedAt?: string | null;
+  lastLatencyMs?: number;
+  lastErrorMessage?: string;
 }
 
 export interface DatabaseSummary {
@@ -16,6 +19,16 @@ export interface DatabaseSummary {
   name: string;
   online: boolean;
 }
+
+export interface ConnectionsExportData {
+  app: string;
+  version: string;
+  exportedAt: string;
+  totalConnections: number;
+  connections: DatabaseConfig[];
+}
+
+export type ImportMode = 'merge' | 'replace';
 
 export interface GatewayConfig {
   host: string;

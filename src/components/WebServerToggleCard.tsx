@@ -271,7 +271,7 @@ ingress:
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="text-xs font-bold text-stone-900">
-                      {language === 'ar' ? config.tunnels.databaseGateway.nameAr : config.tunnels.databaseGateway.name}
+                      {config.tunnels.databaseGateway.name}
                     </h3>
                     <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-stone-100 text-stone-700 border border-stone-200">
                       :{config.tunnels.databaseGateway.targetPort}
@@ -380,7 +380,7 @@ ingress:
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="text-xs font-bold text-stone-900">
-                      {language === 'ar' ? config.tunnels.controlPanel.nameAr : config.tunnels.controlPanel.name}
+                      {config.tunnels.controlPanel.name}
                     </h3>
                     <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-stone-100 text-stone-700 border border-stone-200">
                       :{config.tunnels.controlPanel.targetPort}
@@ -488,7 +488,7 @@ ingress:
             <div className="p-2 rounded bg-stone-800/80 border border-stone-700">
               <span className="text-orange-400 font-bold">Tunnel 1 (Data API):</span>
               <div className="text-stone-300 mt-1">
-                https://db-gateway-edge.bytebridge.io &rarr; <span className="text-emerald-400 font-semibold">127.0.0.1:8080</span> (/query, /execute)
+                https://db-gateway-edge.bytebridge.io &rarr; <span className="text-emerald-400 font-semibold">127.0.0.1:8080</span> (/query - Read-Only)
               </div>
             </div>
 

@@ -167,7 +167,7 @@ app.post('/query', (req: Request, res: Response) => {
       error: 'Refused non-read-only statement on /query',
     });
     return res.status(400).json({
-      error: 'Writes are refused on /query. Use /execute for statements that modify data.',
+      error: 'Data modification statements (INSERT, UPDATE, DELETE, ALTER, DROP) are not permitted. This gateway strictly supports read-only queries (/query).',
     });
   }
 
@@ -226,85 +226,30 @@ app.post('/query', (req: Request, res: Response) => {
 
 /*
  * POST /execute
- * Authenticated endpoint: executes INSERT, UPDATE, DELETE, etc.
+ * Modification / write statements are disabled by policy: only queries are allowed.
  */
 app.post('/execute', (req: Request, res: Response) => {
   const startTime = Date.now();
   const clientIp = getClientIp(req);
   const apiKey = extractApiKey(req);
+  const { database, sql } = req.body || {};
 
-  if (!gateway.isKeyValid(apiKey)) {
-    gateway.appendLog({
-      method: 'POST',
-      path: '/execute',
-      status: 401,
-      clientIp,
-      authenticated: false,
-      error: 'Missing or invalid API key',
-    });
-    return res.status(401).json({ error: 'Missing or wrong API key.' });
-  }
+  gateway.appendLog({
+    method: 'POST',
+    path: '/execute',
+    status: 403,
+    elapsedMs: Date.now() - startTime,
+    clientIp,
+    authenticated: gateway.isKeyValid(apiKey),
+    database: typeof database === 'string' ? database : undefined,
+    sql: typeof sql === 'string' ? sql : undefined,
+    error: 'Data modification disabled — queries only',
+  });
 
-  const { database, sql, parameters } = req.body || {};
-
-  if (!database || typeof database !== 'string') {
-    return res.status(400).json({ error: "Missing required 'database' field in body." });
-  }
-
-  if (!sql || typeof sql !== 'string') {
-    return res.status(400).json({ error: "Missing required 'sql' statement in body." });
-  }
-
-  const connResult = gateway.findConnection(database);
-  if ('error' in connResult) {
-    const elapsed = Date.now() - startTime;
-    gateway.appendLog({
-      method: 'POST',
-      path: '/execute',
-      status: connResult.status,
-      elapsedMs: elapsed,
-      clientIp,
-      authenticated: true,
-      database,
-      sql,
-      error: connResult.error,
-    });
-    return res.status(connResult.status).json({ error: connResult.error });
-  }
-
-  try {
-    const execResult = gateway.executeWrite(connResult, sql, parameters);
-    const elapsed = Date.now() - startTime;
-    execResult.elapsedMs = elapsed;
-
-    gateway.appendLog({
-      method: 'POST',
-      path: '/execute',
-      status: 200,
-      elapsedMs: elapsed,
-      clientIp,
-      authenticated: true,
-      database: connResult.name,
-      sql,
-      rowsAffected: execResult.rowsAffected,
-    });
-
-    return res.json(execResult);
-  } catch (err: any) {
-    const elapsed = Date.now() - startTime;
-    gateway.appendLog({
-      method: 'POST',
-      path: '/execute',
-      status: 500,
-      elapsedMs: elapsed,
-      clientIp,
-      authenticated: true,
-      database: connResult.name,
-      sql,
-      error: err.message,
-    });
-    return res.status(500).json({ error: err.message || 'Error executing write statement.' });
-  }
+  return res.status(403).json({
+    error: 'Data modification is disabled. This gateway strictly supports read-only queries (/query).',
+    readonly: true,
+  });
 });
 
 // -------------------------------------------------------------
@@ -351,6 +296,122 @@ app.get('/api/connections', (req: Request, res: Response) => {
   return res.json(gateway.connections);
 });
 
+app.get('/api/connections/export', (req: Request, res: Response) => {
+  const includePasswords = req.query.includePasswords !== 'false';
+  const exported = gateway.connections.map(c => {
+    const copy = { ...c };
+    if (!includePasswords) {
+      delete copy.password;
+    }
+    return copy;
+  });
+
+  const exportPayload = {
+    app: 'ByteBridge',
+    version: '1.0',
+    exportedAt: new Date().toISOString(),
+    totalConnections: exported.length,
+    connections: exported,
+  };
+
+  if (req.query.download === 'true') {
+    res.setHeader('Content-Disposition', `attachment; filename="bytebridge-connections-${new Date().toISOString().slice(0, 10)}.json"`);
+    res.setHeader('Content-Type', 'application/json');
+  }
+
+  return res.json(exportPayload);
+});
+
+app.post('/api/connections/import', (req: Request, res: Response) => {
+  const body = req.body;
+  const incomingList: any[] = Array.isArray(body)
+    ? body
+    : Array.isArray(body?.connections)
+    ? body.connections
+    : [];
+
+  const mode: 'merge' | 'replace' = body?.mode === 'replace' ? 'replace' : 'merge';
+  const preservePasswords = body?.preserveExistingPasswords !== false;
+
+  if (!incomingList.length) {
+    return res.status(400).json({ error: 'No connections found in import payload.' });
+  }
+
+  const validConnections: any[] = [];
+  for (const item of incomingList) {
+    if (!item || typeof item !== 'object') continue;
+    const name = typeof item.name === 'string' ? item.name.trim() : '';
+    const database = typeof item.database === 'string' ? item.database.trim() : '';
+    if (!name || !database) continue;
+
+    const id = (typeof item.id === 'string' && item.id.trim()) || ('conn-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6));
+    const server = typeof item.server === 'string' ? item.server.trim() : 'localhost';
+    const port = Number(item.port) || (server.includes('postgres') ? 5432 : 3050);
+    const username = typeof item.username === 'string' ? item.username.trim() : 'SYSDBA';
+    const password = typeof item.password === 'string' ? item.password : '';
+    const type = typeof item.type === 'string' && item.type.trim()
+      ? item.type.trim()
+      : (database.endsWith('.sqlite') || database.endsWith('.db') ? 'SQLite' : port === 5432 ? 'PostgreSQL' : 'Firebird');
+    const enabled = item.enabled !== undefined ? !!item.enabled : true;
+
+    validConnections.push({
+      id,
+      name,
+      type,
+      server,
+      port,
+      username,
+      password,
+      database,
+      enabled,
+      lastTestSuccessful: item.lastTestSuccessful !== undefined ? item.lastTestSuccessful : true,
+      lastTestedAt: item.lastTestedAt || new Date().toISOString(),
+      lastLatencyMs: typeof item.lastLatencyMs === 'number' ? item.lastLatencyMs : 14,
+    });
+  }
+
+  if (validConnections.length === 0) {
+    return res.status(400).json({ error: 'None of the imported items contained valid name and database attributes.' });
+  }
+
+  if (mode === 'replace') {
+    gateway.connections = validConnections;
+  } else {
+    for (const incoming of validConnections) {
+      const existingIdx = gateway.connections.findIndex(
+        c => c.id === incoming.id || c.name.toLowerCase() === incoming.name.toLowerCase()
+      );
+      if (existingIdx !== -1) {
+        const existing = gateway.connections[existingIdx];
+        gateway.connections[existingIdx] = {
+          ...existing,
+          ...incoming,
+          password: (!incoming.password && preservePasswords && existing.password) ? existing.password : incoming.password,
+        };
+      } else {
+        gateway.connections.push(incoming);
+      }
+    }
+  }
+
+  gateway.appendLog({
+    method: 'POST',
+    path: '/api/connections/import',
+    status: 200,
+    elapsedMs: 2,
+    clientIp: getClientIp(req),
+    authenticated: true,
+  });
+
+  return res.json({
+    success: true,
+    mode,
+    importedCount: validConnections.length,
+    totalConnections: gateway.connections.length,
+    connections: gateway.connections,
+  });
+});
+
 app.post('/api/connections', (req: Request, res: Response) => {
   const data = req.body;
   if (!data.name || !data.database) {
@@ -369,6 +430,7 @@ app.post('/api/connections', (req: Request, res: Response) => {
     const newConn = {
       id: data.id || 'conn-' + Date.now().toString(36),
       name: data.name.trim(),
+      type: data.type?.trim() || 'Firebird',
       server: data.server?.trim() || 'localhost',
       port: Number(data.port) || 3050,
       username: data.username?.trim() || 'SYSDBA',
@@ -413,19 +475,39 @@ app.post('/api/connections/:id/toggle', (req: Request, res: Response) => {
 });
 
 app.post('/api/connections/test', (req: Request, res: Response) => {
-  const { server, port, username, database } = req.body;
+  const { id, server, port, username, database } = req.body;
   // Simulate connection test
+  const isUnreachable = server && (server === '192.168.1.50' || server.toLowerCase().includes('fail') || database?.toLowerCase().includes('fail'));
   const latency = Math.floor(Math.random() * 25) + 8;
-  if (server && database) {
+  const success = !isUnreachable && !!(server && database);
+
+  if (id) {
+    const conn = gateway.connections.find(c => c.id === id);
+    if (conn) {
+      conn.lastTestedAt = new Date().toISOString();
+      conn.lastTestSuccessful = success;
+      if (success) {
+        conn.lastLatencyMs = latency;
+        delete conn.lastErrorMessage;
+      } else {
+        delete conn.lastLatencyMs;
+        conn.lastErrorMessage = isUnreachable ? `Host ${server}:${port || 3050} unreachable (ETIMEDOUT)` : 'Invalid configuration';
+      }
+    }
+  }
+
+  if (success) {
     return res.json({
       success: true,
       latencyMs: latency,
       message: `Connection established to ${server}:${port || 3050}/${database}`,
     });
   }
-  return res.status(400).json({
+  return res.status(isUnreachable ? 502 : 400).json({
     success: false,
-    message: 'Server and Database path/alias must be provided.',
+    message: isUnreachable
+      ? `Host ${server}:${port || 3050} unreachable (ETIMEDOUT)`
+      : 'Server and Database path/alias must be provided.',
   });
 });
 
@@ -476,6 +558,20 @@ app.post('/api/settings', (req: Request, res: Response) => {
     gateway.appSettings.autoStart = !!autoStart;
   }
   return res.json(gateway.appSettings);
+});
+
+// API 404 handler: guarantees /api/* routes ALWAYS return JSON, never falling through to HTML SPA
+app.all('/api/*', (req: Request, res: Response) => {
+  return res.status(404).json({ error: `API route not found: ${req.method} ${req.path}` });
+});
+
+// Global API error handler: guarantees JSON responses on server errors
+app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+  if (req.path.startsWith('/api') || req.path === '/health' || req.path === '/query' || req.path === '/execute') {
+    console.error('API Error:', err);
+    return res.status(500).json({ error: err?.message || 'Internal server error' });
+  }
+  next(err);
 });
 
 // -------------------------------------------------------------
