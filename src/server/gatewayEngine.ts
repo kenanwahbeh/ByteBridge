@@ -391,9 +391,16 @@ export class GatewayEngine {
     }
 
     // Handle column selection e.g. SELECT ID, NAME FROM ...
-    const selectMatch = rawSql.match(/SELECT\s+(.*?)\s+FROM/i);
-    if (selectMatch && selectMatch[1].trim() !== '*') {
-      const reqCols = selectMatch[1]
+    const upperSql = rawSql.toUpperCase();
+    const selectIndex = upperSql.indexOf('SELECT');
+    const fromIndex = selectIndex >= 0
+      ? upperSql.indexOf(' FROM ', selectIndex + 'SELECT'.length)
+      : -1;
+    const selectedText = fromIndex >= 0
+      ? rawSql.slice(selectIndex + 'SELECT'.length, fromIndex)
+      : '';
+    if (selectedText.trim() && selectedText.trim() !== '*') {
+      const reqCols = selectedText
         .split(',')
         .map(c => c.trim().replace(/["']/g, '').toUpperCase())
         .filter(c => Boolean(c));
