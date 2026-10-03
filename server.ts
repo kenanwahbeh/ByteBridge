@@ -6,6 +6,34 @@ import { gateway } from './src/server/gatewayEngine.js';
 
 const app = express();
 const PORT = 3000;
+const requestWindows = new Map<string, { startedAt: number; count: number }>();
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX_REQUESTS = 120;
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const now = Date.now();
+  const clientKey = req.socket.remoteAddress || 'unknown';
+  const current = requestWindows.get(clientKey);
+  const window = !current || now - current.startedAt >= RATE_LIMIT_WINDOW_MS
+    ? { startedAt: now, count: 1 }
+    : { startedAt: current.startedAt, count: current.count + 1 };
+
+  requestWindows.set(clientKey, window);
+  if (window.count > RATE_LIMIT_MAX_REQUESTS) {
+    res.setHeader('Retry-After', '60');
+    return res.status(429).json({ error: 'Too many requests. Try again later.' });
+  }
+
+  if (requestWindows.size > 10_000) {
+    for (const [key, value] of requestWindows) {
+      if (now - value.startedAt >= RATE_LIMIT_WINDOW_MS) {
+        requestWindows.delete(key);
+      }
+    }
+  }
+
+  next();
+});
 
 // Security & Parsing Middlewares
 app.use(cors());
@@ -258,7 +286,10 @@ app.post('/execute', (req: Request, res: Response) => {
 
 app.get('/api/status', (req: Request, res: Response) => {
   return res.json({
-    gateway: gateway.config,
+    gateway: {
+      ...gateway.config,
+      apiKey: undefined,
+    },
     service: {
       state: gateway.serviceState,
     },
@@ -293,18 +324,11 @@ app.post('/api/webserver/config', (req: Request, res: Response) => {
 });
 
 app.get('/api/connections', (req: Request, res: Response) => {
-  return res.json(gateway.connections);
+  return res.json(gateway.connections.map(({ password, ...connection }) => connection));
 });
 
 app.get('/api/connections/export', (req: Request, res: Response) => {
-  const includePasswords = req.query.includePasswords !== 'false';
-  const exported = gateway.connections.map(c => {
-    const copy = { ...c };
-    if (!includePasswords) {
-      delete copy.password;
-    }
-    return copy;
-  });
+  const exported = gateway.connections.map(({ password, ...connection }) => connection);
 
   const exportPayload = {
     app: 'ByteBridge',

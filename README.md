@@ -225,6 +225,28 @@ To produce the installers the way the release does, see
 [`.github/workflows/release.yml`](.github/workflows/release.yml). WiX
 and Inno Setup both only run on Windows.
 
+For how the projects fit together, see
+[docs/developers/architecture.md](docs/developers/architecture.md).
+
+### Browser mock-up (optional)
+
+The repo root also holds a React + Express mock-up of the control
+panel (`src/`, `server.ts`, `index.html`). It runs on fake in-memory
+data, is not part of the product, and nothing in the build, CI or the
+installers uses it. It is handy for trying out UI changes without
+Windows or a Firebird server.
+
+```
+npm install
+npm run dev      # http://localhost:3000
+npm run lint     # type-check only
+npm run build    # vite build + dist/server.cjs
+npm start        # run the built server
+```
+
+It listens on port 3000 on all interfaces and its data is not real, so
+keep it on a development machine.
+
 ## Tests
 
 ```
