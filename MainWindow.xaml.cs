@@ -1046,7 +1046,7 @@ public partial class MainWindow : Window
             }
 
             var (succeeded, error) =
-                await FirebirdConnectionTester.TestAsync(connection);
+                await DatabaseConnectionTester.TestAsync(connection);
 
             if (!succeeded)
             {

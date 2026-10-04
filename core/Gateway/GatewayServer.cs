@@ -12,7 +12,6 @@ using System.Text.Json;
 using System.Text.Unicode;
 using System.Threading;
 using System.Threading.Tasks;
-using FirebirdSql.Data.FirebirdClient;
 using ByteBridge.Configuration;
 using ByteBridge.Data;
 
@@ -837,8 +836,9 @@ public sealed class GatewayServer : IDisposable
                 context,
                 400,
                 new ErrorResponse(
-                    "/query does not accept a statement that moves a generator: " +
-                    "GEN_ID with a step other than 0, or NEXT VALUE FOR."));
+                    "/query does not accept a statement that moves a generator " +
+                    "or sequence: GEN_ID with a step other than 0, NEXT VALUE FOR, " +
+                    "nextval or setval."));
 
             return;
         }
@@ -856,6 +856,17 @@ public sealed class GatewayServer : IDisposable
 
         var config = _config;
 
+        var provider = SqlProviders.For(connection);
+
+        var refusal = provider.RejectQuery(request.Sql);
+
+        if (refusal != null)
+        {
+            await WriteJsonAsync(context, 400, new ErrorResponse(refusal));
+
+            return;
+        }
+
         var maxRows =
             Math.Clamp(
                 request.MaxRows ?? config.MaxRows,
@@ -865,7 +876,7 @@ public sealed class GatewayServer : IDisposable
         try
         {
             var result =
-                await FirebirdExecutor.QueryAsync(
+                await provider.QueryAsync(
                     connection,
                     request.Sql,
                     request.Parameters,
@@ -877,7 +888,7 @@ public sealed class GatewayServer : IDisposable
 
             await WriteJsonAsync(context, 200, result);
         }
-        catch (FbException ex)
+        catch (Exception ex) when (provider.IsDatabaseError(ex))
         {
             record.Error = ex.Message;
 
@@ -953,10 +964,12 @@ public sealed class GatewayServer : IDisposable
             return;
         }
 
+        var executor = SqlProviders.For(connection);
+
         try
         {
             var result =
-                await FirebirdExecutor.ExecuteAsync(
+                await executor.ExecuteAsync(
                     connection,
                     request.Sql,
                     request.Parameters,
@@ -967,7 +980,7 @@ public sealed class GatewayServer : IDisposable
 
             await WriteJsonAsync(context, 200, result);
         }
-        catch (FbException ex)
+        catch (Exception ex) when (executor.IsDatabaseError(ex))
         {
             record.Error = ex.Message;
 

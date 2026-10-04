@@ -10,6 +10,10 @@ public class DatabaseConfig
     public string Name { get; set; } =
         string.Empty;
 
+    /* Firebird unless said otherwise, which is what every older settings file holds. */
+    public DatabaseType Type { get; set; } =
+        DatabaseType.Firebird;
+
     public string Server { get; set; } =
         "localhost";
 
@@ -35,10 +39,14 @@ public class DatabaseConfig
     /*
      * Identifies the actual database connection.
      *
-     * Name is intentionally NOT included.
+     * Name is intentionally NOT included. The engine is, except for
+     * Firebird, because the same host and port can mean different things.
      * Password is intentionally NOT included.
      */
     public string ConnectionKey =>
+        // Firebird keeps the key it always had, so rows saved before
+        // there were other engines still match themselves.
+        (Type == DatabaseType.Firebird ? string.Empty : $"{Type}|") +
         $"{Server.Trim().ToLowerInvariant()}|" +
         $"{Port}|" +
         $"{Username.Trim().ToLowerInvariant()}|" +

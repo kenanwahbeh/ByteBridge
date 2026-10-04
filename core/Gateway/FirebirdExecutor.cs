@@ -6,165 +6,33 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using FirebirdSql.Data.FirebirdClient;
 using ByteBridge.Configuration;
 
 namespace ByteBridge.Gateway;
 
 internal static class FirebirdExecutor
 {
-    public static string BuildConnectionString(
-        DatabaseConfig config)
-    {
-        var builder =
-            new FbConnectionStringBuilder
-            {
-                DataSource = config.Server,
-                Port = config.Port,
-                Database = config.Database,
-                UserID = config.Username,
-                Password = config.Password,
-                Charset = "UTF8",
-                ConnectionTimeout = 10
-            };
+    public static string BuildConnectionString(DatabaseConfig config) =>
+        FirebirdProvider.BuildConnectionString(config);
 
-        return builder.ToString();
-    }
-
-    public static async Task<QueryResponse> QueryAsync(
+    public static Task<QueryResponse> QueryAsync(
         DatabaseConfig config,
         string sql,
         IReadOnlyDictionary<string, JsonElement>? parameters,
         int maxRows,
         int commandTimeoutSeconds,
-        CancellationToken cancellationToken)
-    {
-        var stopwatch = Stopwatch.StartNew();
+        CancellationToken cancellationToken) =>
+        FirebirdProvider.Instance.QueryAsync(
+            config, sql, parameters, maxRows, commandTimeoutSeconds, cancellationToken);
 
-        var response = new QueryResponse();
-
-        await using var connection =
-            new FbConnection(
-                BuildConnectionString(config));
-
-        await connection.OpenAsync(cancellationToken);
-
-        /*
-         * Every /query runs in a transaction that Firebird itself holds
-         * read-only, so a statement the text check lets through -- a
-         * SELECT from a procedure that writes, say -- is refused by the
-         * engine ("attempted update during read-only transaction")
-         * instead of being trusted not to write.
-         *
-         * Read committed with record versions is the usual setting for
-         * a read-only transaction: it sees what is committed as each
-         * statement starts, and does not hold back the server's clean-up
-         * of old row versions while a long result is being read.
-         */
-        await using var transaction =
-            await connection.BeginTransactionAsync(
-                new FbTransactionOptions
-                {
-                    TransactionBehavior =
-                        FbTransactionBehavior.Read |
-                        FbTransactionBehavior.ReadCommitted |
-                        FbTransactionBehavior.RecVersion |
-                        FbTransactionBehavior.NoWait
-                },
-                cancellationToken);
-
-        await using var command =
-            connection.CreateCommand();
-
-        command.Transaction = transaction;
-        command.CommandText = sql;
-        command.CommandTimeout = commandTimeoutSeconds;
-
-        AddParameters(command, parameters);
-
-        await using var reader =
-            await command.ExecuteReaderAsync(
-                cancellationToken);
-
-        for (var i = 0; i < reader.FieldCount; i++)
-        {
-            response.Columns.Add(reader.GetName(i));
-        }
-
-        while (await reader.ReadAsync(cancellationToken))
-        {
-            /*
-             * Stop at the cap rather than materialising a whole
-             * table into memory and pushing it through the
-             * tunnel. Truncated tells the caller to paginate.
-             */
-            if (response.Rows.Count >= maxRows)
-            {
-                response.Truncated = true;
-                break;
-            }
-
-            var row =
-                new List<object?>(reader.FieldCount);
-
-            for (var i = 0; i < reader.FieldCount; i++)
-            {
-                row.Add(
-                    reader.IsDBNull(i)
-                        ? null
-                        : NormalizeValue(reader.GetValue(i)));
-            }
-
-            response.Rows.Add(row);
-        }
-
-        response.RowCount = response.Rows.Count;
-
-        stopwatch.Stop();
-
-        response.ElapsedMs =
-            stopwatch.ElapsedMilliseconds;
-
-        return response;
-    }
-
-    public static async Task<ExecuteResponse> ExecuteAsync(
+    public static Task<ExecuteResponse> ExecuteAsync(
         DatabaseConfig config,
         string sql,
         IReadOnlyDictionary<string, JsonElement>? parameters,
         int commandTimeoutSeconds,
-        CancellationToken cancellationToken)
-    {
-        var stopwatch = Stopwatch.StartNew();
-
-        await using var connection =
-            new FbConnection(
-                BuildConnectionString(config));
-
-        await connection.OpenAsync(cancellationToken);
-
-        await using var command =
-            connection.CreateCommand();
-
-        command.CommandText = sql;
-        command.CommandTimeout = commandTimeoutSeconds;
-
-        AddParameters(command, parameters);
-
-        var rowsAffected =
-            await command.ExecuteNonQueryAsync(
-                cancellationToken);
-
-        stopwatch.Stop();
-
-        return new ExecuteResponse
-        {
-            RowsAffected = rowsAffected,
-
-            ElapsedMs =
-                stopwatch.ElapsedMilliseconds
-        };
-    }
+        CancellationToken cancellationToken) =>
+        FirebirdProvider.Instance.ExecuteAsync(
+            config, sql, parameters, commandTimeoutSeconds, cancellationToken);
 
     /*
      * A quick, plain refusal for a write sent to /query.
@@ -184,6 +52,11 @@ internal static class FirebirdExecutor
 
     private static readonly Regex NextValueFor =
         new(@"\bNEXT\s+VALUE\s+FOR\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    // PostgreSQL: nextval('seq') moves a sequence, setval('seq', n) sets it.
+    private static readonly Regex PostgresSequence =
+        new(@"\b(?:nextval|setval)\s*\(",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     private static readonly Regex AnyGenId =
@@ -216,7 +89,7 @@ internal static class FirebirdExecutor
     {
         var text = BlankLiteralsAndComments(sql);
 
-        if (NextValueFor.IsMatch(text))
+        if (NextValueFor.IsMatch(text) || PostgresSequence.IsMatch(text))
         {
             return true;
         }
@@ -224,66 +97,8 @@ internal static class FirebirdExecutor
         return AnyGenId.Matches(text).Count != GenIdPeek.Matches(text).Count;
     }
 
-    private static string BlankLiteralsAndComments(string sql)
-    {
-        var result = new StringBuilder(sql.Length);
-        var i = 0;
-
-        while (i < sql.Length)
-        {
-            var c = sql[i];
-
-            if (c == '-' && i + 1 < sql.Length && sql[i + 1] == '-')
-            {
-                while (i < sql.Length && sql[i] != '\n')
-                {
-                    i++;
-                }
-
-                result.Append(' ');
-                continue;
-            }
-
-            if (c == '/' && i + 1 < sql.Length && sql[i + 1] == '*')
-            {
-                var end = sql.IndexOf("*/", i + 2, StringComparison.Ordinal);
-
-                i = end < 0 ? sql.Length : end + 2;
-                result.Append(' ');
-                continue;
-            }
-
-            if (c == '\'')
-            {
-                i++;
-
-                while (i < sql.Length)
-                {
-                    if (sql[i] == '\'')
-                    {
-                        if (i + 1 < sql.Length && sql[i + 1] == '\'')
-                        {
-                            i += 2;
-                            continue;
-                        }
-
-                        break;
-                    }
-
-                    i++;
-                }
-
-                i++;
-                result.Append(' ');
-                continue;
-            }
-
-            result.Append(c);
-            i++;
-        }
-
-        return result.ToString();
-    }
+    private static string BlankLiteralsAndComments(string sql) =>
+        SqlText.BlankLiteralsAndComments(sql);
 
     /*
      * Skips whitespace and leading SQL comments, both line and
@@ -361,91 +176,5 @@ internal static class FirebirdExecutor
         return !char.IsLetterOrDigit(next) &&
                next != '_' &&
                next != '$';
-    }
-
-    private static void AddParameters(
-        FbCommand command,
-        IReadOnlyDictionary<string, JsonElement>? parameters)
-    {
-        if (parameters == null)
-        {
-            return;
-        }
-
-        foreach (var parameter in parameters)
-        {
-            var name =
-                parameter.Key.StartsWith('@')
-                    ? parameter.Key
-                    : "@" + parameter.Key;
-
-            command.Parameters.AddWithValue(
-                name,
-                ToParameterValue(parameter.Value));
-        }
-    }
-
-    private static object ToParameterValue(
-        JsonElement element)
-    {
-        switch (element.ValueKind)
-        {
-            case JsonValueKind.Null:
-            case JsonValueKind.Undefined:
-                return DBNull.Value;
-
-            case JsonValueKind.True:
-                return true;
-
-            case JsonValueKind.False:
-                return false;
-
-            case JsonValueKind.String:
-                return element.GetString()
-                    ?? (object)DBNull.Value;
-
-            case JsonValueKind.Number:
-                if (element.TryGetInt64(out var integer))
-                {
-                    return integer;
-                }
-
-                if (element.TryGetDecimal(out var value))
-                {
-                    return value;
-                }
-
-                return element.GetDouble();
-
-            default:
-                return element.GetRawText();
-        }
-    }
-
-    /*
-     * Keeps the JSON payload predictable.
-     *
-     * Blobs come back base64 encoded, and any provider specific
-     * type the serializer would not handle is rendered as its
-     * string form instead of failing the whole request.
-     */
-    private static object? NormalizeValue(object? value)
-    {
-        return value switch
-        {
-            null => null,
-
-            DBNull => null,
-
-            byte[] bytes =>
-                Convert.ToBase64String(bytes),
-
-            string or bool or decimal or double or float or
-            byte or sbyte or short or ushort or int or uint or
-            long or ulong or DateTime or DateTimeOffset or
-            TimeSpan or Guid => value,
-
-            _ => value.ToString()
-        };
     }
 }

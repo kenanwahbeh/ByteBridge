@@ -26,6 +26,7 @@
 * [API reference](reference/api-reference.md)
 * [Cloudflare Tunnel](reference/cloudflare-tunnel.md)
 * [Connecting to ByteBalance](reference/bytebalance.md)
+* [Database engines](reference/database-engines.md)
 * [Security](reference/security.md)
 * [The request log](reference/request-log.md)
 * [Troubleshooting](reference/troubleshooting.md)

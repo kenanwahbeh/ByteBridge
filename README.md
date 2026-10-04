@@ -23,9 +23,9 @@ Nothing listens on your LAN and no inbound port is opened: `cloudflared`
 dials out to Cloudflare, and the gateway itself only ever binds to
 loopback.
 
-**Requirements:** a Firebird database server (tested against Firebird
-4; the default port is 3050). Other database engines may be added in
-future versions.
+**Requirements:** a Firebird (tested against Firebird 4), PostgreSQL or
+SQL Server database server. You choose the engine when you add a database;
+see [Database engines](docs/reference/database-engines.md).
 
 **Not a developer?** The [picture guide](docs/guide/README.md) walks
 through setting ByteBridge up step by step, with no technical

@@ -347,6 +347,62 @@ public class CliTests
     }
 
     [Fact]
+    public void Db_add_with_a_type_uses_that_engines_port_and_keeps_the_type()
+    {
+        using var root = new TempDataRoot();
+        var database = root.OpenDatabase();
+
+        Assert.Equal(0, Run(
+            database, "db", "add",
+            "--name", "Shop",
+            "--type", "postgresql",
+            "--server", "10.0.0.5",
+            "--database", "shop",
+            "--user", "app",
+            "--password", "secret").Code);
+
+        var added = Assert.Single(database.GetConnections());
+
+        Assert.Equal(DatabaseType.PostgreSql, added.Type);
+        Assert.Equal(5432, added.Port);
+        Assert.Equal("shop", added.Database);
+
+        var (_, output, _) = Run(database, "db", "list");
+
+        Assert.Contains("PostgreSQL", output);
+    }
+
+    [Fact]
+    public void Db_add_for_sql_server_defaults_to_1433()
+    {
+        using var root = new TempDataRoot();
+        var database = root.OpenDatabase();
+
+        Assert.Equal(0, Run(
+            database, "db", "add",
+            "--name", "Erp", "--type", "sqlserver", "--server", "erp",
+            "--path", "erp", "--user", "reader", "--password", "x").Code);
+
+        Assert.Equal(1433, database.GetConnections().Single().Port);
+    }
+
+    [Fact]
+    public void Db_add_refuses_an_engine_it_does_not_know()
+    {
+        using var root = new TempDataRoot();
+        var database = root.OpenDatabase();
+
+        var (code, _, error) = Run(
+            database, "db", "add",
+            "--name", "X", "--type", "oracle", "--server", "h",
+            "--path", "p", "--user", "u", "--password", "x");
+
+        Assert.Equal(1, code);
+        Assert.Contains("--type", error);
+        Assert.Empty(database.GetConnections());
+    }
+
+    [Fact]
     public void Db_add_takes_a_custom_firebird_port()
     {
         using var root = new TempDataRoot();

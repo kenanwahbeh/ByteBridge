@@ -15,6 +15,15 @@ file is the single source of truth for what shipped.
 
 ### Added
 
+- **PostgreSQL and SQL Server, next to Firebird.** Each database connection now
+  has an engine. The control panel's wizard asks for it, `db add` takes
+  `--type firebird|postgresql|sqlserver`, and ports and user names default to
+  the engine's usual ones. Existing connections stay Firebird and need nothing.
+  `/query` is held read-only by the engine on Firebird and PostgreSQL; SQL
+  Server has no such thing, so it gets a stricter text check and a
+  never-committed transaction, and a read-only login is advised. See
+  [Database engines](docs/reference/database-engines.md).
+
 - **Connect a machine to ByteBalance without touching Cloudflare.** The new
   `enroll` command (and a **Connect to ByteBalance** dialog in the control
   panel, and an optional page in the installer) asks ByteBalance for a tunnel,

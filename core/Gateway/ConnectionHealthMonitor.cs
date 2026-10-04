@@ -30,7 +30,7 @@ public sealed class ConnectionHealthMonitor
         Func<DatabaseConfig, CancellationToken, Task<(bool Succeeded, string? Error)>>? test = null)
     {
         _database = database;
-        _test = test ?? FirebirdConnectionTester.TestAsync;
+        _test = test ?? DatabaseConnectionTester.TestAsync;
     }
 
     /*
