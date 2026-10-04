@@ -12,7 +12,7 @@ namespace ByteBridge.Service;
  *
  * With arguments it is an admin tool, for configuring the gateway on a
  * machine with no desktop. With none it is the service itself, which is
- * how the Service Control Manager starts it.
+ * how the Service Control Manager (or systemd) starts it.
  */
 public static class Program
 {
@@ -33,11 +33,29 @@ public static class Program
          * messages go to the Windows event log, which is the only place
          * anyone can read them when nobody is signed in.
          */
-        builder.Services.AddWindowsService(options =>
-            options.ServiceName = "ByteBridge");
+        if (OperatingSystem.IsWindows())
+        {
+            builder.Services.AddWindowsService(options =>
+                options.ServiceName = "ByteBridge");
 
-        builder.Logging.AddEventLog(settings =>
-            settings.SourceName = "ByteBridge");
+            builder.Logging.AddEventLog(settings =>
+            {
+                if (OperatingSystem.IsWindows())
+                {
+                    settings.SourceName = "ByteBridge";
+                }
+            });
+        }
+        else
+        {
+            /*
+             * Under systemd the unit's stdout is the journal, so the
+             * console logger is all that is needed; this adds the
+             * ready notification and the priority prefixes journalctl
+             * understands. Outside systemd it does nothing.
+             */
+            builder.Services.AddSystemd();
+        }
 
         /*
          * One SqliteDatabase and one GatewayServer for the lifetime of

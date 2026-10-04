@@ -1,0 +1,2 @@
+# Run on Linux, where a CR in the shebang or unit file breaks them.
+scripts/linux/* text eol=lf

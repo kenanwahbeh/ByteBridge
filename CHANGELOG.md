@@ -13,6 +13,15 @@ file is the single source of truth for what shipped.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The `-framework` installer no longer insists on downloading .NET
+  when you already have it.** It looked for the runtime in one fixed
+  folder only, so a runtime installed elsewhere was reported missing.
+  It now also checks the location the .NET installer recorded and
+  `DOTNET_ROOT`, and if it still finds nothing you can choose to
+  install without downloading instead of being forced to.
+
 ## [3.0.0] - 2026-10-01
 
 ### Changed

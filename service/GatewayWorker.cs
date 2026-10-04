@@ -343,6 +343,7 @@ public sealed class GatewayWorker : BackgroundService
              */
             if (!reserved
                 && NeedsReservation(error)
+                && OperatingSystem.IsWindows()
                 && UrlReservation.TryAdd(config.Prefix, _logger))
             {
                 StartWith(config, reserved: true);
