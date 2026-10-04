@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Security.Cryptography;
@@ -102,6 +103,26 @@ public sealed class GatewayServer : IDisposable
         new(StringComparer.OrdinalIgnoreCase);
 
     /*
+     * Built from the settings at Start, so a changed limit takes effect
+     * with the rebind the service does for any listener setting. Null
+     * when the limit is switched off.
+     */
+    private volatile AuthFailureLimiter? _authFailures;
+
+    /*
+     * How a request proved who it was. Invalid means a key was sent and
+     * it was wrong -- the only case that counts against the caller --
+     * where None is a request that offered no key at all.
+     */
+    private enum AuthOutcome
+    {
+        None,
+        Invalid,
+        ApiKey,
+        Session
+    }
+
+    /*
      * The Cloudflare Access settings, the validator built from them and
      * the session manager, as one immutable snapshot. They used to be
      * three separate fields, so a request that read them across an
@@ -135,6 +156,8 @@ public sealed class GatewayServer : IDisposable
 
         _config = database.GetGatewayConfig();
 
+        _authFailures = BuildLimiter(_config);
+
         _log = log ?? new RequestLog(database.LogDirectory);
 
         _oauth = new OAuthState(
@@ -150,6 +173,14 @@ public sealed class GatewayServer : IDisposable
     public RequestLog Log => _log;
 
     public GatewayConfig Config => _config;
+
+    private static AuthFailureLimiter? BuildLimiter(GatewayConfig config) =>
+        config.AuthMaxFailures > 0
+            ? new AuthFailureLimiter(
+                config.AuthMaxFailures,
+                TimeSpan.FromSeconds(config.AuthWindowSeconds),
+                TimeSpan.FromSeconds(config.AuthBlockSeconds))
+            : null;
 
     public bool IsRunning =>
         _listener?.IsListening == true;
@@ -221,6 +252,7 @@ public sealed class GatewayServer : IDisposable
             }
 
             _config = config;
+            _authFailures = BuildLimiter(config);
             _listener = listener;
             _cancellation = new CancellationTokenSource();
 
@@ -437,29 +469,15 @@ public sealed class GatewayServer : IDisposable
             }
 
             /*
-             * /stats is unauthenticated for the same reason as /health:
-             * it exposes only how many requests each database has
-             * answered, never any data or SQL, and the desktop app polls
-             * it before a key is necessarily configured.
+             * /auth/* endpoints handle OAuth login/logout. Not /auth/me:
+             * it answers 200 for a right API key, so it tests keys like
+             * any other endpoint and has to sit behind the lockout below.
+             * Dispatched from here it was a place to guess keys without
+             * limit.
              */
-            if (path == "/stats")
-            {
-                if (method != "GET")
-                {
-                    await WriteMethodNotAllowedAsync(context, "GET");
-                    return;
-                }
-
-                await DrainOrCloseAsync(context);
-
-                await WriteStatsAsync(context);
-                return;
-            }
-
-            /*
-             * /auth/* endpoints handle OAuth login/logout.
-             */
-            if (path.StartsWith("/auth/", StringComparison.OrdinalIgnoreCase))
+            if (path is "/auth/login"
+                or "/auth/callback"
+                or "/auth/logout")
             {
                 await HandleAuthAsync(context, path, cancellationToken);
                 return;
@@ -484,7 +502,66 @@ public sealed class GatewayServer : IDisposable
                 return;
             }
 
-            record.Authenticated = IsAuthorized(context.Request);
+            /*
+             * Who is asking, for the lockout. Behind a tunnel the socket
+             * peer is always cloudflared on this machine, so the address
+             * that tells callers apart is the one Cloudflare puts in
+             * CF-Connecting-IP -- which it overwrites on the way in, so
+             * nobody on the internet can choose it. Never X-Forwarded-For:
+             * its first entry is whatever the caller wrote.
+             *
+             * That trust rests on one assumption: the listener is bound to
+             * loopback (the settings loader refuses anything else), so the
+             * only caller who can send the header without Cloudflare is a
+             * program already running on this machine. It can dodge the
+             * count or run up another address's, but it still needs the key
+             * to get anything, so the header is honoured only from a
+             * loopback peer and the assumption is not left implicit.
+             */
+            var fromLoopback =
+                context.Request.RemoteEndPoint is { } peer
+                && IPAddress.IsLoopback(peer.Address);
+
+            var callerKey =
+                (fromLoopback
+                    ? context.Request.Headers["CF-Connecting-IP"]
+                    : null)
+                ?? record.LocalPeer
+                ?? "unknown";
+
+            var limiter = _authFailures;
+
+            if (limiter != null
+                && limiter.IsBlocked(callerKey, out var retryAfter))
+            {
+                await DrainOrCloseAsync(context);
+
+                context.Response.Headers["Retry-After"] =
+                    ((int)retryAfter.TotalSeconds).ToString(
+                        CultureInfo.InvariantCulture);
+
+                await WriteJsonAsync(
+                    context,
+                    429,
+                    new ErrorResponse(
+                        "Too many failed attempts. Try again later."));
+
+                return;
+            }
+
+            var outcome = Authenticate(context.Request);
+
+            record.Authenticated =
+                outcome is AuthOutcome.ApiKey or AuthOutcome.Session;
+
+            if (outcome == AuthOutcome.Invalid)
+            {
+                limiter?.RecordFailure(callerKey);
+            }
+            else if (outcome == AuthOutcome.ApiKey)
+            {
+                limiter?.RecordSuccess(callerKey);
+            }
 
             if (!record.Authenticated)
             {
@@ -500,8 +577,66 @@ public sealed class GatewayServer : IDisposable
                 return;
             }
 
+            /*
+             * A browser attaches the session cookie to whatever a page
+             * asks it to send, so a request that arrives on the cookie
+             * alone has to prove it came from a page of ours. The API key
+             * needs no such check: it rides in a custom header a foreign
+             * page cannot add without a CORS preflight the gateway does
+             * not approve for credentials.
+             */
+            if (outcome == AuthOutcome.Session
+                && method == "POST"
+                && !IsSameSiteJsonRequest(context.Request, _oauth.Config))
+            {
+                await DrainOrCloseAsync(context);
+
+                await WriteJsonAsync(
+                    context,
+                    403,
+                    new ErrorResponse(
+                        "Cross-site request refused. Send JSON from the " +
+                        "gateway's own hostname."));
+
+                return;
+            }
+
             switch (path)
             {
+                case "/stats":
+
+                    if (method != "GET")
+                    {
+                        await WriteMethodNotAllowedAsync(context, "GET");
+                        return;
+                    }
+
+                    /*
+                     * The request counts are for the app that runs the
+                     * gateway, and that app holds the key. A signed-in
+                     * session reaches /databases, /query and /execute, but
+                     * usage figures are not something it needs, and
+                     * /stats is documented as a key endpoint.
+                     */
+                    if (outcome != AuthOutcome.ApiKey)
+                    {
+                        await DrainOrCloseAsync(context);
+
+                        await WriteJsonAsync(
+                            context,
+                            403,
+                            new ErrorResponse(
+                                "/stats needs the API key. Send it in the " +
+                                "X-API-Key header."));
+
+                        return;
+                    }
+
+                    await DrainOrCloseAsync(context);
+
+                    await WriteStatsAsync(context);
+                    return;
+
                 case "/databases":
 
                     if (method != "GET")
@@ -542,6 +677,14 @@ public sealed class GatewayServer : IDisposable
                     await HandleExecuteAsync(context, record, cancellationToken);
                     return;
 
+                case "/auth/me":
+
+                    // Authenticated above; this only says who.
+                    await DrainOrCloseAsync(context);
+
+                    await HandleMeAsync(context);
+                    return;
+
                 default:
 
                     await DrainOrCloseAsync(context);
@@ -551,13 +694,25 @@ public sealed class GatewayServer : IDisposable
                         404,
                         new ErrorResponse(
                             $"Unknown endpoint \"{path}\". " +
-                            "Available: /health, /stats, /databases, /query, /execute."));
+                            (_database.GetAllowWrites()
+                                ? "Available: /health, /stats, /databases, /query, /execute."
+                                : "Available: /health, /stats, /databases, /query.")));
 
                     return;
             }
         }
         catch (Exception ex)
         {
+            /*
+             * The detail goes to the request log, where the operator
+             * reads it; the caller gets a fixed line. An unexpected
+             * exception's message can carry paths, host names and other
+             * internals that are no business of whoever is on the other
+             * end of a tunnel. Errors Firebird itself reports for a
+             * statement are handled where they happen and still come
+             * back in full, because that is what the caller needs to fix
+             * the statement.
+             */
             record.Error = ex.Message;
 
             try
@@ -565,7 +720,9 @@ public sealed class GatewayServer : IDisposable
                 await WriteJsonAsync(
                     context,
                     500,
-                    new ErrorResponse(ex.Message));
+                    new ErrorResponse(
+                        "The gateway failed to handle this request. " +
+                        "The details are in the request log."));
             }
             catch
             {
@@ -598,9 +755,21 @@ public sealed class GatewayServer : IDisposable
 
             _log.Write(record);
 
-            if (record.Database is { Length: > 0 } database)
+            /*
+             * Only a connection the request actually resolved to, and by
+             * its id. The name a caller typed is not a key: counting it
+             * would let one client grow this table without bound with
+             * names that match nothing, and /stats would list them back.
+             * Nor is the connection's own name: a settings file from
+             * before names had to be unique can give one name to two
+             * connections, and their counts would run together.
+             */
+            if (record.ConnectionId is { Length: > 0 } connectionId)
             {
-                _requestCounts.AddOrUpdate(database, 1, (_, count) => count + 1);
+                _requestCounts.AddOrUpdate(
+                    connectionId,
+                    1,
+                    (_, count) => count + 1);
             }
         }
     }
@@ -650,7 +819,26 @@ public sealed class GatewayServer : IDisposable
                 400,
                 new ErrorResponse(
                     "/query only accepts SELECT or WITH statements. " +
-                    "Use /execute for writes."));
+                    (_database.GetAllowWrites()
+                        ? "Use /execute for writes."
+                        : "This gateway is read-only.")));
+
+            return;
+        }
+
+        /*
+         * Whether writing is on or off: a generator moves outside any
+         * transaction, so the read-only one does not stop a SELECT from
+         * advancing it, and /query is a read endpoint either way.
+         */
+        if (FirebirdExecutor.AdvancesSequence(request.Sql))
+        {
+            await WriteJsonAsync(
+                context,
+                400,
+                new ErrorResponse(
+                    "/query does not accept a statement that moves a generator: " +
+                    "GEN_ID with a step other than 0, or NEXT VALUE FOR."));
 
             return;
         }
@@ -658,6 +846,7 @@ public sealed class GatewayServer : IDisposable
         var connection =
             await ResolveConnectionAsync(
                 context,
+                record,
                 request.Database);
 
         if (connection == null)
@@ -732,9 +921,31 @@ public sealed class GatewayServer : IDisposable
         record.Sql = request.Sql;
         record.Database = request.Database;
 
+        /*
+         * Off unless an administrator has turned writing on at the
+         * machine. Read on each request, so changing it needs no
+         * restart. Checked after the statement is recorded, so an
+         * attempt shows up in the request log, and before the
+         * connection is looked up, so a refused write never gets as far
+         * as a database.
+         */
+        if (!_database.GetAllowWrites())
+        {
+            record.Error = "Refused: this gateway is read-only.";
+
+            await WriteJsonAsync(
+                context,
+                403,
+                new ErrorResponse(
+                    "This gateway is read-only. /execute is turned off."));
+
+            return;
+        }
+
         var connection =
             await ResolveConnectionAsync(
                 context,
+                record,
                 request.Database);
 
         if (connection == null)
@@ -769,6 +980,7 @@ public sealed class GatewayServer : IDisposable
 
     private async Task<DatabaseConfig?> ResolveConnectionAsync(
         HttpListenerContext context,
+        RequestRecord record,
         string? identifier)
     {
         if (string.IsNullOrWhiteSpace(identifier))
@@ -814,6 +1026,8 @@ public sealed class GatewayServer : IDisposable
 
             return null;
         }
+
+        record.ConnectionId = connection.Id;
 
         if (!connection.Enabled)
         {
@@ -986,41 +1200,8 @@ public sealed class GatewayServer : IDisposable
         return await oauth.Validator.ValidateTokenAsync(token) != null;
     }
 
-    private bool IsAuthorized(HttpListenerRequest request)
+    private AuthOutcome Authenticate(HttpListenerRequest request)
     {
-        var sessions = _oauth.Sessions;
-
-        // Check session cookie first
-        if (sessions != null &&
-            sessions.Enabled)
-        {
-            var cookieHeader =
-                request.Headers["Cookie"];
-
-            var token =
-                OAuthSessionManager.ExtractTokenFromCookie(
-                    cookieHeader);
-
-            if (token != null)
-            {
-                var user =
-                    sessions.ValidateSession(token);
-
-                if (user != null)
-                {
-                    return true;
-                }
-            }
-        }
-
-        // Fall back to API key
-        var expected = _config.ApiKey;
-
-        if (string.IsNullOrEmpty(expected))
-        {
-            return false;
-        }
-
         var provided = request.Headers["X-API-Key"];
 
         if (string.IsNullOrEmpty(provided))
@@ -1038,14 +1219,105 @@ public sealed class GatewayServer : IDisposable
             }
         }
 
-        if (string.IsNullOrEmpty(provided))
+        var expected = _config.ApiKey;
+
+        /*
+         * A correct key comes first. The key rides in a header a foreign
+         * page cannot add, so a request that carries one is not what the
+         * cookie checks are for -- and when a browser sends both, the
+         * cookie must not get to turn a valid key into a refusal.
+         */
+        var keyMatches =
+            !string.IsNullOrEmpty(provided)
+            && !string.IsNullOrEmpty(expected)
+            && CryptographicOperations.FixedTimeEquals(
+                Encoding.UTF8.GetBytes(provided),
+                Encoding.UTF8.GetBytes(expected));
+
+        if (keyMatches)
+        {
+            return AuthOutcome.ApiKey;
+        }
+
+        var sessions = _oauth.Sessions;
+
+        if (sessions != null &&
+            sessions.Enabled)
+        {
+            var token =
+                OAuthSessionManager.ExtractTokenFromCookie(
+                    request.Headers["Cookie"]);
+
+            if (token != null &&
+                sessions.ValidateSession(token) != null)
+            {
+                return AuthOutcome.Session;
+            }
+        }
+
+        return string.IsNullOrEmpty(provided)
+            ? AuthOutcome.None
+            : AuthOutcome.Invalid;
+    }
+
+    /*
+     * For a request that came in on the session cookie alone: a JSON
+     * body, and an Origin -- when the browser names one -- that is this
+     * gateway's own hostname. That is either the Host the request was
+     * addressed to or the public hostname configured for sign-in, since
+     * a tunnel may or may not preserve Host on its way to the origin.
+     *
+     * A cross-site form or fetch cannot send application/json without a
+     * preflight, and a preflight for a credentialed request is never
+     * approved here, so the content type alone stops the simple cases;
+     * the Origin check covers a page on a sibling subdomain, which
+     * SameSite=Lax treats as the same site.
+     */
+    private static bool IsSameSiteJsonRequest(
+        HttpListenerRequest request,
+        OAuthConfig oauth)
+    {
+        var contentType = request.ContentType;
+
+        var mediaType =
+            contentType?.Split(';')[0].Trim();
+
+        if (!string.Equals(
+                mediaType,
+                "application/json",
+                StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
 
-        return CryptographicOperations.FixedTimeEquals(
-            Encoding.UTF8.GetBytes(provided),
-            Encoding.UTF8.GetBytes(expected));
+        var origin = request.Headers["Origin"];
+
+        if (string.IsNullOrEmpty(origin))
+        {
+            return true;
+        }
+
+        if (!Uri.TryCreate(origin, UriKind.Absolute, out var originUri))
+        {
+            return false;
+        }
+
+        if (string.Equals(
+                originUri.Authority,
+                request.Headers["Host"],
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return Uri.TryCreate(
+                   oauth.RedirectUri,
+                   UriKind.Absolute,
+                   out var publicUri)
+               && string.Equals(
+                   originUri.Authority,
+                   publicUri.Authority,
+                   StringComparison.OrdinalIgnoreCase);
     }
 
     /*
@@ -1054,7 +1326,8 @@ public sealed class GatewayServer : IDisposable
      * /auth/login   - Redirects to Cloudflare Access login
      * /auth/callback - Handles the OAuth callback
      * /auth/logout  - Clears the session
-     * /auth/me      - Returns the current user info
+     * (/auth/me - Returns the current user info; handled in
+     *  HandleContextAsync, behind the failed-key lockout.)
      */
     private async Task HandleAuthAsync(
         HttpListenerContext context,
@@ -1062,6 +1335,12 @@ public sealed class GatewayServer : IDisposable
         CancellationToken cancellationToken)
     {
         var method = context.Request.HttpMethod;
+
+        if (method != "GET")
+        {
+            await WriteMethodNotAllowedAsync(context, "GET");
+            return;
+        }
 
         switch (path)
         {
@@ -1075,10 +1354,6 @@ public sealed class GatewayServer : IDisposable
 
             case "/auth/logout":
                 await HandleLogoutAsync(context);
-                return;
-
-            case "/auth/me":
-                await HandleMeAsync(context);
                 return;
 
             default:

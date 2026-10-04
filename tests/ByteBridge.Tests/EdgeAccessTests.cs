@@ -218,7 +218,7 @@ public class EdgeAccessTests
     }
 
     [Fact]
-    public async Task Health_and_stats_stay_open_because_they_carry_no_data()
+    public async Task Health_stays_open_but_stats_needs_the_key_and_the_token()
     {
         using var jwks = new FakeJwksServer();
         using var harness = new GatewayHarness();
@@ -226,10 +226,17 @@ public class EdgeAccessTests
         harness.Server.UpdateOAuth(Required(jwks.Url));
 
         using var health = await Call(harness, "/health", true, apiKey: "");
-        using var stats = await Call(harness, "/stats", true, apiKey: "");
+        using var statsThroughCloudflare = await Call(harness, "/stats", true);
+        using var statsLocalWithKey = await Call(harness, "/stats", false);
+        using var statsLocalWithoutKey = await Call(harness, "/stats", false, apiKey: "");
 
         Assert.Equal(HttpStatusCode.OK, health.StatusCode);
-        Assert.Equal(HttpStatusCode.OK, stats.StatusCode);
+
+        // /stats carries data, so it is behind the key like everything else,
+        // and a request that came through Cloudflare also needs the token.
+        Assert.Equal(HttpStatusCode.Forbidden, statsThroughCloudflare.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, statsLocalWithKey.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, statsLocalWithoutKey.StatusCode);
     }
 
     [Fact]

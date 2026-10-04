@@ -31,6 +31,7 @@ public partial class AboutWindow : Window
         AppTitleTextBlock.Text = Strings.Get("AppTitle");
         VersionTextBlock.Text = Strings.Format("AboutVersion", version);
         DescriptionTextBlock.Text = Strings.Get("AboutDescription");
+        MadeByTextBlock.Text = Strings.Get("AboutMadeBy");
         OpenLogsButton.Content = Strings.Get("AboutOpenLogs");
         CloseButton.Content = Strings.Get("AboutClose");
     }
@@ -42,6 +43,29 @@ public partial class AboutWindow : Window
             System.IO.Directory.CreateDirectory(_database.LogDirectory);
 
             Process.Start(new ProcessStartInfo(_database.LogDirectory)
+            {
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                ex.Message,
+                Strings.Get("AppTitle"),
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+    }
+
+    private void MakerLink_RequestNavigate(
+        object sender,
+        System.Windows.Navigation.RequestNavigateEventArgs e)
+    {
+        e.Handled = true;
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(e.Uri.AbsoluteUri)
             {
                 UseShellExecute = true
             });

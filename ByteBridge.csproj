@@ -49,6 +49,14 @@
     <ProjectReference Include="core/ByteBridge.Core.csproj" />
   </ItemGroup>
 
+  <!--
+    The maker's logo: the About window shows it, and the main window uses
+    it as its own icon so the taskbar button always has one.
+  -->
+  <ItemGroup>
+    <Resource Include="Assets\bytebalance-logo.png" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.0" />
     <PackageReference Include="WPF-UI" Version="4.3.0" />

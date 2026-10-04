@@ -5,7 +5,7 @@ JSON API on loopback, so a Cloudflare Tunnel running on the same
 machine has something to forward requests to.
 
 The listener starts with the machine. Its status, port and API key are
-shown in the **Gateway API** panel of the control panel window.
+shown in the **Web Server** window, on the control panel's menu bar.
 The gateway itself runs as the `ByteBridge` Windows service, so it is
 up whether or not that window is open.
 
@@ -16,10 +16,23 @@ up whether or not that window is open.
 | GET    | `/health`    | no   | Liveness. Use it to test the tunnel.     |
 | GET    | `/databases` | yes  | List the configured connections.         |
 | POST   | `/query`     | yes  | Run a `SELECT` / `WITH` and get rows.    |
-| POST   | `/execute`   | yes  | Run an `INSERT` / `UPDATE` / `DELETE`.   |
+| POST   | `/execute`   | yes  | Run a statement that changes data or structure. Only while **Allow writing** is on. |
 
-`/query` rejects anything that is not a `SELECT` or a `WITH` so a
-read path cannot write by accident. Use `/execute` for writes.
+ByteBridge only reads unless an administrator ticks **Options → Allow
+writing** in the app. `/query` takes a `SELECT` or a `WITH` and nothing
+else, and runs it in a transaction that Firebird itself holds
+read-only, so a statement sent to it cannot change rows however it is
+written. Generators change outside transactions, so `GEN_ID` with a
+step other than 0 and `NEXT VALUE FOR` are refused as well. A procedure
+that moves a generator inside its own body cannot be seen from here;
+limit the Firebird user if that matters.
+
+`/execute` is for writes and answers `403` while **Allow writing** is
+off, which is how ByteBridge ships. The setting takes effect on the
+next request, with no restart. Once it is on, `/execute` runs whatever
+statement it is given: `INSERT`, `UPDATE` and `DELETE`, and also
+statements that change the structure of the database. It can do
+whatever the Firebird user can.
 
 ## Authentication
 
@@ -34,6 +47,12 @@ X-API-Key: <key>
 the **Copy API Key** button. **New Key** rotates it without restarting
 the gateway: the running gateway picks the new key up within a few
 seconds, and refuses the old one from then on.
+
+When Cloudflare login is set up in ByteBridge, a valid session from
+that login is accepted in place of the key, on every endpoint except
+`/stats`, which always needs the key. **Cloudflare Access** in front of
+the tunnel is a separate layer: it decides who reaches the machine, and
+it does not replace the gateway's own check.
 
 `/health` is deliberately open so the tunnel can be verified before
 any key is involved. It returns no data from any database.
@@ -74,11 +93,7 @@ curl -X POST https://your-tunnel.example.com/query \
 `truncated` is `true` when the result hit the row cap and more rows
 were left unread — narrow the query or page through it.
 
-Always pass values through `parameters` rather than concatenating
-them into `sql`; they are bound as Firebird parameters, so a value
-cannot turn into SQL.
-
-Write:
+Write, with **Allow writing** on:
 
 ```bash
 curl -X POST https://your-tunnel.example.com/execute \
@@ -94,6 +109,10 @@ curl -X POST https://your-tunnel.example.com/execute \
 ```json
 { "rowsAffected": 1, "elapsedMs": 8 }
 ```
+
+Always pass values through `parameters` rather than concatenating
+them into `sql`; they are bound as Firebird parameters, so a value
+cannot turn into SQL.
 
 ## Types
 
@@ -114,6 +133,7 @@ curl -X POST https://your-tunnel.example.com/execute \
 | 400  | Bad request body, a write sent to `/query`, or invalid SQL.       |
 | 400  | `database` names more than one connection; send its `id` instead. |
 | 401  | Missing or wrong API key.                                         |
+| 403  | `/execute` while **Allow writing** is off.                        |
 | 404  | Unknown endpoint, or no connection matches `database`.            |
 | 405  | Wrong HTTP method for the endpoint.                               |
 | 409  | The connection exists but is **Offline** in the app.              |
@@ -235,8 +255,8 @@ leaves the other.
 ## Troubleshooting
 
 **502 from the tunnel, or Cloudflare error 1033** — nothing is
-listening on the port `cloudflared` forwards to. Check the Gateway
-API panel says **Answering**, and that its port matches the tunnel's
+listening on the port `cloudflared` forwards to. Check the status line in
+the window says **Answering**, and that its port matches the tunnel's
 `service:` URL. On the machine itself:
 
 ```
@@ -247,7 +267,7 @@ curl http://127.0.0.1:8080/health
 An empty `netstat` means the gateway is stopped.
 
 **"Port 8080 is already in use"** — something else holds it. Change
-the port in the Gateway API panel and update the tunnel config to
+the port in **Web Server** and update the tunnel config to
 match, or free the port:
 
 ```

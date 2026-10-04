@@ -166,6 +166,129 @@ public class CliTests
     }
 
     [Fact]
+    public void Lockout_show_reports_the_defaults()
+    {
+        using var root = new TempDataRoot();
+
+        var (code, output, _) = Run(root.OpenDatabase(), "lockout");
+
+        Assert.Equal(0, code);
+        Assert.Contains("10 wrong keys in 60s", output);
+        Assert.Contains("blocks a caller for 60s", output);
+    }
+
+    [Fact]
+    public void Lockout_set_changes_only_what_it_is_given()
+    {
+        using var root = new TempDataRoot();
+        var database = root.OpenDatabase();
+
+        var (code, _, _) = Run(database, "lockout", "set", "--attempts", "5", "--block", "900");
+
+        Assert.Equal(0, code);
+
+        var config = database.GetGatewayConfig();
+
+        Assert.Equal(5, config.AuthMaxFailures);
+        Assert.Equal(60, config.AuthWindowSeconds);
+        Assert.Equal(900, config.AuthBlockSeconds);
+    }
+
+    [Fact]
+    public void Lockout_off_and_on_switch_the_limit_and_on_restores_the_default()
+    {
+        using var root = new TempDataRoot();
+        var database = root.OpenDatabase();
+
+        Assert.Equal(0, Run(database, "lockout", "off").Code);
+        Assert.Equal(0, database.GetGatewayConfig().AuthMaxFailures);
+
+        var (_, shown, _) = Run(database, "lockout", "show");
+        Assert.Equal("off", shown.Trim());
+
+        Assert.Equal(0, Run(database, "lockout", "on").Code);
+        Assert.Equal(10, database.GetGatewayConfig().AuthMaxFailures);
+    }
+
+    [Fact]
+    public void Lockout_on_keeps_a_limit_that_was_already_chosen()
+    {
+        using var root = new TempDataRoot();
+        var database = root.OpenDatabase();
+
+        Run(database, "lockout", "set", "--attempts", "4");
+        Run(database, "lockout", "on");
+
+        Assert.Equal(4, database.GetGatewayConfig().AuthMaxFailures);
+    }
+
+    [Theory]
+    [InlineData("--attempts", "0")]
+    [InlineData("--attempts", "10001")]
+    [InlineData("--attempts", "lots")]
+    [InlineData("--window", "0")]
+    [InlineData("--block", "86401")]
+    [InlineData("--nonsense", "1")]
+    public void Lockout_set_refuses_values_out_of_range_and_saves_nothing(
+        string option,
+        string value)
+    {
+        using var root = new TempDataRoot();
+        var database = root.OpenDatabase();
+
+        var (code, _, error) = Run(database, "lockout", "set", option, value);
+
+        Assert.Equal(1, code);
+        Assert.Contains("error:", error);
+
+        var config = database.GetGatewayConfig();
+
+        Assert.Equal(10, config.AuthMaxFailures);
+        Assert.Equal(60, config.AuthWindowSeconds);
+        Assert.Equal(60, config.AuthBlockSeconds);
+    }
+
+    [Theory]
+    [InlineData("--attempts", "5", "garbage")]
+    [InlineData("garbage", "--attempts", "5")]
+    [InlineData("--attempts", "5", "6")]
+    public void Lockout_set_refuses_an_argument_it_does_not_understand_and_saves_nothing(
+        string first,
+        string second,
+        string third)
+    {
+        using var root = new TempDataRoot();
+        var database = root.OpenDatabase();
+
+        var (code, _, error) = Run(database, "lockout", "set", first, second, third);
+
+        Assert.Equal(1, code);
+        Assert.Contains("does not understand", error);
+        Assert.Equal(10, database.GetGatewayConfig().AuthMaxFailures);
+    }
+
+    [Fact]
+    public void Lockout_set_with_nothing_to_set_is_an_error()
+    {
+        using var root = new TempDataRoot();
+
+        var (code, _, error) = Run(root.OpenDatabase(), "lockout", "set");
+
+        Assert.Equal(1, code);
+        Assert.Contains("at least one", error);
+    }
+
+    [Fact]
+    public void Status_shows_the_lockout()
+    {
+        using var root = new TempDataRoot();
+
+        var (_, output, _) = Run(root.OpenDatabase(), "status");
+
+        Assert.Contains("lockout", output);
+    }
+
+    [Fact]
     public void The_key_is_never_printed_by_status()
     {
         using var root = new TempDataRoot();
@@ -250,6 +373,85 @@ public class CliTests
 
         Assert.Equal(1, code);
         Assert.Contains("Ghost", error);
+    }
+
+    // ---- The writes switch --------------------------------------------
+
+    [Fact]
+    public void Writing_is_off_until_someone_turns_it_on()
+    {
+        using var root = new TempDataRoot();
+        var database = root.OpenDatabase();
+
+        Assert.False(database.GetAllowWrites());
+
+        var (code, output, _) = Run(database, "writes");
+
+        Assert.Equal(0, code);
+        Assert.Equal("off", output.Trim());
+    }
+
+    [Fact]
+    public void Writes_on_and_off_move_the_switch_and_say_so()
+    {
+        using var root = new TempDataRoot();
+        var database = root.OpenDatabase();
+
+        var (code, output, _) = Run(database, "writes", "on");
+
+        Assert.Equal(0, code);
+        Assert.True(database.GetAllowWrites());
+        Assert.Contains("Writing is ON", output);
+        Assert.Equal("on", Run(database, "writes", "show").Out.Trim());
+
+        Assert.Equal(0, Run(database, "writes", "off").Code);
+        Assert.False(database.GetAllowWrites());
+    }
+
+    [Fact]
+    public void Writes_refuses_a_word_it_does_not_know_and_leaves_the_switch_alone()
+    {
+        using var root = new TempDataRoot();
+        var database = root.OpenDatabase();
+
+        var (code, _, error) = Run(database, "writes", "maybe");
+
+        Assert.Equal(1, code);
+        Assert.Contains("'show', 'on' or 'off'", error);
+        Assert.False(database.GetAllowWrites());
+    }
+
+    [Fact]
+    public void Writes_refuses_extra_words_rather_than_ignoring_them()
+    {
+        using var root = new TempDataRoot();
+        var database = root.OpenDatabase();
+
+        var (code, _, error) = Run(database, "writes", "on", "please");
+
+        Assert.Equal(1, code);
+        Assert.Contains("please", error);
+        Assert.False(database.GetAllowWrites());
+    }
+
+    [Fact]
+    public void Status_mentions_writing_only_while_it_is_on()
+    {
+        using var root = new TempDataRoot();
+        var database = root.OpenDatabase();
+
+        Assert.DoesNotContain("writing", Run(database, "status").Out);
+
+        database.SetAllowWrites(true);
+
+        Assert.Contains("writing", Run(database, "status").Out);
+    }
+
+    [Fact]
+    public void The_usage_does_not_advertise_the_switch()
+    {
+        Assert.DoesNotContain("writes", Cli.Usage);
+        Assert.DoesNotContain("writing", Cli.Usage);
     }
 
     [Fact]

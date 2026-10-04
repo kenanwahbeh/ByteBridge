@@ -8,13 +8,14 @@
     On Windows Server, where there may be no desktop session at all, this
     is the only part that runs.
 
-    Targets net10.0-windows because hosting as a service and writing to
-    the event log are Windows APIs. The gateway itself lives in
-    ByteBridge.Core and stays portable.
+    Plain net10.0 so the same program also runs on Linux, under systemd.
+    The Windows-only parts (service control manager, event log, URL
+    reservation, ACLs) are guarded at run time. The gateway itself lives
+    in ByteBridge.Core and stays portable.
   -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0-windows</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>ByteBridge.Service</RootNamespace>
@@ -29,6 +30,18 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Systemd" Version="10.0.0" />
+  </ItemGroup>
+
+  <!--
+    A Linux publish is the install bundle: the unit and the install
+    script travel with the executable, so scripts/linux/install.sh finds
+    everything next to itself. Windows publishes are left alone.
+  -->
+  <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('linux'))">
+    <None Include="../scripts/linux/bytebridge.unit;../scripts/linux/install.sh"
+          Link="%(Filename)%(Extension)"
+          CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

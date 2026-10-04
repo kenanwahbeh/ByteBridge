@@ -35,6 +35,8 @@ public static class Strings
             ["MenuConnect"] = "Connect to ByteBalance",
             ["MenuOptions"] = "Options",
             ["MenuHelp"] = "Help",
+            ["MenuHelpGuide"] = "User Guide",
+            ["MenuHelpWebsite"] = "Visit ByteBalanceTech.com",
             ["MenuHelpAbout"] = "About ByteBridge",
             ["MenuHelpOpenLogs"] = "Open Log Folder",
 
@@ -83,6 +85,7 @@ public static class Strings
             ["AboutTitle"] = "About ByteBridge",
             ["AboutVersion"] = "Version {0}",
             ["AboutDescription"] = "HTTP gateway for your databases.",
+            ["AboutMadeBy"] = "Developed by",
             ["AboutOpenLogs"] = "Open Log Folder",
             ["AboutClose"] = "Close",
 
@@ -112,7 +115,7 @@ public static class Strings
             ["NotRunningHint"] = "The service that hosts the gateway is not running, so a tunnel pointed at this machine will return 502.",
 
             // Connections
-            ["NoDatabases"] = "No databases configured.\n\nClick + Add Data to create a connection.",
+            ["NoDatabases"] = "No databases configured.\n\nUse File → New Database… to create a connection.",
             ["Online"] = "● Online",
             ["Offline"] = "● Offline",
             ["OfflineButton"] = "Offline",
@@ -149,6 +152,11 @@ public static class Strings
             ["InvalidPort"] = "Please enter a valid port between 1 and 65535.",
             ["ServiceError"] = "The ByteBridge service could not be started.\n\n{0}",
             ["ServiceTitle"] = "Service",
+            ["StopService"] = "Stop Service",
+            ["StopServiceConfirm"] = "Stopping the service takes the gateway offline. A tunnel pointed at this machine will return 502 until it is started again.\n\nStop it?",
+            ["ServiceStopError"] = "The ByteBridge service could not be stopped.\n\n{0}",
+            ["ServiceStoppedPrompt"] = "The ByteBridge service is not running, so the gateway is offline and a tunnel pointed at this machine will return 502.\n\nStart it now?",
+            ["ServiceNotInstalledMessage"] = "The ByteBridge service is not installed on this computer, so the gateway cannot run. Reinstall ByteBridge to add it.",
 
             // OAuth dialogs
             ["OAuthDisabled"] = "Cloudflare OAuth login has been disabled.\n\nUsers will need to use the API key to authenticate.",
@@ -170,6 +178,18 @@ public static class Strings
             // Settings
             ["AutoStart"] = "Start with Windows",
             ["AutoStartHint"] = "ByteBridge will start automatically when you log in.",
+            ["LockoutAttempts"] = "Lock out after wrong keys",
+            ["LockoutHint"] = "How many wrong API keys one caller may send within {0} seconds before being refused for a while. 0 turns it off.",
+            ["LockoutMinutes"] = "Lock out for (minutes)",
+            ["InvalidLockout"] = "Attempts must be a number from 0 to 10000, and the lock-out length from 1 to 1440 minutes.",
+            ["DontAskAgain"] = "Don't ask again",
+            ["AskBeforeClosing"] = "Ask before closing",
+            ["AskBeforeClosingHint"] = "Choose between minimizing to the tray and exiting each time the window is closed.",
+            ["AllowWriting"] = "Allow writing",
+            ["AllowWritingHint"] = "Off: the gateway only reads. On: it also runs statements that change data. Needs administrator rights.",
+            ["AllowWritingConfirm"] = "Turn writing on?\n\nAnyone who holds the API key, or is signed in through ByteBridge's Cloudflare login, will be able to change and delete data, and to change the structure of your databases, through the gateway.\n\nOnly turn this on if you need it, and turn it off again afterwards.",
+            ["AllowWritingNeedsAdmin"] = "Only an administrator can change this.",
+            ["AllowWritingError"] = "Could not change the setting: {0}",
             ["Language"] = "Language",
             ["LanguageHint"] = "Select the display language",
             ["English"] = "English",
@@ -196,6 +216,8 @@ public static class Strings
             ["MenuConnect"] = "الاتصال بـ ByteBalance",
             ["MenuOptions"] = "خيارات",
             ["MenuHelp"] = "تعليمات",
+            ["MenuHelpGuide"] = "دليل الاستخدام",
+            ["MenuHelpWebsite"] = "زيارة موقع ByteBalanceTech.com",
             ["MenuHelpAbout"] = "حول ByteBridge",
             ["MenuHelpOpenLogs"] = "فتح مجلد السجلات",
 
@@ -244,6 +266,7 @@ public static class Strings
             ["AboutTitle"] = "حول ByteBridge",
             ["AboutVersion"] = "الإصدار {0}",
             ["AboutDescription"] = "بوابة HTTP لقواعد بياناتك.",
+            ["AboutMadeBy"] = "تطوير",
             ["AboutOpenLogs"] = "فتح مجلد السجلات",
             ["AboutClose"] = "إغلاق",
 
@@ -273,7 +296,7 @@ public static class Strings
             ["NotRunningHint"] = "الخدمة التي تستضيف البوابة غير تعمل، لذا سيُرجع النفق الموجّه إلى هذا الجهاز خطأ 502.",
 
             // Connections
-            ["NoDatabases"] = "لا توجد قواعد بيانات مُعدّة.\n\nانقر على + إضافة بيانات لإنشاء اتصال.",
+            ["NoDatabases"] = "لا توجد قواعد بيانات مُعدّة.\n\nاستخدم ملف ← قاعدة بيانات جديدة... لإنشاء اتصال.",
             ["Online"] = "● متصل",
             ["Offline"] = "● غير متصل",
             ["OfflineButton"] = "غير متصل",
@@ -310,6 +333,11 @@ public static class Strings
             ["InvalidPort"] = "الرجاء إدخال منفذ صالح بين 1 و 65535.",
             ["ServiceError"] = "تعذر بدء خدمة ByteBridge.\n\n{0}",
             ["ServiceTitle"] = "الخدمة",
+            ["StopService"] = "إيقاف الخدمة",
+            ["StopServiceConfirm"] = "إيقاف الخدمة يُخرج البوابة عن العمل. سيُرجع أي نفق موجّه إلى هذا الجهاز خطأ 502 حتى تُشغَّل من جديد.\n\nهل تريد إيقافها؟",
+            ["ServiceStopError"] = "تعذر إيقاف خدمة ByteBridge.\n\n{0}",
+            ["ServiceStoppedPrompt"] = "خدمة ByteBridge لا تعمل، فالبوابة خارج الخدمة وأي نفق موجّه إلى هذا الجهاز سيُرجع خطأ 502.\n\nهل تريد تشغيلها الآن؟",
+            ["ServiceNotInstalledMessage"] = "خدمة ByteBridge غير مثبتة على هذا الجهاز، لذا لا يمكن تشغيل البوابة. أعد تثبيت ByteBridge لإضافتها.",
 
             // OAuth dialogs
             ["OAuthDisabled"] = "تم تعطيل تسجيل الدخول عبر Cloudflare OAuth.\n\nسيحتاج المستخدمون إلى استخدام مفتاح API للمصادقة.",
@@ -331,6 +359,18 @@ public static class Strings
             // Settings
             ["AutoStart"] = "البدء مع Windows",
             ["AutoStartHint"] = "سيبدأ ByteBridge تلقائياً عند تسجيل الدخول.",
+            ["LockoutAttempts"] = "الحظر بعد مفاتيح خاطئة",
+            ["LockoutHint"] = "عدد المفاتيح الخاطئة التي يجوز لمتصل واحد إرسالها خلال {0} ثانية قبل رفضه لفترة. القيمة 0 تعطّل الحظر.",
+            ["LockoutMinutes"] = "مدة الحظر (بالدقائق)",
+            ["InvalidLockout"] = "عدد المحاولات رقم من 0 إلى 10000، ومدة الحظر من 1 إلى 1440 دقيقة.",
+            ["DontAskAgain"] = "لا تسأل مرة أخرى",
+            ["AskBeforeClosing"] = "السؤال عند الإغلاق",
+            ["AskBeforeClosingHint"] = "الاختيار بين التصغير إلى الصينية والخروج عند كل إغلاق للنافذة.",
+            ["AllowWriting"] = "السماح بالكتابة",
+            ["AllowWritingHint"] = "متوقف: البوابة تقرأ فقط. مفعّل: تنفّذ أيضاً أوامر تغيّر البيانات. يتطلب صلاحية مدير.",
+            ["AllowWritingConfirm"] = "تفعيل الكتابة؟\n\nكل من يحمل مفتاح API، أو دخل عبر تسجيل دخول Cloudflare في ByteBridge، سيستطيع تغيير البيانات وحذفها، وتغيير بنية قواعدك، عبر البوابة.\n\nفعّلها فقط عند الحاجة، ثم أوقفها بعد الانتهاء.",
+            ["AllowWritingNeedsAdmin"] = "المدير وحده يستطيع تغيير هذا.",
+            ["AllowWritingError"] = "تعذّر تغيير الإعداد: {0}",
             ["Language"] = "اللغة",
             ["LanguageHint"] = "اختر لغة العرض",
             ["English"] = "English",

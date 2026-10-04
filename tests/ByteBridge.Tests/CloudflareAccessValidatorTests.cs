@@ -169,6 +169,51 @@ public class CloudflareAccessValidatorTests
         Assert.Contains("JWKS refresh failed", captured.ToString());
     }
 
+    /*
+     * Cloudflare Access signs with RS256. A token that says it was
+     * signed with anything else is refused, even by a key the JWKS
+     * lists, so the token's own header cannot choose how it is checked.
+     */
+    [Fact]
+    public async Task Rejects_a_token_signed_with_an_algorithm_other_than_rs256()
+    {
+        using var jwks = new FakeJwksServer();
+        using var keyA = new TestSigningKey("key-a");
+        jwks.SetKeys(keyA);
+
+        using var validator = new CloudflareAccessValidator(MakeConfig(jwks.Url));
+
+        var token = IssueToken(
+            keyA,
+            "user-a@example.com",
+            SecurityAlgorithms.RsaSha512);
+
+        Assert.Null(await validator.ValidateTokenAsync(token));
+    }
+
+    [Fact]
+    public void The_email_wins_over_the_opaque_subject()
+    {
+        var principal = new ClaimsPrincipal(new ClaimsIdentity(
+        [
+            new Claim("sub", "3f2c1a90-0000-0000-0000-000000000000"),
+            new Claim("email", "person@example.com")
+        ]));
+
+        Assert.Equal("person@example.com", CloudflareAccessValidator.GetEmail(principal));
+    }
+
+    [Fact]
+    public void A_token_with_no_email_falls_back_to_the_subject()
+    {
+        var principal = new ClaimsPrincipal(new ClaimsIdentity(
+        [
+            new Claim("sub", "service-token-id")
+        ]));
+
+        Assert.Equal("service-token-id", CloudflareAccessValidator.GetEmail(principal));
+    }
+
     private static OAuthConfig MakeConfig(string jwksUrl) => new()
     {
         Enabled = true,
@@ -177,11 +222,14 @@ public class CloudflareAccessValidatorTests
         JwksUri = jwksUrl
     };
 
-    internal static string IssueToken(TestSigningKey key, string subject)
+    internal static string IssueToken(
+        TestSigningKey key,
+        string subject,
+        string algorithm = SecurityAlgorithms.RsaSha256)
     {
         var handler = new JwtSecurityTokenHandler();
 
-        var credentials = new SigningCredentials(key.SecurityKey, SecurityAlgorithms.RsaSha256);
+        var credentials = new SigningCredentials(key.SecurityKey, algorithm);
 
         var token = new JwtSecurityToken(
             issuer: $"https://{TeamDomain}",

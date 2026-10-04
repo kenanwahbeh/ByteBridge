@@ -19,6 +19,12 @@ public partial class MainWindow : Window
 
     private readonly GatewayServiceControl _service = new();
 
+    private readonly GatewaySwitch _switch;
+
+    // True while a start or stop is waiting on Windows, so the refresh
+    // tick does not hand the button back before it is finished.
+    private bool _switching;
+
     /*
      * The window no longer holds the gateway; the service does. This
      * refreshes what the window shows about it, because the service
@@ -36,9 +42,9 @@ public partial class MainWindow : Window
 
     /*
      * How many requests the gateway has answered for each database,
-     * keyed by connection name -- the same identifier a client sends
-     * in "database". Refreshed on the same tick as the status line;
-     * empty whenever the gateway is not answering.
+     * keyed by connection id, which is what /stats reports and, unlike
+     * a name, belongs to one connection. Refreshed on the same tick as
+     * the status line; empty whenever the gateway is not answering.
      */
     private Dictionary<string, long> _requestCounts = new();
 
@@ -53,19 +59,26 @@ public partial class MainWindow : Window
     private bool _isClosing = false;
 
     /*
-     * Created lazily on the first minimize-to-tray, then just shown
-     * and hidden from there on rather than recreated each time --
+     * Created once, at launch, and left in the notification area for as
+     * long as the app runs, so the app can be found there whether its
+     * window is open or hidden. It is not recreated on each toggle:
      * NotifyIcon holds a live shell notification-area slot, and
-     * disposing and recreating it on every toggle is what makes tray
-     * icons flicker or land in the wrong spot.
+     * disposing and recreating it is what makes tray icons flicker or
+     * land in the wrong spot.
      */
     private System.Windows.Forms.NotifyIcon? _trayIcon;
+
+    private System.Windows.Forms.ToolStripItem? _trayOpenItem;
+
+    private System.Windows.Forms.ToolStripItem? _trayExitItem;
 
     public MainWindow()
     {
         InitializeComponent();
 
         _database = new SqliteDatabase();
+
+        _switch = new GatewaySwitch(_database, _service);
 
         // Load saved language
         var savedLanguage = _database.GetSetting("App.Language");
@@ -75,6 +88,9 @@ public partial class MainWindow : Window
         }
 
         ApplyLocalization();
+
+        // In the notification area from launch, not only after a minimize.
+        ShowTrayIcon();
 
         _refresh.Tick += async (_, _) => await UpdateStatusAsync();
 
@@ -96,6 +112,120 @@ public partial class MainWindow : Window
         RoutedEventArgs e)
     {
         await UpdateStatusAsync();
+
+        await CheckServiceAtLaunchAsync();
+    }
+
+    /*
+     * The window hosts nothing itself, so all that opening it can do is
+     * notice when the service that does is not there, and say so. Only
+     * when the gateway is meant to be on: someone who turned it off on
+     * purpose is not asked about it again on every launch, the status
+     * line already says so and the button is one click.
+     */
+    private async Task CheckServiceAtLaunchAsync()
+    {
+        var state = _service.State();
+
+        if (state == ServiceState.NotInstalled)
+        {
+            MessageBox.Show(
+                this,
+                Strings.Get("ServiceNotInstalledMessage"),
+                Strings.Get("ServiceTitle"),
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+
+            return;
+        }
+
+        if (state != ServiceState.Stopped
+            || !_database.GetGatewayConfig().AutoStart)
+        {
+            return;
+        }
+
+        var answer = MessageBox.Show(
+            this,
+            Strings.Get("ServiceStoppedPrompt"),
+            Strings.Get("ServiceTitle"),
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+
+        if (answer == MessageBoxResult.Yes)
+        {
+            await SwitchGatewayAsync(on: true);
+        }
+    }
+
+    private async void ServiceToggleButton_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (_service.State() == ServiceState.Running)
+        {
+            var confirm = MessageBox.Show(
+                this,
+                Strings.Get("StopServiceConfirm"),
+                Strings.Get("ServiceTitle"),
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+
+            if (confirm != MessageBoxResult.Yes)
+            {
+                return;
+            }
+
+            await SwitchGatewayAsync(on: false);
+
+            return;
+        }
+
+        await SwitchGatewayAsync(on: true);
+    }
+
+    private async Task SwitchGatewayAsync(bool on)
+    {
+        _switching = true;
+        ServiceToggleButton.IsEnabled = false;
+
+        try
+        {
+            var problem = on
+                ? await _switch.TurnOnAsync()
+                : await _switch.TurnOffAsync();
+
+            if (problem != null)
+            {
+                MessageBox.Show(
+                    this,
+                    problem,
+                    Strings.Get("ServiceTitle"),
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
+        }
+        finally
+        {
+            _switching = false;
+        }
+
+        await UpdateStatusAsync();
+    }
+
+    /*
+     * Brought forward by a second copy of the app that was started and
+     * then closed itself, so there is only ever one.
+     */
+    public void BringToFront()
+    {
+        RestoreFromTray();
+
+        // Topmost flips once so Windows lets it past other windows.
+        Topmost = true;
+        Topmost = false;
+
+        Focus();
     }
 
     private void Window_Closing(
@@ -107,31 +237,45 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Show the close dialog
-        var dialog = new CloseDialogWindow
+        // A remembered choice skips the dialog; Settings can undo it.
+        var remembered = _database.GetSetting("App.CloseAction");
+        var result = remembered switch
         {
-            Owner = this
+            "tray" => CloseDialogResult.MinimizeToTray,
+            "exit" => CloseDialogResult.Exit,
+            _ => (CloseDialogResult?)null
         };
 
-        if (dialog.ShowDialog() != true)
+        if (result is null)
         {
-            // User cancelled
-            e.Cancel = true;
-            return;
+            var dialog = new CloseDialogWindow
+            {
+                Owner = this
+            };
+
+            if (dialog.ShowDialog() != true)
+            {
+                // User cancelled
+                e.Cancel = true;
+                return;
+            }
+
+            result = dialog.Result;
+
+            if (dialog.DontAskAgain)
+            {
+                _database.SetSetting(
+                    "App.CloseAction",
+                    result == CloseDialogResult.Exit ? "exit" : "tray");
+            }
         }
 
-        switch (dialog.Result)
+        switch (result)
         {
             case CloseDialogResult.MinimizeToTray:
                 // Minimize to tray instead of closing
                 e.Cancel = true;
                 MinimizeToTray();
-                break;
-
-            case CloseDialogResult.Settings:
-                // Open settings window
-                e.Cancel = true;
-                OpenSettings();
                 break;
 
             case CloseDialogResult.Exit:
@@ -160,33 +304,31 @@ public partial class MainWindow : Window
 
         _service.Dispose();
 
-        _trayIcon?.Dispose();
-        _trayIcon = null;
+        if (_trayIcon != null)
+        {
+            _trayIcon.Visible = false;
+            _trayIcon.Dispose();
+            _trayIcon = null;
+        }
     }
 
     /*
-     * Hides the window entirely -- not just off the taskbar -- and
-     * shows a notification-area icon in its place. The previous
-     * version set WindowState.Minimized with ShowInTaskbar false and
-     * nothing else: no taskbar entry and no tray icon either, so the
-     * window was simply gone until relaunched from the Start menu.
+     * Hides the window entirely -- not just off the taskbar. The
+     * notification-area icon is already there; it is what brings the
+     * window back. The previous version set WindowState.Minimized with
+     * ShowInTaskbar false and nothing else: no taskbar entry and no
+     * tray icon either, so the window was simply gone until relaunched
+     * from the Start menu.
      */
     private void MinimizeToTray()
     {
-        EnsureTrayIcon();
+        ShowTrayIcon();
 
         Hide();
-
-        _trayIcon!.Visible = true;
     }
 
     private void RestoreFromTray()
     {
-        if (_trayIcon != null)
-        {
-            _trayIcon.Visible = false;
-        }
-
         Show();
         WindowState = WindowState.Normal;
         ShowInTaskbar = true;
@@ -204,16 +346,34 @@ public partial class MainWindow : Window
             Environment.ProcessPath
             ?? System.Reflection.Assembly.GetExecutingAssembly().Location;
 
-        var icon =
-            System.Drawing.Icon.ExtractAssociatedIcon(exePath);
+        /*
+         * Asked for at the size the notification area really draws, so
+         * the picture made for that size is used rather than a larger
+         * one squeezed down. Falls back to the ordinary lookup.
+         */
+        System.Drawing.Icon? icon = null;
+
+        try
+        {
+            icon = System.Drawing.Icon.ExtractIcon(
+                exePath,
+                0,
+                System.Windows.Forms.SystemInformation.SmallIconSize.Width);
+        }
+        catch (Exception)
+        {
+            // Falls through to the plain lookup below.
+        }
+
+        icon ??= System.Drawing.Icon.ExtractAssociatedIcon(exePath);
 
         var menu = new System.Windows.Forms.ContextMenuStrip();
 
-        var openItem = menu.Items.Add(Strings.Get("TrayOpen"));
-        openItem.Click += (_, _) => RestoreFromTray();
+        _trayOpenItem = menu.Items.Add(Strings.Get("TrayOpen"));
+        _trayOpenItem.Click += (_, _) => RestoreFromTray();
 
-        var exitItem = menu.Items.Add(Strings.Get("ExitApp"));
-        exitItem.Click += (_, _) => ExitFromTray();
+        _trayExitItem = menu.Items.Add(Strings.Get("ExitApp"));
+        _trayExitItem.Click += (_, _) => ExitFromTray();
 
         _trayIcon = new System.Windows.Forms.NotifyIcon
         {
@@ -231,6 +391,34 @@ public partial class MainWindow : Window
         };
 
         _trayIcon.DoubleClick += (_, _) => RestoreFromTray();
+    }
+
+    private void ShowTrayIcon()
+    {
+        EnsureTrayIcon();
+
+        _trayIcon!.Visible = true;
+    }
+
+    // The language can change while the app is running.
+    private void UpdateTrayText()
+    {
+        if (_trayIcon == null)
+        {
+            return;
+        }
+
+        _trayIcon.Text = Strings.Get("AppTitle");
+
+        if (_trayOpenItem != null)
+        {
+            _trayOpenItem.Text = Strings.Get("TrayOpen");
+        }
+
+        if (_trayExitItem != null)
+        {
+            _trayExitItem.Text = Strings.Get("ExitApp");
+        }
     }
 
     private void ExitFromTray()
@@ -358,6 +546,72 @@ public partial class MainWindow : Window
         window.ShowDialog();
     }
 
+    /*
+     * The plain-language guide, in the language the window is showing.
+     *
+     * These point at the docs folder on GitHub, which renders the same
+     * Markdown the GitBook site is built from. Once that site is
+     * published, swap these two for its pages; nothing else changes.
+     */
+    private const string UserGuideUrlEnglish =
+        "https://github.com/kenanwahbeh/ByteBridge/blob/main/docs/guide/README.md";
+
+    private const string UserGuideUrlArabic =
+        "https://github.com/kenanwahbeh/ByteBridge/blob/main/docs/ar/README.md";
+
+    // The maker's site, the same one About links to.
+    private const string WebsiteUrl = "https://bytebalancetech.com";
+
+    private void UserGuideMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        OpenUserGuide();
+    }
+
+    private void WebsiteMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        OpenInBrowser(WebsiteUrl);
+    }
+
+    protected override void OnPreviewKeyDown(KeyEventArgs e)
+    {
+        if (e.Key == Key.F1 && Keyboard.Modifiers == ModifierKeys.None)
+        {
+            e.Handled = true;
+            OpenUserGuide();
+            return;
+        }
+
+        base.OnPreviewKeyDown(e);
+    }
+
+    private void OpenUserGuide()
+    {
+        OpenInBrowser(
+            Strings.CurrentLanguage == "ar"
+                ? UserGuideUrlArabic
+                : UserGuideUrlEnglish);
+    }
+
+    private void OpenInBrowser(string url)
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(
+                new System.Diagnostics.ProcessStartInfo(url)
+                {
+                    UseShellExecute = true
+                });
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                ex.Message,
+                Strings.Get("AppTitle"),
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+    }
+
     // ---- Gateway status ----------------------------------------------
 
     /*
@@ -410,9 +664,22 @@ public partial class MainWindow : Window
         StatusTextBlock.Text = $"{gatewayText}    ·    {Strings.Get(serviceKey)}";
         StatusTextBlock.Foreground = color;
 
+        ServiceToggleButton.Visibility =
+            state == ServiceState.NotInstalled
+                ? Visibility.Collapsed
+                : Visibility.Visible;
+
+        ServiceToggleButton.Content =
+            state == ServiceState.Running
+                ? Strings.Get("StopService")
+                : Strings.Get("StartService");
+
+        ServiceToggleButton.IsEnabled =
+            !_switching && state != ServiceState.Pending;
+
         _requestCounts =
             answering
-                ? await _service.GetStatsAsync(config.BaseUrl)
+                ? await _service.GetStatsAsync(config.BaseUrl, config.ApiKey)
                 : new Dictionary<string, long>();
 
         RefreshRequestCountLabels();
@@ -428,7 +695,7 @@ public partial class MainWindow : Window
             }
 
             label.Text =
-                _requestCounts.TryGetValue(connection.Name, out var count)
+                _requestCounts.TryGetValue(connection.Id, out var count)
                     ? Strings.Format("RequestCount", count)
                     : Strings.Get("RequestCountUnknown");
         }
@@ -611,7 +878,7 @@ public partial class MainWindow : Window
             FontSize = 12,
             Foreground = Brushes.Gray,
             Text =
-                _requestCounts.TryGetValue(connection.Name, out var count)
+                _requestCounts.TryGetValue(connection.Id, out var count)
                     ? Strings.Format("RequestCount", count)
                     : Strings.Get("RequestCountUnknown")
         };
@@ -862,12 +1129,16 @@ public partial class MainWindow : Window
         OptionsMenuItem.Header = Strings.Get("MenuOptions");
 
         HelpMenuItem.Header = Strings.Get("MenuHelp");
+        UserGuideMenuItem.Header = Strings.Get("MenuHelpGuide");
+        WebsiteMenuItem.Header = Strings.Get("MenuHelpWebsite");
         AboutMenuItem.Header = Strings.Get("MenuHelpAbout");
 
         FlowDirection =
             Strings.CurrentLanguage == "ar"
                 ? FlowDirection.RightToLeft
                 : FlowDirection.LeftToRight;
+
+        UpdateTrayText();
 
         // Refresh dynamic text
         _ = UpdateStatusAsync();

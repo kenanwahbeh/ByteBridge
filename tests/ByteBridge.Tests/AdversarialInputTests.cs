@@ -185,7 +185,7 @@ public class AdversarialInputTests
         }));
 
         Assert.Equal(HttpStatusCode.BadRequest, status);
-        Assert.Contains("/execute", body);
+        Assert.Contains("read-only", body);
     }
 
     [Fact]
@@ -367,13 +367,19 @@ public class AdversarialInputTests
     }
 
     [Fact]
-    public async Task An_unknown_auth_endpoint_returns_404()
+    public async Task An_unknown_auth_endpoint_needs_the_key_before_it_says_anything()
     {
         using var gateway = new GatewayHarness();
 
-        var (status, _) = await GatewayHarness.Read(gateway.Get("/auth/not-a-real-endpoint", key: ""));
+        // Without the key an unknown path is indistinguishable from any
+        // other: only the endpoints that exist are answered unauthenticated.
+        var (anonymous, _) = await GatewayHarness.Read(gateway.Get("/auth/not-a-real-endpoint", key: ""));
 
-        Assert.Equal(HttpStatusCode.NotFound, status);
+        Assert.Equal(HttpStatusCode.Unauthorized, anonymous);
+
+        var (withKey, _) = await GatewayHarness.Read(gateway.Get("/auth/not-a-real-endpoint"));
+
+        Assert.Equal(HttpStatusCode.NotFound, withKey);
     }
 
     private static Task<HttpResponseMessage> SendRaw(

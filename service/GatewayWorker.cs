@@ -61,6 +61,12 @@ public sealed class GatewayWorker : BackgroundService
      */
     private OAuthConfig? _appliedOAuth;
 
+    /*
+     * Whether /execute was able to write the last time anyone looked.
+     * Null until the first pass, so the state at start-up is logged.
+     */
+    private bool? _writesAllowed;
+
     public GatewayWorker(
         SqliteDatabase database,
         GatewayServer gateway,
@@ -171,6 +177,8 @@ public sealed class GatewayWorker : BackgroundService
      */
     private void Reconcile()
     {
+        ReconcileWrites();
+
         ReconcileOAuth();
 
         var desired = _database.GetGatewayConfig();
@@ -227,6 +235,33 @@ public sealed class GatewayWorker : BackgroundService
         }
     }
 
+    /*
+     * Nothing to apply: the gateway reads the switch on every request.
+     * This only puts a line in the log when it changes, and one at
+     * start-up, so a gateway left able to write is on record.
+     */
+    private void ReconcileWrites()
+    {
+        var allowed = _database.GetAllowWrites();
+
+        if (_writesAllowed == allowed)
+        {
+            return;
+        }
+
+        _writesAllowed = allowed;
+
+        if (allowed)
+        {
+            _logger.LogWarning("Writing through /execute is ON.");
+        }
+        else
+        {
+            _logger.LogInformation(
+                "Writing through /execute is off; the gateway only reads.");
+        }
+    }
+
     private void ReconcileOAuth()
     {
         var desired = _database.GetOAuthConfig();
@@ -271,7 +306,10 @@ public sealed class GatewayWorker : BackgroundService
         running.Host != desired.Host
         || running.Port != desired.Port
         || running.MaxRows != desired.MaxRows
-        || running.CommandTimeoutSeconds != desired.CommandTimeoutSeconds;
+        || running.CommandTimeoutSeconds != desired.CommandTimeoutSeconds
+        || running.AuthMaxFailures != desired.AuthMaxFailures
+        || running.AuthWindowSeconds != desired.AuthWindowSeconds
+        || running.AuthBlockSeconds != desired.AuthBlockSeconds;
 
     /*
      * HttpListener's "access denied", which means HTTP.SYS has no
@@ -312,6 +350,7 @@ public sealed class GatewayWorker : BackgroundService
              */
             if (!reserved
                 && NeedsReservation(error)
+                && OperatingSystem.IsWindows()
                 && UrlReservation.TryAdd(config.Prefix, _logger))
             {
                 StartWith(config, reserved: true);

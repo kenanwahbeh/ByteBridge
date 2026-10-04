@@ -8,13 +8,14 @@
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
         ShowInTaskbar="False"
-        WindowStyle="ToolWindow"
-        Background="White">
+        Background="White"
+        KeyDown="Window_KeyDown">
 
     <!--
-        One column of full-width buttons rather than several crammed
-        into a fixed-width row: it can't overflow or clip regardless
-        of how long the localized label is, in either flow direction.
+        Two equal-width choices side by side, the safe one (keep the
+        gateway running in the tray) as the default. Closing with the
+        title-bar button or Esc cancels, so there is no separate Cancel
+        or Settings button to pick between.
     -->
     <StackPanel Margin="24">
 
@@ -23,38 +24,34 @@
                    FontSize="16"
                    FontWeight="SemiBold"
                    TextWrapping="Wrap"
-                   Margin="0,0,0,16"/>
+                   Margin="0,0,0,20"/>
 
-        <Button x:Name="TrayButton"
-                Content="Minimize to Tray"
-                Padding="16,10"
-                Margin="0,0,0,8"
-                Click="TrayButton_Click"
-                FontSize="14"/>
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="12"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
 
-        <Button x:Name="SettingsButton"
-                Content="Settings"
-                Padding="16,10"
-                Margin="0,0,0,8"
-                Click="SettingsButton_Click"
-                FontSize="14"/>
+            <Button x:Name="TrayButton"
+                    Grid.Column="0"
+                    Content="Minimize to Tray"
+                    Padding="16,10"
+                    FontSize="14"
+                    IsDefault="True"
+                    Click="TrayButton_Click"/>
 
-        <Button x:Name="ExitButton"
-                Content="Exit"
-                Padding="16,10"
-                Margin="0,0,0,8"
-                Click="ExitButton_Click"
-                FontSize="14"
-                Background="#E74C3C"
-                Foreground="White"/>
+            <Button x:Name="ExitButton"
+                    Grid.Column="2"
+                    Content="Exit"
+                    Padding="16,10"
+                    FontSize="14"
+                    Click="ExitButton_Click"/>
+        </Grid>
 
-        <Button x:Name="CancelButton"
-                Content="Cancel"
-                Padding="16,10"
-                Margin="0,8,0,0"
-                Click="CancelButton_Click"
-                IsCancel="True"
-                FontSize="14"/>
+        <CheckBox x:Name="DontAskCheckBox"
+                  Content="Don't ask again"
+                  Margin="0,16,0,0"/>
 
     </StackPanel>
 

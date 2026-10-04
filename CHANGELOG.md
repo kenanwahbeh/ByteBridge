@@ -30,12 +30,124 @@ file is the single source of truth for what shipped.
   makes a request that arrives through Cloudflare carry a valid Access token in
   addition to the API key; enrolment turns it on. Local requests are not asked
   for one, and it does not switch the Access login on.
+- **The service runs on Linux under systemd.** A Linux publish carries
+  `bytebridge.unit` and `install.sh`; data lives in `/var/lib/bytebridge`
+  (or `BYTEBRIDGE_DATA`) with owner-only permissions, and logs go to the
+  journal.
 
 ### Changed
 
 - `status` shows whether the machine is connected to ByteBalance.
 - An existing Cloudflare connector service is never replaced by enrolment unless
   `--replace-connector` is passed.
+
+### Fixed
+
+- **The `-framework` installer no longer insists on downloading .NET
+  when you already have it.** It looked for the runtime in one fixed
+  folder only, so a runtime installed elsewhere was reported missing.
+  It now also checks the location the .NET installer recorded and
+  `DOTNET_ROOT`, and if it still finds nothing you can choose to
+  install without downloading instead of being forced to.
+
+### Removed
+
+- **The browser mock-up of the control panel.** The React + Express
+  prototype in `src/`, `server.ts` and `index.html`, with its npm and
+  Vite setup, was never part of the product and nothing built or
+  shipped it. The gateway, the Windows service and the control panel
+  are unchanged.
+
+## [3.0.0] - 2026-10-01
+
+### Changed
+
+- **ByteBridge only reads, unless you turn writing on.** `/execute` is
+  off and answers `403`, so a script that wrote through the gateway
+  stops working until an administrator ticks **Options → Allow
+  writing**, which asks for confirmation and takes effect on the
+  next request. `/query` now runs in a
+  transaction that Firebird itself holds read-only, so a `SELECT` that
+  calls a procedure which writes is refused by the database rather than
+  trusted not to. Statements that move a generator (`GEN_ID` with a
+  step other than 0, `NEXT VALUE FOR`) are refused as well, because a
+  generator changes outside any transaction. The guide no longer says the API key lets its holder
+  change data.
+
+## [2.0.0] - 2026-09-30
+
+### Added
+
+- **Help → User Guide**, also on **F1**, opens a step-by-step guide
+  with pictures of every screen, written for people who have never
+  programmed. It opens in Arabic when the window is in Arabic. The
+  guide also explains the idea behind ByteBridge in everyday words,
+  every button and option, and what each status message and error
+  number means.
+- **Help → Visit ByteBalanceTech.com** opens the maker's website, the
+  same one *About* links to. The guide and the documentation site
+  carry the ByteBalanceTech name and logo too.
+- **A guide for contributors,** *How the code fits together*, mapping
+  the projects, the processes, how the control panel and the service
+  share one settings file, and where each kind of change belongs.
+
+### Security
+
+- **Wrong API keys now cost the caller.** The 10th wrong key from
+  one caller inside a minute is still answered `401`, but blocks that
+  caller: its next request gets a `429` with a `Retry-After` for the
+  next minute, before its key is even looked at. This applies wherever
+  a key is tested, `/auth/me` included, which used to be answered ahead
+  of the limit. A request that sends no key at all does not count, and
+  a correct key clears the tally. The limit is yours to set: **Web
+  Server** in the app has *Lock out after wrong keys* and *Lock out for
+  (minutes)* (0 turns it off), and `ByteBridge.Service.exe lockout show
+  | on | off | set --attempts <n> --window <seconds> --block <seconds>`
+  does the same from a terminal. Callers are told apart by the address
+  Cloudflare reports; `X-Forwarded-For` is ignored because its first
+  entry is written by the caller.
+- **`/stats` needs the API key.** It listed every connection to anyone
+  who could reach the hostname. The app sends its key when it
+  polls, so nothing changes there; a script that read `/stats` without
+  a key now gets `401`, and a signed-in Cloudflare Access session on
+  its own gets `403`. Only `/health` is still open.
+- **Request counts are kept per connection.** The name a caller typed
+  used to be the counting key, so a client could grow the table without
+  bound with names that match nothing, and a connection reached once by
+  name and once by id was counted under two keys. They are now keyed by
+  the connection's id, which is also what `/stats` lists, so two
+  connections that share a name from an older settings file are counted
+  apart.
+- **Cloudflare Access sessions are checked for cross-site requests.** A
+  `POST` that arrives on the session cookie alone has to be
+  `application/json` and, if the browser names an `Origin`, that origin
+  has to be the gateway's own host or the public hostname set for
+  sign-in. Requests on the API key are unchanged.
+- **Only RS256 tokens are accepted** from Cloudflare Access, and the
+  signed-in identity is the token's email address rather than its
+  opaque `sub` id.
+- **An unexpected error no longer echoes its message to the caller.**
+  A `500` says to look in the request log, where the detail is. Errors
+  Firebird reports for a statement still come back in full.
+
+### Changed
+
+- **The empty window points at the right menu.** With no databases
+  added, the window used to say to click *+ Add Data*, a button that is
+  no longer there. It now says *File → New Database…*.
+
+- **A new app icon.** The ByteBalanceTech logo, taken from its website,
+  replaces the generic database icon everywhere the app shows one: the
+  program file, the window and its taskbar button, the notification
+  area, and the installers.
+- **The notification-area icon is there from the moment the app starts,**
+  not only after *Minimize to Tray*, and stays while the window is open.
+  Left-clicking it brings the window forward.
+- **About names its maker.** *About* now shows the ByteBalanceTech logo
+  and a link to ByteBalanceTech.com beside the version.
+- **The window-close dialog is two choices.** *Minimize to Tray* or
+  *Exit*, with a *Don't ask again* box; the × or Esc cancels. *Ask
+  before closing* in Settings turns the question back on.
 
 ## [1.2.0] - 2026-09-21
 
@@ -327,7 +439,9 @@ file is the single source of truth for what shipped.
 
 - Settings live in `C:\ProgramData\ByteBridge\bytebridge.db`.
 
-[Unreleased]: https://github.com/kenanwahbeh/ByteBridge/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/kenanwahbeh/ByteBridge/compare/v3.0.0...HEAD
+[3.0.0]: https://github.com/kenanwahbeh/ByteBridge/compare/v2.0.0...v3.0.0
+[2.0.0]: https://github.com/kenanwahbeh/ByteBridge/compare/v1.2.0...v2.0.0
 [1.2.0]: https://github.com/kenanwahbeh/ByteBridge/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/kenanwahbeh/ByteBridge/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/kenanwahbeh/ByteBridge/compare/v1.0.0...v1.0.1

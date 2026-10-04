@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using FirebirdSql.Data.FirebirdClient;
 using Xunit;
 using ByteBridge.Gateway;
 
@@ -22,13 +23,17 @@ public class FirebirdIntegrationTests
     private static readonly SemaphoreSlim SchemaGate = new(1, 1);
     private static bool _schemaReady;
 
-    private static async Task<GatewayHarness> LiveGatewayAsync()
+    private static async Task<GatewayHarness> LiveGatewayAsync(bool allowWrites = false)
     {
         await EnsureSchemaAsync();
 
         var gateway = new GatewayHarness();
 
         gateway.Database.AddConnection(FirebirdTestServer.Connection!);
+
+        // The gateway is read-only unless told otherwise; only the tests
+        // that write ask for it.
+        gateway.Database.SetAllowWrites(allowWrites);
 
         return gateway;
     }
@@ -293,7 +298,7 @@ public class FirebirdIntegrationTests
     [FirebirdFact]
     public async Task Execute_inserts_updates_and_deletes()
     {
-        using var gateway = await LiveGatewayAsync();
+        using var gateway = await LiveGatewayAsync(allowWrites: true);
 
         await RunAsync($"DELETE FROM {Table} WHERE ID = 99");
 
@@ -342,6 +347,84 @@ public class FirebirdIntegrationTests
         }));
 
         Assert.Contains("\"rowCount\":0", gone);
+    }
+
+    [FirebirdFact]
+    public async Task Execute_is_refused_while_writing_is_off()
+    {
+        using var gateway = await LiveGatewayAsync();
+
+        // No such row, so nothing is lost if this ever stops being refused.
+        var (status, body) = await GatewayHarness.Read(gateway.Post("/execute", new
+        {
+            database = "Test",
+            sql = $"DELETE FROM {Table} WHERE ID = 98765"
+        }));
+
+        Assert.Equal(HttpStatusCode.Forbidden, status);
+        Assert.Contains("read-only", body);
+    }
+
+    // ---- /query is read-only to Firebird itself -------------------------
+
+    [FirebirdFact]
+    public async Task Query_runs_in_a_transaction_firebird_holds_read_only()
+    {
+        using var gateway = await LiveGatewayAsync();
+
+        var (status, body) = await GatewayHarness.Read(gateway.Post("/query", new
+        {
+            database = "Test",
+            sql = "SELECT MON$READ_ONLY FROM MON$TRANSACTIONS " +
+                  "WHERE MON$TRANSACTION_ID = CURRENT_TRANSACTION"
+        }));
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal(1, Rows(body)[0][0].GetInt32());
+    }
+
+    [FirebirdFact]
+    public async Task A_write_that_gets_past_the_text_check_is_refused_by_firebird()
+    {
+        await EnsureSchemaAsync();
+
+        try
+        {
+            /*
+             * Straight to the executor, which has no text check in front
+             * of it: this is how a statement that fooled the check would
+             * arrive. An INSERT, because Firebird only objects once a
+             * row is actually written, and an UPDATE that matches nothing
+             * writes nothing.
+             */
+            var error = await Assert.ThrowsAsync<FbException>(() =>
+                FirebirdExecutor.QueryAsync(
+                    FirebirdTestServer.Connection!,
+                    $"INSERT INTO {Table} (ID, NAME) VALUES (98765, 'sneaked in')",
+                    null,
+                    100,
+                    30,
+                    CancellationToken.None));
+
+            Assert.Contains(
+                "read-only",
+                error.Message,
+                StringComparison.OrdinalIgnoreCase);
+
+            var after = await FirebirdExecutor.QueryAsync(
+                FirebirdTestServer.Connection!,
+                $"SELECT COUNT(*) FROM {Table} WHERE ID = 98765",
+                null,
+                100,
+                30,
+                CancellationToken.None);
+
+            Assert.Equal(0, Convert.ToInt32(after.Rows[0][0]));
+        }
+        finally
+        {
+            await RunAsync($"DELETE FROM {Table} WHERE ID = 98765");
+        }
     }
 
     [FirebirdFact]

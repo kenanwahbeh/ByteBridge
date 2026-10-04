@@ -54,13 +54,34 @@ public class SqliteDatabase
      */
     public SqliteDatabase(string? dataRoot)
     {
-        var commonData =
-            dataRoot
-            ?? Environment.GetFolderPath(
-                Environment.SpecialFolder.CommonApplicationData);
+        string directory;
 
-        var directory =
-            Path.Combine(commonData, "ByteBridge");
+        if (dataRoot != null)
+        {
+            directory = Path.Combine(dataRoot, "ByteBridge");
+        }
+        else if (OperatingSystem.IsWindows())
+        {
+            directory = Path.Combine(
+                Environment.GetFolderPath(
+                    Environment.SpecialFolder.CommonApplicationData),
+                "ByteBridge");
+        }
+        else
+        {
+            /*
+             * CommonApplicationData is /usr/share on Linux, which is not
+             * somewhere an app keeps writable state. BYTEBRIDGE_DATA
+             * lets a non-root run, or a different layout, point
+             * elsewhere.
+             */
+            var overridden =
+                Environment.GetEnvironmentVariable("BYTEBRIDGE_DATA");
+
+            directory = string.IsNullOrWhiteSpace(overridden)
+                ? "/var/lib/bytebridge"
+                : overridden;
+        }
 
         Directory.CreateDirectory(directory);
 
@@ -76,7 +97,7 @@ public class SqliteDatabase
          * Only for a real install: a test passes its own temporary root,
          * and has no business changing the permissions on it.
          */
-        if (dataRoot == null && OperatingSystem.IsWindows())
+        if (dataRoot == null)
         {
             PermissionsError = DataFolderSecurity.Ensure(directory);
         }
@@ -630,6 +651,21 @@ public class SqliteDatabase
     }
 
     /*
+     * Whether /execute may run statements at all. False until an
+     * administrator turns it on at the machine, so a gateway that has
+     * never been told otherwise only reads.
+     *
+     * Kept out of GatewayConfig on purpose. The control panel loads that
+     * object whole and saves it back whole, so a copy read before this
+     * moved would quietly put the old value back.
+     */
+    public bool GetAllowWrites() =>
+        GetSetting("Gateway.AllowWrites") == "1";
+
+    public void SetAllowWrites(bool allowed) =>
+        SetSetting("Gateway.AllowWrites", allowed ? "1" : "0");
+
+    /*
      * Loads the gateway settings, filling in defaults for
      * anything that has never been saved.
      *
@@ -678,6 +714,31 @@ public class SqliteDatabase
             timeout > 0)
         {
             config.CommandTimeoutSeconds = timeout;
+        }
+
+        // Zero is a real value here: it turns the limit off.
+        if (int.TryParse(
+                GetSetting("Gateway.AuthMaxFailures"),
+                out var authMax) &&
+            authMax >= 0)
+        {
+            config.AuthMaxFailures = authMax;
+        }
+
+        if (int.TryParse(
+                GetSetting("Gateway.AuthWindowSeconds"),
+                out var authWindow) &&
+            authWindow > 0)
+        {
+            config.AuthWindowSeconds = authWindow;
+        }
+
+        if (int.TryParse(
+                GetSetting("Gateway.AuthBlockSeconds"),
+                out var authBlock) &&
+            authBlock > 0)
+        {
+            config.AuthBlockSeconds = authBlock;
         }
 
         config.AutoStart =
@@ -753,6 +814,15 @@ public class SqliteDatabase
 
             ("Gateway.CommandTimeoutSeconds",
                 config.CommandTimeoutSeconds.ToString(CultureInfo.InvariantCulture)),
+
+            ("Gateway.AuthMaxFailures",
+                config.AuthMaxFailures.ToString(CultureInfo.InvariantCulture)),
+
+            ("Gateway.AuthWindowSeconds",
+                config.AuthWindowSeconds.ToString(CultureInfo.InvariantCulture)),
+
+            ("Gateway.AuthBlockSeconds",
+                config.AuthBlockSeconds.ToString(CultureInfo.InvariantCulture)),
 
             ("Gateway.AutoStart", config.AutoStart ? "1" : "0")
         };

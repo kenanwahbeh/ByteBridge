@@ -74,11 +74,30 @@ public sealed class GatewayHarness : IDisposable
 
     public string ApiKey { get; private set; }
 
+    /*
+     * The settings file this gateway reads from, for a test that needs
+     * to break it on purpose.
+     */
+    public string SettingsDatabasePath => _root.CurrentDatabasePath;
+
     public DatabaseConfig Online { get; }
 
     public DatabaseConfig Offline { get; }
 
+    /*
+     * xUnit builds a class fixture from its one public constructor, so
+     * that stays the plain one; a test that needs different settings
+     * goes through With.
+     */
     public GatewayHarness()
+        : this(null)
+    {
+    }
+
+    public static GatewayHarness With(Action<GatewayConfig> configure) =>
+        new(configure);
+
+    private GatewayHarness(Action<GatewayConfig>? configure)
     {
         _root = new TempDataRoot();
 
@@ -113,6 +132,8 @@ public sealed class GatewayHarness : IDisposable
         var config = Database.GetGatewayConfig();
         config.Port = FreePort();
 
+        configure?.Invoke(config);
+
         ApiKey = config.ApiKey;
 
         Log = new RequestLog(System.IO.Path.Combine(_root.Path, "logs"));
@@ -125,6 +146,55 @@ public sealed class GatewayHarness : IDisposable
             BaseAddress = new Uri(config.BaseUrl),
             Timeout = TimeSpan.FromSeconds(30)
         };
+    }
+
+    /*
+     * A second, offline connection under an existing name, as a settings
+     * file from before names had to be unique could hold. It goes in
+     * around the checks AddConnection makes, and stays offline so nothing
+     * tries to reach a database.
+     */
+    public DatabaseConfig AddLegacyConnectionNamed(string name)
+    {
+        var connection = new DatabaseConfig
+        {
+            Name = name,
+            Server = "127.0.0.1",
+            Port = 3050,
+            Username = "SYSDBA",
+            Password = "not-a-real-password",
+            Database = "/data/" + Guid.NewGuid().ToString("N") + ".fdb",
+            Enabled = false
+        };
+
+        using var sqlite = new Microsoft.Data.Sqlite.SqliteConnection(
+            $"Data Source={SettingsDatabasePath}");
+
+        sqlite.Open();
+
+        using var command = sqlite.CreateCommand();
+
+        command.CommandText = """
+            INSERT INTO Databases
+                (Id, Name, Server, Port, Username, Password, DatabaseValue,
+                 Enabled, LastTestSuccessful, LastTestedAt, ConnectionKey)
+            VALUES
+                ($id, $name, $server, $port, $user, $password, $database,
+                 0, 0, NULL, $key);
+            """;
+
+        command.Parameters.AddWithValue("$id", connection.Id);
+        command.Parameters.AddWithValue("$name", connection.Name);
+        command.Parameters.AddWithValue("$server", connection.Server);
+        command.Parameters.AddWithValue("$port", connection.Port);
+        command.Parameters.AddWithValue("$user", connection.Username);
+        command.Parameters.AddWithValue("$password", connection.Password);
+        command.Parameters.AddWithValue("$database", connection.Database);
+        command.Parameters.AddWithValue("$key", connection.ConnectionKey);
+
+        command.ExecuteNonQuery();
+
+        return connection;
     }
 
     public void RotateApiKey()

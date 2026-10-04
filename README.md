@@ -1,5 +1,7 @@
 # ByteBridge
 
+<a href="#support-the-project"><img src="docs/assets/sponsor-button.svg" alt="Sponsor this project" width="224" height="38"></a>
+
 A Windows desktop app that puts a small, authenticated HTTP API in
 front of your databases, so they can be reached from outside
 the machine through a tunnel such as Cloudflare Tunnel — without
@@ -24,6 +26,11 @@ loopback.
 **Requirements:** a Firebird database server (tested against Firebird
 4; the default port is 3050). Other database engines may be added in
 future versions.
+
+**Not a developer?** The [picture guide](docs/guide/README.md) walks
+through setting ByteBridge up step by step, with no technical
+background needed — also [in Arabic](docs/ar/README.md). In the app,
+**Help → User Guide** (or **F1**) opens it.
 
 ## Install
 
@@ -110,14 +117,16 @@ machine with a desktop you never need any of this.
 
 ## Quick start
 
-1. **Add a database.** Click **+ Add Data**, fill in the database
-   server, port, user, password and database path or alias, and use
-   **Test Connection** before saving.
-2. **Turn it Online.** The card's toggle tests the connection first and
-   stays Offline if it fails. Only Online connections answer requests.
-3. **Check the gateway.** The **Gateway API** panel should read
-   *Answering — http://127.0.0.1:8080*, with *Service: running* beneath
-   it. Press **Copy API Key**.
+1. **Add a database.** Choose **File → New Database…**, fill in the
+   database server, port, user, password and database path or alias,
+   and use **Test Connection** before saving.
+2. **Check it is Online.** A connection saved after a successful test
+   is Online straight away, and only Online connections answer
+   requests. The button on its card takes it **Offline** and back; going
+   Online tests the connection first and stays Offline if that fails.
+3. **Check the gateway.** The status line under the menu bar should
+   read *● Answering — http://127.0.0.1:8080 · Service: running*. Open
+   **Web Server** from the menu bar and press **Copy API Key**.
 4. **Start the tunnel.**
 
    ```
@@ -151,7 +160,6 @@ machine with a desktop you never need any of this.
 | GET | `/health` | no |
 | GET | `/databases` | yes |
 | POST | `/query` | yes — `SELECT` / `WITH` only |
-| POST | `/execute` | yes — `INSERT` / `UPDATE` / `DELETE` |
 
 [**GATEWAY.md**](GATEWAY.md) has the request and response shapes, the
 Firebird-to-JSON type mapping, the status codes, a named-tunnel
@@ -164,18 +172,33 @@ API key as a database credential.
 
 - Every endpoint except `/health` requires the key, in `X-API-Key` or
   as `Authorization: Bearer`. It is 32 random bytes, generated on first
-  run and compared in constant time.
+  run and compared in constant time. When Cloudflare login is set up in
+  ByteBridge, a valid session from that login is accepted instead on
+  every endpoint but `/stats`, which always needs the key. Cloudflare
+  Access in front of the tunnel is a separate layer and does not replace
+  that check.
 - **New Key** rotates it without restarting the gateway. The running
   gateway picks the new key up within a few seconds, and from then on
   every client still sending the old one is refused.
 - Send values in `parameters`, never concatenated into `sql`; they are
   bound as Firebird parameters, so a value cannot become SQL.
-- `/query` refuses anything that is not a `SELECT` or `WITH`, so a read
-  path cannot write by accident.
+- ByteBridge only reads until an administrator ticks **Options → Allow
+  writing**. `/query` refuses anything that is not a `SELECT` or `WITH`
+  either way, and runs what it accepts in a transaction that Firebird
+  itself holds read-only, so a statement sent to it cannot change rows.
+  Generators change outside transactions, so `GEN_ID` with a step other
+  than 0 and `NEXT VALUE FOR` are refused as well; a procedure that
+  moves one inside its own body can only be stopped by limiting the
+  Firebird user. While writing is off, `/execute` answers `403`. While
+  it is on, anyone holding the API key, or signed in through ByteBridge's
+  Cloudflare login, can run any statement: change and delete data and
+  change the structure of your databases. Cloudflare Access in front of
+  the tunnel is an extra layer, not a replacement for the key. Leave
+  writing off unless you need it, and turn it off again afterwards.
 - The listener binds to `127.0.0.1` only, and a request body over 1 MB
   is refused.
-- Anything holding the key can run arbitrary SQL against the Online
-  connections. If the data is sensitive, put
+- Anything holding the key can read whatever the Firebird user of an
+  Online connection can read. If the data is sensitive, put
   [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/)
   in front of the hostname as well, so callers are authenticated at
   Cloudflare's edge before a request reaches the machine at all.
@@ -201,6 +224,9 @@ dotnet run --project ByteBridge.csproj
 To produce the installers the way the release does, see
 [`.github/workflows/release.yml`](.github/workflows/release.yml). WiX
 and Inno Setup both only run on Windows.
+
+For how the projects fit together, see
+[docs/developers/architecture.md](docs/developers/architecture.md).
 
 ## Tests
 

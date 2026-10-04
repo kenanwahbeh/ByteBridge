@@ -36,6 +36,17 @@ public class GatewayConfig
 
     public int CommandTimeoutSeconds { get; set; } = 30;
 
+    /*
+     * How many wrong API keys one caller may send inside
+     * AuthWindowSeconds before being refused for AuthBlockSeconds.
+     * Zero turns the limit off.
+     */
+    public int AuthMaxFailures { get; set; } = 10;
+
+    public int AuthWindowSeconds { get; set; } = 60;
+
+    public int AuthBlockSeconds { get; set; } = 60;
+
     public string BaseUrl =>
         $"http://{Host}:{Port}";
 
