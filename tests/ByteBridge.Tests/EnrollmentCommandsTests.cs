@@ -167,7 +167,7 @@ public class EnrollmentSettingsTests
         using var root = new TempDataRoot();
         var store = new SettingsEnrollmentStore(root.OpenDatabase());
 
-        store.Save(Sample());
+        store.Create(Sample());
 
         Assert.Equal(Sample(), store.Load());
     }
@@ -185,7 +185,7 @@ public class EnrollmentSettingsTests
             KeySharedAt = null
         };
 
-        store.Save(pending);
+        store.Create(pending);
 
         Assert.Equal(pending, store.Load());
     }
@@ -195,7 +195,7 @@ public class EnrollmentSettingsTests
     {
         using var root = new TempDataRoot();
 
-        new SettingsEnrollmentStore(root.OpenDatabase()).Save(Sample());
+        new SettingsEnrollmentStore(root.OpenDatabase()).Create(Sample());
 
         Assert.Equal(Sample(), new SettingsEnrollmentStore(root.OpenDatabase()).Load());
     }
@@ -207,7 +207,7 @@ public class EnrollmentSettingsTests
         var database = root.OpenDatabase();
         var store = new SettingsEnrollmentStore(database);
 
-        store.Save(Sample());
+        store.Create(Sample());
         var key = database.GetGatewayConfig().ApiKey;
 
         store.Clear();
@@ -245,6 +245,60 @@ public class EnrollmentSettingsTests
         Assert.Equal("2", database.GetSetting("AXX.two"));
     }
 
+    private static EnrollmentState SampleState() =>
+        new("https://x.test", "bb-1", "secret", "Acme", "o@example.com",
+            Phase.Requested, DateTimeOffset.UtcNow);
+
+    [Fact]
+    public void A_late_save_cannot_bring_back_an_enrolment_that_was_removed()
+    {
+        using var root = new TempDataRoot();
+        var store = new SettingsEnrollmentStore(root.OpenDatabase());
+
+        store.Create(SampleState());
+        store.Clear();
+
+        Assert.Throws<EnrollmentException>(
+            () => store.Save(SampleState() with { Phase = Phase.Connected }));
+
+        Assert.Null(store.Load());
+    }
+
+    [Fact]
+    public void A_second_enrolment_cannot_overwrite_the_first()
+    {
+        using var root = new TempDataRoot();
+        var store = new SettingsEnrollmentStore(root.OpenDatabase());
+
+        store.Create(SampleState());
+
+        Assert.Throws<EnrollmentException>(
+            () => store.Create(SampleState() with { ClaimSecret = "other" }));
+
+        Assert.Equal("secret", store.Load()!.ClaimSecret);
+    }
+
+    [Fact]
+    public void Saving_an_enrolment_keeps_every_field_together()
+    {
+        using var root = new TempDataRoot();
+        var store = new SettingsEnrollmentStore(root.OpenDatabase());
+
+        store.Create(SampleState());
+        store.Save(SampleState() with
+        {
+            Phase = Phase.Connected,
+            Hostname = "acme.example.org",
+            EdgeAccessOwned = true
+        });
+
+        var loaded = store.Load()!;
+
+        Assert.Equal(Phase.Connected, loaded.Phase);
+        Assert.Equal("acme.example.org", loaded.Hostname);
+        Assert.True(loaded.EdgeAccessOwned);
+    }
+
     [Fact]
     public void Requiring_edge_access_saves_the_team_and_audience_and_leaves_login_alone()
     {
@@ -252,7 +306,7 @@ public class EnrollmentSettingsTests
         var database = root.OpenDatabase();
         var settings = new DatabaseGatewaySettings(database);
 
-        Assert.True(settings.TryRequireEdgeAccess("team.cloudflareaccess.com", "aud-1"));
+        Assert.Equal(EdgeAccessResult.Applied, settings.RequireEdgeAccess("team.cloudflareaccess.com", "aud-1"));
 
         var config = database.GetOAuthConfig();
 
@@ -276,8 +330,8 @@ public class EnrollmentSettingsTests
         existing.RedirectUri = "https://api.example.com/auth/callback";
         database.SaveOAuthConfig(existing);
 
-        Assert.False(new DatabaseGatewaySettings(database)
-            .TryRequireEdgeAccess("team.cloudflareaccess.com", "aud-1"));
+        Assert.Equal(EdgeAccessResult.OtherApplication, new DatabaseGatewaySettings(database)
+            .RequireEdgeAccess("team.cloudflareaccess.com", "aud-1"));
 
         var after = database.GetOAuthConfig();
 
@@ -297,8 +351,8 @@ public class EnrollmentSettingsTests
         existing.Audience = "aud-1";
         database.SaveOAuthConfig(existing);
 
-        Assert.True(new DatabaseGatewaySettings(database)
-            .TryRequireEdgeAccess("team.cloudflareaccess.com", "aud-1"));
+        Assert.Equal(EdgeAccessResult.Applied, new DatabaseGatewaySettings(database)
+            .RequireEdgeAccess("team.cloudflareaccess.com", "aud-1"));
     }
 
     [Fact]
@@ -314,7 +368,7 @@ public class EnrollmentSettingsTests
         config.Audience = "aud-1";
         database.SaveOAuthConfig(config);
 
-        settings.TryRequireEdgeAccess("team.cloudflareaccess.com", "aud-1");
+        settings.RequireEdgeAccess("team.cloudflareaccess.com", "aud-1");
         settings.ClearEdgeAccess();
 
         var after = database.GetOAuthConfig();
@@ -330,7 +384,7 @@ public class EnrollmentSettingsTests
         var database = root.OpenDatabase();
         var settings = new DatabaseGatewaySettings(database);
 
-        settings.TryRequireEdgeAccess("team.cloudflareaccess.com", "aud-1");
+        settings.RequireEdgeAccess("team.cloudflareaccess.com", "aud-1");
         settings.ClearEdgeAccess();
 
         var after = database.GetOAuthConfig();
@@ -450,7 +504,7 @@ public class EnrollmentCliTests
 
         var (_, before, _) = Run(database, Services(), "status");
 
-        new SettingsEnrollmentStore(database).Save(new EnrollmentState(
+        new SettingsEnrollmentStore(database).Create(new EnrollmentState(
             "https://bytebalancetech.com", "bb-1", "s", "n", "owner@example.com",
             Phase.Connected, DateTimeOffset.UtcNow, "a.techn0.dpdns.org"));
 
@@ -477,7 +531,7 @@ public class EnrollmentCliTests
         using var root = new TempDataRoot();
         var database = root.OpenDatabase();
 
-        new SettingsEnrollmentStore(database).Save(new EnrollmentState(
+        new SettingsEnrollmentStore(database).Create(new EnrollmentState(
             "https://bytebalancetech.com", "bb-1", "s", "n", "owner@example.com",
             Phase.Connected, DateTimeOffset.UtcNow, "a.techn0.dpdns.org"));
 

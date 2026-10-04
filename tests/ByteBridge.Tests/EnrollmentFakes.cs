@@ -42,6 +42,8 @@ internal static class EnrollmentFakes
 
         public EnrollmentState? Load() => State;
 
+        public void Create(EnrollmentState state) => State = state;
+
         public void Save(EnrollmentState state) => State = state;
 
         public void Clear()
@@ -66,15 +68,23 @@ internal static class EnrollmentFakes
 
         public bool Cleared { get; private set; }
 
-        public bool TryRequireEdgeAccess(string teamDomain, string audience)
+        /* True makes it behave as if the requirement were already on. */
+        public bool AlreadyRequired { get; set; }
+
+        public EdgeAccessResult RequireEdgeAccess(string teamDomain, string audience)
         {
             if (!AcceptEdgeAccess)
             {
-                return false;
+                return EdgeAccessResult.OtherApplication;
+            }
+
+            if (AlreadyRequired)
+            {
+                return EdgeAccessResult.AlreadyRequired;
             }
 
             Required = (teamDomain, audience);
-            return true;
+            return EdgeAccessResult.Applied;
         }
 
         public void ClearEdgeAccess()
@@ -100,6 +110,16 @@ internal static class EnrollmentFakes
         public object? SeenAtInstall { get; private set; }
 
         public ConnectorState Inspect() => State;
+
+        public Task EnsureCanInstallAsync(bool replaceExisting, CancellationToken cancellationToken)
+        {
+            if (State != ConnectorState.NoService && !replaceExisting)
+            {
+                throw new EnrollmentException("A connector already exists.", connectorConflict: true);
+            }
+
+            return Task.CompletedTask;
+        }
 
         public Task InstallAsync(string tunnelToken, bool replaceExisting, CancellationToken cancellationToken)
         {

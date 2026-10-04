@@ -19,6 +19,15 @@ public interface IConnector
 {
     ConnectorState Inspect();
 
+    /*
+     * Throws, changing nothing, when InstallAsync would refuse: no
+     * cloudflared, or a connector service that may not be replaced. Asked
+     * first, so nothing else is changed for an install that cannot happen.
+     */
+    Task EnsureCanInstallAsync(
+        bool replaceExisting,
+        CancellationToken cancellationToken);
+
     Task InstallAsync(
         string tunnelToken,
         bool replaceExisting,
@@ -140,16 +149,27 @@ public sealed class CloudflaredConnector : IConnector
         return QueryService(CancellationToken.None).GetAwaiter().GetResult();
     }
 
+    public async Task EnsureCanInstallAsync(
+        bool replaceExisting,
+        CancellationToken cancellationToken)
+    {
+        var exe = Executable();
+
+        _ = exe;
+
+        if (!replaceExisting
+            && await QueryService(cancellationToken) != ConnectorState.NoService)
+        {
+            throw ExistingConnector();
+        }
+    }
+
     public async Task InstallAsync(
         string tunnelToken,
         bool replaceExisting,
         CancellationToken cancellationToken)
     {
-        var exe = _locate()
-            ?? throw new EnrollmentException(
-                "cloudflared is not installed. Install it from "
-                + "https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/ "
-                + "(ByteBridge's own installer offers it), then run this again.");
+        var exe = Executable();
 
         var state = await QueryService(cancellationToken);
 
@@ -157,11 +177,7 @@ public sealed class CloudflaredConnector : IConnector
         {
             if (!replaceExisting)
             {
-                throw new EnrollmentException(
-                    "A Cloudflare connector service already exists on this "
-                    + "machine and may be carrying another tunnel. Nothing was "
-                    + "changed. If it is safe to replace, run this again with "
-                    + "--replace-connector.");
+                throw ExistingConnector();
             }
 
             var removal = await _runner.RunAsync(
@@ -227,6 +243,21 @@ public sealed class CloudflaredConnector : IConnector
             throw Failure("remove the connector", result, string.Empty);
         }
     }
+
+    private string Executable() =>
+        _locate()
+            ?? throw new EnrollmentException(
+                "cloudflared is not installed. Install it from "
+                + "https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/ "
+                + "(ByteBridge's own installer offers it), then run this again.");
+
+    private static EnrollmentException ExistingConnector() =>
+        new(
+            "A Cloudflare connector service already exists on this "
+            + "machine and may be carrying another tunnel. Nothing was "
+            + "changed. If it is safe to replace, run this again with "
+            + "--replace-connector.",
+            connectorConflict: true);
 
     private async Task<ConnectorState> QueryService(
         CancellationToken cancellationToken)

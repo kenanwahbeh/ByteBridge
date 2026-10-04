@@ -637,6 +637,90 @@ public class SqliteDatabase
         command.ExecuteNonQuery();
     }
 
+    /*
+     * Writes every value in one transaction, but only while the guard key
+     * still holds the value the caller last saw (null: not set). Returns
+     * false, having written nothing, when it does not. This is how two
+     * processes that meet only through this file cannot overwrite each
+     * other's enrolment state, and how a reader can never see half of it.
+     */
+    public bool SetSettingsIf(
+        string guardKey,
+        string? expected,
+        IReadOnlyList<(string Key, string Value)> values)
+    {
+        using var connection = OpenConnection();
+
+        // IMMEDIATE takes the write lock before the check, so the check
+        // and the writes cannot be separated by another writer.
+        using (var begin = connection.CreateCommand())
+        {
+            begin.CommandText = "BEGIN IMMEDIATE;";
+            begin.ExecuteNonQuery();
+        }
+
+        var committed = false;
+
+        try
+        {
+            string? current;
+
+            using (var read = connection.CreateCommand())
+            {
+                read.CommandText = """
+                    SELECT SettingValue
+                    FROM Settings
+                    WHERE SettingKey = $key;
+                    """;
+
+                read.Parameters.AddWithValue("$key", guardKey);
+
+                current = read.ExecuteScalar() as string;
+            }
+
+            var matches = string.IsNullOrWhiteSpace(current)
+                ? expected == null
+                : string.Equals(current, expected, StringComparison.Ordinal);
+
+            if (!matches)
+            {
+                return false;
+            }
+
+            foreach (var (key, value) in values)
+            {
+                using var command = connection.CreateCommand();
+
+                command.CommandText = UpsertSetting;
+
+                command.Parameters.AddWithValue("$key", key);
+                command.Parameters.AddWithValue("$value", value);
+
+                command.ExecuteNonQuery();
+            }
+
+            using (var commit = connection.CreateCommand())
+            {
+                commit.CommandText = "COMMIT;";
+                commit.ExecuteNonQuery();
+            }
+
+            committed = true;
+
+            return true;
+        }
+        finally
+        {
+            if (!committed)
+            {
+                using var rollback = connection.CreateCommand();
+
+                rollback.CommandText = "ROLLBACK;";
+                rollback.ExecuteNonQuery();
+            }
+        }
+    }
+
     public void SetSetting(string key, string value)
     {
         using var connection = OpenConnection();

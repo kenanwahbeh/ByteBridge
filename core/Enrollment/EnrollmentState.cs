@@ -8,6 +8,14 @@ public enum Phase
     /* Enrolled and waiting for the approver, or approved but not yet connected. */
     Requested,
 
+    /*
+     * The connector is being installed, or the install did not finish.
+     * Saved before the connector is touched, so `unenroll` removes it
+     * even when this never reached Connected, and a retry may replace
+     * the half-installed service, which is this enrolment's own.
+     */
+    Installing,
+
     /* The connector is installed. */
     Connected
 }
@@ -32,12 +40,27 @@ public sealed record EnrollmentState(
     DateTimeOffset EnrolledAt,
     string? Hostname = null,
     DateTimeOffset? ConnectedAt = null,
-    DateTimeOffset? KeySharedAt = null);
+    DateTimeOffset? KeySharedAt = null,
+
+    /*
+     * Whether this enrolment is the one that made the gateway require the
+     * tunnel's Access token. Only then does `unenroll` take it away again;
+     * an administrator who had already turned it on keeps it.
+     */
+    bool EdgeAccessOwned = false);
 
 public interface IEnrollmentStore
 {
     EnrollmentState? Load();
 
+    /* First save. Fails when an enrolment is already stored. */
+    void Create(EnrollmentState state);
+
+    /*
+     * Saves a change to the enrolment that was loaded. Fails, writing
+     * nothing, when it has been removed or replaced since, so a slow
+     * operation cannot bring back what `unenroll` just deleted.
+     */
     void Save(EnrollmentState state);
 
     void Clear();
@@ -97,22 +120,48 @@ public sealed class SettingsEnrollmentStore : IEnrollmentStore
             EnrolledAt: Time(Get("EnrolledAt")) ?? DateTimeOffset.UtcNow,
             Hostname: Get("Hostname"),
             ConnectedAt: Time(Get("ConnectedAt")),
-            KeySharedAt: Time(Get("KeySharedAt")));
+            KeySharedAt: Time(Get("KeySharedAt")),
+            EdgeAccessOwned: Get("EdgeAccessOwned") == "1");
+    }
+
+    public void Create(EnrollmentState state)
+    {
+        if (!_database.SetSettingsIf(Prefix + "ClaimSecret", null, Pairs(state)))
+        {
+            throw new EnrollmentException(
+                "An enrolment was started on this machine at the same time. "
+                + "Run `status` to see it.");
+        }
     }
 
     public void Save(EnrollmentState state)
     {
-        Set("Server", state.Server);
-        Set("DeviceKey", state.DeviceKey);
-        Set("ClaimSecret", state.ClaimSecret);
-        Set("Name", state.Name);
-        Set("Email", state.Email);
-        Set("Phase", state.Phase.ToString());
-        Set("EnrolledAt", Format(state.EnrolledAt));
-        Set("Hostname", state.Hostname ?? string.Empty);
-        Set("ConnectedAt", state.ConnectedAt is { } c ? Format(c) : string.Empty);
-        Set("KeySharedAt", state.KeySharedAt is { } k ? Format(k) : string.Empty);
+        if (!_database.SetSettingsIf(
+                Prefix + "ClaimSecret",
+                state.ClaimSecret,
+                Pairs(state)))
+        {
+            throw new EnrollmentException(
+                "The enrolment on this machine was removed or replaced while "
+                + "this was running, so nothing was saved. Run `status` to "
+                + "see where it stands.");
+        }
     }
+
+    private static List<(string Key, string Value)> Pairs(EnrollmentState state) =>
+    [
+        (Prefix + "Server", state.Server),
+        (Prefix + "DeviceKey", state.DeviceKey),
+        (Prefix + "ClaimSecret", state.ClaimSecret),
+        (Prefix + "Name", state.Name),
+        (Prefix + "Email", state.Email),
+        (Prefix + "Phase", state.Phase.ToString()),
+        (Prefix + "EnrolledAt", Format(state.EnrolledAt)),
+        (Prefix + "Hostname", state.Hostname ?? string.Empty),
+        (Prefix + "ConnectedAt", state.ConnectedAt is { } c ? Format(c) : string.Empty),
+        (Prefix + "KeySharedAt", state.KeySharedAt is { } k ? Format(k) : string.Empty),
+        (Prefix + "EdgeAccessOwned", state.EdgeAccessOwned ? "1" : "0")
+    ];
 
     public void Clear() => _database.DeleteSettings(Prefix);
 
@@ -122,9 +171,6 @@ public sealed class SettingsEnrollmentStore : IEnrollmentStore
 
         return string.IsNullOrWhiteSpace(value) ? null : value;
     }
-
-    private void Set(string key, string value) =>
-        _database.SetSetting(Prefix + key, value);
 
     private static string Format(DateTimeOffset value) =>
         value.ToString("O", CultureInfo.InvariantCulture);

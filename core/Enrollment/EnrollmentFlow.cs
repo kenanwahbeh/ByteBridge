@@ -118,7 +118,7 @@ public sealed class EnrollmentFlow
                 Phase: Phase.Requested,
                 EnrolledAt: _clock.Now);
 
-            _store.Save(state);
+            _store.Create(state);
         }
 
         WarnIfNotListening();
@@ -289,11 +289,15 @@ public sealed class EnrollmentFlow
         catch (EnrollmentException)
         {
             // Half-saved settings: this is the recovery path the message
-            // names, so it has to work on exactly that.
-            _gateway.ClearEdgeAccess();
+            // names, so it has to work on exactly that. Without a readable
+            // record there is no telling what this enrolment changed, so
+            // the connector and the Access setting stay as they are.
             _store.Clear();
 
-            _out.WriteLine("The incomplete enrolment settings were cleared.");
+            _out.WriteLine(
+                "The incomplete enrolment settings were cleared. The "
+                + "Cloudflare connector and the gateway's Access setting, if "
+                + "any, were left as they are.");
 
             return ExitCode.Ok;
         }
@@ -304,13 +308,22 @@ public sealed class EnrollmentFlow
             return ExitCode.Ok;
         }
 
-        if (state.Phase == Phase.Connected)
+        /*
+         * Installing counts: the connector may be there even though the
+         * install never reached Connected, and leaving it running would
+         * keep a tunnel to this gateway open after "disconnect".
+         */
+        if (state.Phase is Phase.Installing or Phase.Connected)
         {
             await _connector.UninstallAsync(cancellationToken);
             _out.WriteLine("The Cloudflare connector was removed.");
         }
 
-        _gateway.ClearEdgeAccess();
+        if (state.EdgeAccessOwned)
+        {
+            _gateway.ClearEdgeAccess();
+        }
+
         _store.Clear();
 
         _out.WriteLine(
@@ -333,7 +346,14 @@ public sealed class EnrollmentFlow
         else
         {
             _out.WriteLine(
-                $"enrolment  {(state.Phase == Phase.Connected ? "connected" : "waiting for approval")}");
+                "enrolment  "
+                + state.Phase switch
+                {
+                    Phase.Connected => "connected",
+                    Phase.Installing =>
+                        "approved, but the connector did not finish installing. Run: claim",
+                    _ => "waiting for approval"
+                });
             _out.WriteLine($"server     {state.Server}");
             _out.WriteLine($"device     {state.Name} ({state.DeviceKey})");
             _out.WriteLine($"owner      {state.Email}");
@@ -435,14 +455,35 @@ public sealed class EnrollmentFlow
         CancellationToken cancellationToken)
     {
         /*
-         * First, so the tunnel is never up while the gateway would still
-         * take a request that did not come through Access.
+         * A connector this enrolment already began installing is its own,
+         * so a retry replaces it without being told to.
          */
-        ApplyEdgeAccess(claim);
+        var replace = replaceConnector || state.Phase == Phase.Installing;
+
+        /*
+         * Before anything is changed: an install that is going to be
+         * refused must not leave the gateway demanding a token for a
+         * tunnel that was never made.
+         */
+        await _connector.EnsureCanInstallAsync(replace, cancellationToken);
+
+        /*
+         * Then the gateway, so the tunnel is never up while it would
+         * still take a request that did not come through Access.
+         */
+        var owned = ApplyEdgeAccess(claim) || state.EdgeAccessOwned;
+
+        /*
+         * Written before the connector is touched, so `unenroll` removes
+         * it even if this stops half way.
+         */
+        state = state with { Phase = Phase.Installing, EdgeAccessOwned = owned };
+
+        _store.Save(state);
 
         await _connector.InstallAsync(
             claim.TunnelToken!,
-            replaceConnector,
+            replace,
             cancellationToken);
 
         state = state with
@@ -452,7 +493,18 @@ public sealed class EnrollmentFlow
             ConnectedAt = _clock.Now
         };
 
-        _store.Save(state);
+        try
+        {
+            _store.Save(state);
+        }
+        catch (EnrollmentException)
+        {
+            // `unenroll` ran while this was installing: take back the
+            // connector it could not have known was finished.
+            await _connector.UninstallAsync(CancellationToken.None);
+
+            throw;
+        }
 
         _out.WriteLine($"Connected: {claim.Hostname}");
         _out.WriteLine(
@@ -478,7 +530,8 @@ public sealed class EnrollmentFlow
         return ExitCode.Ok;
     }
 
-    private void ApplyEdgeAccess(ClaimResult claim)
+    /* Returns whether this call is what turned the requirement on. */
+    private bool ApplyEdgeAccess(ClaimResult claim)
     {
         if (claim.AccessTeamDomain == null || claim.AccessAudience == null)
         {
@@ -487,25 +540,36 @@ public sealed class EnrollmentFlow
                 + "application protects the tunnel, so the gateway will not "
                 + "check the token itself. Cloudflare still enforces it.");
 
-            return;
+            return false;
         }
 
-        if (_gateway.TryRequireEdgeAccess(
-                claim.AccessTeamDomain,
-                claim.AccessAudience))
+        switch (_gateway.RequireEdgeAccess(
+                    claim.AccessTeamDomain,
+                    claim.AccessAudience))
         {
-            _out.WriteLine(
-                "The gateway now also requires the tunnel's Cloudflare Access "
-                + "token on requests that arrive through Cloudflare.");
+            case EdgeAccessResult.Applied:
+                _out.WriteLine(
+                    "The gateway now also requires the tunnel's Cloudflare Access "
+                    + "token on requests that arrive through Cloudflare.");
 
-            return;
+                return true;
+
+            case EdgeAccessResult.AlreadyRequired:
+                _out.WriteLine(
+                    "The gateway already requires the tunnel's Cloudflare "
+                    + "Access token, so that setting was left as it is.");
+
+                return false;
+
+            default:
+                _out.WriteLine(
+                    "Note: Cloudflare Access login is already set up for a "
+                    + "different application on this gateway, so it was left "
+                    + "alone and the gateway will not check the tunnel's token "
+                    + "itself. Cloudflare still enforces it.");
+
+                return false;
         }
-
-        _out.WriteLine(
-            "Note: Cloudflare Access login is already set up for a different "
-            + "application on this gateway, so it was left alone and the "
-            + "gateway will not check the tunnel's token itself. Cloudflare "
-            + "still enforces it.");
     }
 
     private async Task ShareKeyAsync(

@@ -144,9 +144,11 @@ public partial class ConnectWindow : Window
                 return;
             }
 
-            await RunAsync(flow => flow.EnrollAsync(
+            var failure = await RunAsync(flow => flow.EnrollAsync(
                 EnrollmentCommands.EnrollOptionsFor(email, CheckTimeout),
                 _cancellation.Token));
+
+            await OfferReplaceAsync(failure);
 
             return;
         }
@@ -159,9 +161,38 @@ public partial class ConnectWindow : Window
             return;
         }
 
-        await RunAsync(flow => flow.ClaimAsync(
+        var claimFailure = await RunAsync(flow => flow.ClaimAsync(
             new ClaimOptions(CheckTimeout, ReplaceConnector: false),
             _cancellation.Token));
+
+        await OfferReplaceAsync(claimFailure);
+    }
+
+    /*
+     * An existing Cloudflare connector may be carrying somebody's other
+     * tunnel, so it is replaced only when the person says so. By then the
+     * enrolment is saved, so this continues it as `claim` does.
+     */
+    private async Task OfferReplaceAsync(EnrollmentException? failure)
+    {
+        if (failure is not { ConnectorConflict: true }
+            || _cancellation.IsCancellationRequested)
+        {
+            return;
+        }
+
+        var answer = MessageBox.Show(
+            Strings.Get("ConnectReplaceConnector"),
+            Strings.Get("AppTitle"),
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+
+        if (answer == MessageBoxResult.Yes)
+        {
+            await RunAsync(flow => flow.ClaimAsync(
+                new ClaimOptions(CheckTimeout, ReplaceConnector: true),
+                _cancellation.Token));
+        }
     }
 
     private async void DisconnectButton_Click(object sender, RoutedEventArgs e)
@@ -197,12 +228,15 @@ public partial class ConnectWindow : Window
      * prints into the log box, and turns its failures into a line in
      * that box rather than a crash.
      */
-    private async Task RunAsync(Func<EnrollmentFlow, Task<int>> operation)
+    private async Task<EnrollmentException?> RunAsync(
+        Func<EnrollmentFlow, Task<int>> operation)
     {
         if (_busy)
         {
-            return;
+            return null;
         }
+
+        EnrollmentException? failure = null;
 
         _busy = true;
         ActionButton.IsEnabled = false;
@@ -224,6 +258,7 @@ public partial class ConnectWindow : Window
         catch (EnrollmentException error)
         {
             writer.WriteLine("error: " + error.Message);
+            failure = error;
         }
         catch (OperationCanceledException)
         {
@@ -238,6 +273,8 @@ public partial class ConnectWindow : Window
                 Refresh();
             }
         }
+
+        return failure;
     }
 
     private void ShowError(string message)

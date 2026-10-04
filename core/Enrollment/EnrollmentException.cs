@@ -12,9 +12,20 @@ public sealed class EnrollmentException : Exception
 {
     public bool Transient { get; }
 
-    public EnrollmentException(string message, bool transient = false)
+    /*
+     * A connector service that was not installed by this enrolment is in
+     * the way. The control panel asks before replacing it; the command
+     * line says to pass --replace-connector.
+     */
+    public bool ConnectorConflict { get; }
+
+    public EnrollmentException(
+        string message,
+        bool transient = false,
+        bool connectorConflict = false)
         : base(message)
     {
         Transient = transient;
+        ConnectorConflict = connectorConflict;
     }
 }

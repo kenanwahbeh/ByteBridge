@@ -282,16 +282,36 @@ public class EnrollmentFlowTests
         await Assert.ThrowsAsync<EnrollmentException>(
             () => Flow().EnrollAsync(Enroll(), default));
 
-        Assert.Equal(Phase.Requested, _store.State!.Phase);
+        // Saved before the connector was touched, so the retry knows the
+        // half-installed service is this enrolment's own.
+        Assert.Equal(Phase.Installing, _store.State!.Phase);
         Assert.Empty(_api.UploadCalls);
 
         _connector.FailWith = null;
+        _connector.State = ConnectorState.Stopped;
 
         var code = await Flow().ClaimAsync(
             new ClaimOptions(TimeSpan.FromMinutes(1), false), default);
 
         Assert.Equal(ExitCode.Ok, code);
         Assert.Equal(Phase.Connected, _store.State.Phase);
+        Assert.True(_connector.Installs.Single().Replace);
+    }
+
+    [Fact]
+    public async Task A_connector_that_is_not_ours_is_refused_before_the_gateway_is_changed()
+    {
+        _store.State = Saved();
+        _connector.State = ConnectorState.Running;
+        _api.Claims.Enqueue(Approved());
+
+        var error = await Assert.ThrowsAsync<EnrollmentException>(
+            () => Flow().ClaimAsync(new ClaimOptions(TimeSpan.FromMinutes(1), false), default));
+
+        Assert.True(error.ConnectorConflict);
+        Assert.Null(_gateway.Required);
+        Assert.Equal(Phase.Requested, _store.State!.Phase);
+        Assert.Empty(_connector.Installs);
     }
 
     [Fact]
@@ -454,7 +474,7 @@ public class EnrollmentFlowTests
     [Fact]
     public async Task Unenroll_removes_the_connector_the_requirement_and_the_state()
     {
-        _store.State = Saved(Phase.Connected);
+        _store.State = Saved(Phase.Connected) with { EdgeAccessOwned = true };
 
         var code = await Flow().UnenrollAsync(default);
 
@@ -463,6 +483,49 @@ public class EnrollmentFlowTests
         Assert.True(_gateway.Cleared);
         Assert.True(_store.Cleared);
         Assert.Contains("administrator", _out.ToString());
+    }
+
+    [Fact]
+    public async Task Unenroll_removes_a_connector_whose_install_never_finished()
+    {
+        _store.State = Saved(Phase.Installing);
+
+        await Flow().UnenrollAsync(default);
+
+        Assert.Equal(1, _connector.Uninstalls);
+        Assert.True(_store.Cleared);
+    }
+
+    [Fact]
+    public async Task Unenroll_leaves_an_access_requirement_the_administrator_already_had()
+    {
+        _gateway.AlreadyRequired = true;
+        _store.State = Saved();
+        _api.Claims.Enqueue(Approved());
+
+        await Flow().ClaimAsync(new ClaimOptions(TimeSpan.FromMinutes(1), false), default);
+
+        Assert.False(_store.State!.EdgeAccessOwned);
+
+        await Flow().UnenrollAsync(default);
+
+        Assert.False(_gateway.Cleared);
+        Assert.True(_store.Cleared);
+    }
+
+    [Fact]
+    public async Task Unenroll_takes_back_the_access_requirement_that_enrolment_added()
+    {
+        _store.State = Saved();
+        _api.Claims.Enqueue(Approved());
+
+        await Flow().ClaimAsync(new ClaimOptions(TimeSpan.FromMinutes(1), false), default);
+
+        Assert.True(_store.State!.EdgeAccessOwned);
+
+        await Flow().UnenrollAsync(default);
+
+        Assert.True(_gateway.Cleared);
     }
 
     [Fact]
