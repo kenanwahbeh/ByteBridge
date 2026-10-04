@@ -1,5 +1,6 @@
 using ByteBridge.Configuration;
 using ByteBridge.Data;
+using ByteBridge.Enrollment;
 
 namespace ByteBridge.Admin;
 
@@ -46,6 +47,22 @@ public static class Cli
           oauth set --team-domain <team>.cloudflareaccess.com
                     --audience <AUD tag> --public-hostname <host>
           oauth on | off         Whether Cloudflare Access login is offered
+          oauth edge on | off    Whether requests through Cloudflare must also
+                                 carry the tunnel's Access token
+
+          enroll --email <you@example.com> [--name <name>] [--server <url>]
+                 [--timeout <minutes>] [--no-wait] [--replace-connector]
+                                 Ask ByteBalance for a tunnel, wait for approval,
+                                 then install the connector. Needs an elevated
+                                 terminal. --email is the only address Cloudflare
+                                 will let through to this machine's tunnel.
+          claim  [--timeout <minutes>] [--replace-connector]
+                                 Continue an enrolment that is waiting or was
+                                 interrupted
+          enrollment             Show the enrolment, its connector and whether
+                                 the API key has been shared
+          sync-key               Send the current API key to ByteBalance again
+          unenroll               Forget the enrolment and remove its connector
 
         Changes apply within a few seconds; the service does not need
         restarting.
@@ -87,7 +104,17 @@ public static class Cli
      * Returns the process exit code, or null when the arguments are not
      * a command at all, which is the signal to run as a service.
      */
-    public static int? Run(string[] args, SqliteDatabase? database = null)
+    public static int? Run(string[] args, SqliteDatabase? database = null) =>
+        Run(args, database, enrollment: null);
+
+    /*
+     * The enrolment services are a seam for the tests, which must not
+     * talk to a server or to Windows. Everything else passes null.
+     */
+    internal static int? Run(
+        string[] args,
+        SqliteDatabase? database,
+        EnrollmentServices? enrollment)
     {
         if (args.Length == 0)
         {
@@ -102,7 +129,7 @@ public static class Cli
 
         try
         {
-            return Dispatch(args, database ?? Open());
+            return Dispatch(args, database ?? Open(), enrollment);
         }
         catch (Exception error)
         {
@@ -131,18 +158,23 @@ public static class Cli
         return database;
     }
 
-    private static int Dispatch(string[] args, SqliteDatabase database) =>
+    private static int Dispatch(
+        string[] args,
+        SqliteDatabase database,
+        EnrollmentServices? enrollment) =>
         args[0].ToLowerInvariant() switch
         {
             "status" => Status(database),
             "on" => SetRunning(database, true),
             "off" => SetRunning(database, false),
             "port" => SetPort(database, args),
-            "key" => Key(database, args),
+            "key" => Key(database, args, enrollment),
             "lockout" => Lockout(database, args),
             "writes" => Writes(database, args),
             "db" => Db(database, args),
             "oauth" => OAuth(database, args),
+            var verb when EnrollmentCommands.Handles(verb) =>
+                EnrollmentCommands.Run(args, database, enrollment),
             _ => Unknown(args[0])
         };
 
@@ -165,6 +197,7 @@ public static class Cli
         Console.WriteLine($"api key     {(string.IsNullOrEmpty(config.ApiKey) ? "not set" : "set (run: key show)")}");
         Console.WriteLine($"row cap     {config.MaxRows}");
         Console.WriteLine($"timeout     {config.CommandTimeoutSeconds}s");
+        Console.WriteLine($"bytebalance {EnrollmentCommands.Summary(database)}");
         Console.WriteLine($"lockout     {DescribeLockout(config)}");
 
         // Said only when it is on: a gateway left able to write should show it.
@@ -230,7 +263,10 @@ public static class Cli
         return 0;
     }
 
-    private static int Key(SqliteDatabase database, string[] args)
+    private static int Key(
+        SqliteDatabase database,
+        string[] args,
+        EnrollmentServices? enrollment)
     {
         var action = args.Length > 1 ? args[1].ToLowerInvariant() : "show";
 
@@ -253,6 +289,9 @@ public static class Cli
                 Console.Error.WriteLine(
                     "The old key stops working within a few seconds. "
                     + "Update anything that calls the gateway.");
+
+                EnrollmentCommands.AfterKeyRotation(database, enrollment);
+
                 return 0;
 
             default:
@@ -274,6 +313,8 @@ public static class Cli
                 Console.WriteLine($"team domain   {Shown(config.TeamDomain)}");
                 Console.WriteLine($"audience      {Shown(config.Audience)}");
                 Console.WriteLine($"callback      {Shown(config.RedirectUri)}");
+                Console.WriteLine(
+                    $"edge access   {(config.RequireEdgeAccess ? "required" : "not required")}");
                 return 0;
 
             case "set":
@@ -285,8 +326,12 @@ public static class Cli
             case "off":
                 return SetOAuthEnabled(database, false);
 
+            case "edge":
+                return SetEdgeAccess(database, args);
+
             default:
-                Console.Error.WriteLine("error: oauth takes 'show', 'set', 'on' or 'off'.");
+                Console.Error.WriteLine(
+                    "error: oauth takes 'show', 'set', 'on', 'off' or 'edge'.");
                 return 1;
         }
     }
@@ -525,6 +570,40 @@ public static class Cli
             config.Enabled
                 ? "Cloudflare Access settings saved and applied."
                 : "Cloudflare Access settings saved. Turn login on with: oauth on");
+
+        return 0;
+    }
+
+    private static int SetEdgeAccess(SqliteDatabase database, string[] args)
+    {
+        var word = args.Length > 2 ? args[2].ToLowerInvariant() : string.Empty;
+
+        if (word is not ("on" or "off"))
+        {
+            Console.Error.WriteLine("error: oauth edge takes 'on' or 'off'.");
+            return 1;
+        }
+
+        var config = database.GetOAuthConfig();
+
+        if (word == "on"
+            && (string.IsNullOrEmpty(config.TeamDomain)
+                || string.IsNullOrEmpty(config.Audience)))
+        {
+            Console.Error.WriteLine(
+                "error: set the team domain and audience first (oauth set --help).");
+            return 1;
+        }
+
+        config.RequireEdgeAccess = word == "on";
+
+        database.SaveOAuthConfig(config);
+
+        Console.WriteLine(
+            config.RequireEdgeAccess
+                ? "Requests through Cloudflare must now carry an Access token. "
+                  + "Local requests are not affected."
+                : "Requests through Cloudflare are no longer required to carry an Access token.");
 
         return 0;
     }

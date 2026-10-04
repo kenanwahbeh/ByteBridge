@@ -279,6 +279,12 @@ public sealed class GatewayWorker : BackgroundService
                 ? "Cloudflare Access login is on for {TeamDomain}."
                 : "Cloudflare Access login is off.",
             desired.TeamDomain);
+
+        _logger.LogInformation(
+            desired.RequireEdgeAccess
+                ? "Requests through Cloudflare must carry an Access token for {TeamDomain}."
+                : "Requests through Cloudflare are not required to carry an Access token.",
+            desired.TeamDomain);
     }
 
     private static bool SameOAuth(OAuthConfig a, OAuthConfig b) =>
@@ -287,7 +293,8 @@ public sealed class GatewayWorker : BackgroundService
         && a.Audience == b.Audience
         && a.JwksUri == b.JwksUri
         && a.RedirectUri == b.RedirectUri
-        && a.SessionTimeoutMinutes == b.SessionTimeoutMinutes;
+        && a.SessionTimeoutMinutes == b.SessionTimeoutMinutes
+        && a.RequireEdgeAccess == b.RequireEdgeAccess;
 
     /*
      * Everything the running listener captured at Start time. The key

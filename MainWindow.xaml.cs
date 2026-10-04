@@ -521,6 +521,16 @@ public partial class MainWindow : Window
         window.ShowDialog();
     }
 
+    private void ConnectMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        var window = new ConnectWindow(_database)
+        {
+            Owner = this
+        };
+
+        window.ShowDialog();
+    }
+
     private void OptionsMenuItem_Click(object sender, RoutedEventArgs e)
     {
         OpenSettings();
@@ -1115,6 +1125,7 @@ public partial class MainWindow : Window
 
         WebServerMenuItem.Header = Strings.Get("MenuWebServer");
         CloudflareTunnelMenuItem.Header = Strings.Get("MenuCloudflareTunnel");
+        ConnectMenuItem.Header = Strings.Get("MenuConnect");
         OptionsMenuItem.Header = Strings.Get("MenuOptions");
 
         HelpMenuItem.Header = Strings.Get("MenuHelp");

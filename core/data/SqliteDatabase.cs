@@ -614,6 +614,29 @@ public class SqliteDatabase
         return command.ExecuteScalar() as string;
     }
 
+    /*
+     * Removes every setting whose key starts with the prefix, e.g.
+     * "Enrollment.". Used to forget a whole group at once.
+     */
+    public void DeleteSettings(string prefix)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+
+        /*
+         * substr rather than LIKE, so a prefix containing % or _ is taken
+         * literally and cannot delete more than it names.
+         */
+        command.CommandText = """
+            DELETE FROM Settings
+            WHERE substr(SettingKey, 1, length($prefix)) = $prefix;
+            """;
+
+        command.Parameters.AddWithValue("$prefix", prefix);
+
+        command.ExecuteNonQuery();
+    }
+
     public void SetSetting(string key, string value)
     {
         using var connection = OpenConnection();
@@ -879,6 +902,9 @@ public class SqliteDatabase
             config.RedirectUri = redirectUri;
         }
 
+        config.RequireEdgeAccess =
+            GetSetting("OAuth.RequireEdgeAccess") == "1";
+
         return config;
     }
 
@@ -899,6 +925,10 @@ public class SqliteDatabase
             config.SessionTimeoutMinutes.ToString());
 
         SetSetting("OAuth.RedirectUri", config.RedirectUri);
+
+        SetSetting(
+            "OAuth.RequireEdgeAccess",
+            config.RequireEdgeAccess ? "1" : "0");
     }
 
     private static string GenerateApiKey()
