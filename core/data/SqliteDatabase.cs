@@ -54,13 +54,34 @@ public class SqliteDatabase
      */
     public SqliteDatabase(string? dataRoot)
     {
-        var commonData =
-            dataRoot
-            ?? Environment.GetFolderPath(
-                Environment.SpecialFolder.CommonApplicationData);
+        string directory;
 
-        var directory =
-            Path.Combine(commonData, "ByteBridge");
+        if (dataRoot != null)
+        {
+            directory = Path.Combine(dataRoot, "ByteBridge");
+        }
+        else if (OperatingSystem.IsWindows())
+        {
+            directory = Path.Combine(
+                Environment.GetFolderPath(
+                    Environment.SpecialFolder.CommonApplicationData),
+                "ByteBridge");
+        }
+        else
+        {
+            /*
+             * CommonApplicationData is /usr/share on Linux, which is not
+             * somewhere an app keeps writable state. BYTEBRIDGE_DATA
+             * lets a non-root run, or a different layout, point
+             * elsewhere.
+             */
+            var overridden =
+                Environment.GetEnvironmentVariable("BYTEBRIDGE_DATA");
+
+            directory = string.IsNullOrWhiteSpace(overridden)
+                ? "/var/lib/bytebridge"
+                : overridden;
+        }
 
         Directory.CreateDirectory(directory);
 
@@ -76,7 +97,7 @@ public class SqliteDatabase
          * Only for a real install: a test passes its own temporary root,
          * and has no business changing the permissions on it.
          */
-        if (dataRoot == null && OperatingSystem.IsWindows())
+        if (dataRoot == null)
         {
             PermissionsError = DataFolderSecurity.Ensure(directory);
         }
