@@ -13,6 +13,22 @@ file is the single source of truth for what shipped.
 
 ## [Unreleased]
 
+### Added
+
+- **The service runs on Linux under systemd.** A Linux publish carries
+  `bytebridge.unit` and `install.sh`; data lives in `/var/lib/bytebridge`
+  (or `BYTEBRIDGE_DATA`) with owner-only permissions, and logs go to the
+  journal.
+
+### Fixed
+
+- **The `-framework` installer no longer insists on downloading .NET
+  when you already have it.** It looked for the runtime in one fixed
+  folder only, so a runtime installed elsewhere was reported missing.
+  It now also checks the location the .NET installer recorded and
+  `DOTNET_ROOT`, and if it still finds nothing you can choose to
+  install without downloading instead of being forced to.
+
 ### Removed
 
 - **The browser mock-up of the control panel.** The React + Express

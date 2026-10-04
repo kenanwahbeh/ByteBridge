@@ -1,0 +1,22 @@
+[Unit]
+Description=ByteBridge gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+User=bytebridge
+Group=bytebridge
+ExecStart=/opt/bytebridge/ByteBridge.Service
+Restart=on-failure
+RestartSec=5
+# /var/lib/bytebridge, owned by the service account, created by systemd.
+StateDirectory=bytebridge
+StateDirectoryMode=0700
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

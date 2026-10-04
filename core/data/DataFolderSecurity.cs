@@ -21,7 +21,6 @@ namespace ByteBridge.Data;
  * started. It is re-applied on every open, so a folder that drifts, from
  * a restore or someone editing permissions, is put back.
  */
-[SupportedOSPlatform("windows")]
 public static class DataFolderSecurity
 {
     /*
@@ -30,6 +29,37 @@ public static class DataFolderSecurity
      * protects nothing.
      */
     public static Exception? Ensure(string folder)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return EnsureWindows(folder);
+        }
+
+        try
+        {
+            /*
+             * Owner only. The service's own account owns the folder, and
+             * the command line is run as that account (the installed
+             * wrapper does it), so nobody else needs in.
+             */
+            Directory.CreateDirectory(folder);
+
+            File.SetUnixFileMode(
+                folder,
+                UnixFileMode.UserRead
+                | UnixFileMode.UserWrite
+                | UnixFileMode.UserExecute);
+
+            return null;
+        }
+        catch (Exception error)
+        {
+            return error;
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static Exception? EnsureWindows(string folder)
     {
         try
         {

@@ -21,7 +21,8 @@ public static class Cli
     public const string Usage = """
         ByteBridge gateway service
 
-        Running with no arguments starts the Windows service. The
+        Running with no arguments starts the service (Windows service, or
+        the systemd unit on Linux). The
         commands below configure it from a terminal, for machines with
         no desktop:
 
