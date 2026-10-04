@@ -31,5 +31,3 @@ Thumbs.db
 venv/
 .env
 .env/
-node_modules
-dist/
