@@ -2,6 +2,9 @@
 bin/
 obj/
 
+# A local workflow used to try Anthropic workload identity; not for the repo.
+.github/workflows/anthropic-wif-test.yml
+
 # Publish / packaging output
 # publish-fx is the framework-dependent tree the release path builds
 # beside publish/. A pattern for one does not cover the other.
