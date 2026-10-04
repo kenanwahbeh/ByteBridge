@@ -475,8 +475,9 @@ public sealed class GatewayServer : IDisposable
              * Dispatched from here it was a place to guess keys without
              * limit.
              */
-            if (path.StartsWith("/auth/", StringComparison.OrdinalIgnoreCase)
-                && path != "/auth/me")
+            if (path is "/auth/login"
+                or "/auth/callback"
+                or "/auth/logout")
             {
                 await HandleAuthAsync(context, path, cancellationToken);
                 return;
@@ -1273,6 +1274,12 @@ public sealed class GatewayServer : IDisposable
         CancellationToken cancellationToken)
     {
         var method = context.Request.HttpMethod;
+
+        if (method != "GET")
+        {
+            await WriteMethodNotAllowedAsync(context, "GET");
+            return;
+        }
 
         switch (path)
         {

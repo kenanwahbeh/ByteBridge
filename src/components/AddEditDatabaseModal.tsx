@@ -23,6 +23,7 @@ export const AddEditDatabaseModal: React.FC<AddEditDatabaseModalProps> = ({
   const t = translations[language];
 
   const [name, setName] = useState('');
+  const [type, setType] = useState('Firebird');
   const [server, setServer] = useState('localhost');
   const [port, setPort] = useState('3050');
   const [username, setUsername] = useState('SYSDBA');
@@ -36,6 +37,7 @@ export const AddEditDatabaseModal: React.FC<AddEditDatabaseModalProps> = ({
   useEffect(() => {
     if (editingConnection) {
       setName(editingConnection.name);
+      setType(editingConnection.type || 'Firebird');
       setServer(editingConnection.server);
       setPort(String(editingConnection.port));
       setUsername(editingConnection.username);
@@ -43,6 +45,7 @@ export const AddEditDatabaseModal: React.FC<AddEditDatabaseModalProps> = ({
       setDatabase(editingConnection.database);
     } else {
       setName('');
+      setType('Firebird');
       setServer('localhost');
       setPort('3050');
       setUsername('SYSDBA');
@@ -99,8 +102,9 @@ export const AddEditDatabaseModal: React.FC<AddEditDatabaseModalProps> = ({
       await onSave({
         id: editingConnection?.id,
         name: name.trim(),
+        type: type.trim() || 'Firebird',
         server: server.trim() || 'localhost',
-        port: parseInt(port, 10) || 3050,
+        port: parseInt(port, 10) || (type === 'SQLite' ? 0 : type === 'PostgreSQL' ? 5432 : type === 'MySQL' ? 3306 : 3050),
         username: username.trim() || 'SYSDBA',
         password,
         database: database.trim(),
@@ -119,7 +123,7 @@ export const AddEditDatabaseModal: React.FC<AddEditDatabaseModalProps> = ({
       <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-stone-200 space-y-5 animate-in fade-in zoom-in-95 duration-150">
         <div className="flex items-center justify-between pb-3 border-b border-stone-100">
           <h2 className="text-xl font-bold text-stone-900">
-            {editingConnection ? t.edit : t.addData}
+            {t.addData}
           </h2>
           <button
             onClick={onClose}
@@ -130,18 +134,43 @@ export const AddEditDatabaseModal: React.FC<AddEditDatabaseModalProps> = ({
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4 text-xs font-sans">
-          <div>
-            <label className="block font-semibold text-stone-700 mb-1">
-              {t.connectionName}
-            </label>
-            <input
-              type="text"
-              required
-              placeholder="Sales, Inventory, Warehouse..."
-              value={name}
-              onChange={e => setName(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border border-stone-300 text-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-stone-900/10 focus:border-stone-500"
-            />
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="sm:col-span-2">
+              <label className="block font-semibold text-stone-700 mb-1">
+                {t.connectionName}
+              </label>
+              <input
+                type="text"
+                required
+                placeholder="Sales, Inventory, Warehouse..."
+                value={name}
+                onChange={e => setName(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border border-stone-300 text-stone-900 text-sm focus:outline-none focus:ring-2 focus:ring-stone-900/10 focus:border-stone-500"
+              />
+            </div>
+            <div>
+              <label className="block font-semibold text-stone-700 mb-1">
+                {t.databaseType}
+              </label>
+              <select
+                value={type}
+                onChange={e => {
+                  const newType = e.target.value;
+                  setType(newType);
+                  if (newType === 'Firebird' && (port === '0' || !port)) setPort('3050');
+                  if (newType === 'PostgreSQL') setPort('5432');
+                  if (newType === 'MySQL') setPort('3306');
+                  if (newType === 'SQLite') setPort('0');
+                }}
+                className="w-full px-3 py-2 rounded-lg border border-stone-300 text-stone-900 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-stone-900/10 focus:border-stone-500"
+              >
+                <option value="Firebird">Firebird</option>
+                <option value="SQLite">SQLite</option>
+                <option value="PostgreSQL">PostgreSQL</option>
+                <option value="MySQL">MySQL</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
           </div>
 
           <div className="grid grid-cols-3 gap-3">
