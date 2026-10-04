@@ -244,7 +244,16 @@ end;
 {
   Checks every place a runtime can legitimately be: the default folder,
   the folder the .NET installer recorded for itself (covers a custom
-  install location), and DOTNET_ROOT. Each is confirmed on disk.
+  install location), and a machine-wide DOTNET_ROOT. Each is confirmed
+  on disk.
+
+  The .NET installer writes InstallLocation to the 32-bit registry view,
+  so that is read first, with the 64-bit view as a fallback.
+
+  DOTNET_ROOT is read from the machine environment, not Setup's own: the
+  service runs as Local System and never sees the signed-in user's
+  variables, so a runtime reachable only through those would pass here
+  and then fail to start.
 }
 function HasDesktopRuntime10(): Boolean;
 var
@@ -253,12 +262,17 @@ begin
   Result := RootHasDesktopRuntime10(ExpandConstant('{commonpf64}\dotnet'));
 
   if (not Result)
-     and RegQueryStringValue(HKLM64, 'SOFTWARE\dotnet\Setup\InstalledVersions\x64',
-                             'InstallLocation', Location) then
+     and (RegQueryStringValue(HKLM32, 'SOFTWARE\dotnet\Setup\InstalledVersions\x64',
+                              'InstallLocation', Location)
+          or RegQueryStringValue(HKLM64, 'SOFTWARE\dotnet\Setup\InstalledVersions\x64',
+                                 'InstallLocation', Location)) then
     Result := RootHasDesktopRuntime10(Location);
 
-  if not Result then
-    Result := RootHasDesktopRuntime10(GetEnv('DOTNET_ROOT'));
+  if (not Result)
+     and RegQueryStringValue(HKLM64,
+           'SYSTEM\CurrentControlSet\Control\Session Manager\Environment',
+           'DOTNET_ROOT', Location) then
+    Result := RootHasDesktopRuntime10(Location);
 end;
 #endif
 
