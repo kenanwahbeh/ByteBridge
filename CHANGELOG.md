@@ -13,6 +13,14 @@ file is the single source of truth for what shipped.
 
 ## [Unreleased]
 
+### Removed
+
+- **The browser mock-up of the control panel.** The React + Express
+  prototype in `src/`, `server.ts` and `index.html`, with its npm and
+  Vite setup, was never part of the product and nothing built or
+  shipped it. The gateway, the Windows service and the control panel
+  are unchanged.
+
 ## [3.0.0] - 2026-10-01
 
 ### Changed

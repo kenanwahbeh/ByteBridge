@@ -44,12 +44,8 @@ flowchart LR
 | `ByteBridge.Service` | `service/` | `net10.0-windows` | The service host. With no arguments it is the service; with arguments it is the admin CLI (`Cli.Run`) for Server Core. |
 | `ByteBridge.Tests` | `tests/ByteBridge.Tests/` | `net10.0` | xUnit. Drives a real listener on a spare port against a temporary data folder. |
 
-Two things at the root are **not** part of the product:
+One thing at the root is **not** part of the product:
 
-- `src/`, `server.ts`, `index.html`, `package.json` — a browser mock-up
-  of the control panel (React + Express, with in-memory fake data in
-  `src/server/gatewayEngine.ts`). It was the design prototype. Nothing
-  in the build, CI or the installers uses it.
 - `installer/` — the Inno Setup (`.exe`) and WiX (`.msi`) definitions,
   built only by the release workflow.
 
