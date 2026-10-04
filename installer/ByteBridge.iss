@@ -158,6 +158,7 @@ var
   PrereqPage: TDownloadWizardPage;
   DotNetSetup: String;
   CloudflaredSetup: String;
+  SkipRuntime: Boolean;
 
 function OnDownloadProgress(const Url, FileName: String; const Progress, ProgressMax: Int64): Boolean;
 begin
@@ -207,18 +208,25 @@ end;
 
 #ifdef RequireRuntime
 {
-  Looks for a real 10.x shared-framework directory instead of a registry
-  version string, so a leftover key from an uninstalled runtime cannot
-  fool it.
+  A 10.x shared-framework directory under a dotnet root, rather than a
+  registry version string alone, so a leftover key from an uninstalled
+  runtime cannot fool it.
 }
-function HasDesktopRuntime10(): Boolean;
+function RootHasDesktopRuntime10(Root: String): Boolean;
 var
   Rec: TFindRec;
   Base: String;
 begin
   Result := False;
 
-  Base := ExpandConstant('{commonpf64}\dotnet\shared\Microsoft.WindowsDesktop.App');
+  Root := Trim(Root);
+  if Root = '' then
+    Exit;
+
+  if Root[Length(Root)] <> '\' then
+    Root := Root + '\';
+
+  Base := Root + 'shared\Microsoft.WindowsDesktop.App';
 
   if FindFirst(Base + '\10.*', Rec) then
   begin
@@ -231,6 +239,26 @@ begin
       FindClose(Rec);
     end;
   end;
+end;
+
+{
+  Checks every place a runtime can legitimately be: the default folder,
+  the folder the .NET installer recorded for itself (covers a custom
+  install location), and DOTNET_ROOT. Each is confirmed on disk.
+}
+function HasDesktopRuntime10(): Boolean;
+var
+  Location: String;
+begin
+  Result := RootHasDesktopRuntime10(ExpandConstant('{commonpf64}\dotnet'));
+
+  if (not Result)
+     and RegQueryStringValue(HKLM64, 'SOFTWARE\dotnet\Setup\InstalledVersions\x64',
+                             'InstallLocation', Location) then
+    Result := RootHasDesktopRuntime10(Location);
+
+  if not Result then
+    Result := RootHasDesktopRuntime10(GetEnv('DOTNET_ROOT'));
 end;
 #endif
 
@@ -280,14 +308,17 @@ begin
     if WizardSilent() then
       Log('Silent install: .NET 10 Desktop Runtime missing, downloading without prompting.')
     else
-      Result := MsgBox('This build does not include .NET, and the .NET 10 Desktop Runtime (x64)'
-                       + ' was not found on this computer.'
-                       + #13#10#13#10
-                       + 'Setup can download it from Microsoft and install it for you.'
-                       + ' That is roughly a 60 MB download and needs an internet connection.'
-                       + #13#10#13#10
-                       + 'Continue?',
-                       mbConfirmation, MB_YESNO) = IDYES;
+      case MsgBox('The .NET 10 Desktop Runtime (x64) was not found on this computer.'
+                  + #13#10#13#10
+                  + 'Yes: download it from Microsoft and install it (about 60 MB).'
+                  + #13#10
+                  + 'No: install ByteBridge without it, if you know it is already installed.'
+                  + #13#10
+                  + 'Cancel: exit Setup.',
+                  mbConfirmation, MB_YESNOCANCEL) of
+        IDNO: SkipRuntime := True;
+        IDCANCEL: Result := False;
+      end;
   end;
 #endif
 end;
@@ -302,7 +333,7 @@ begin
     Exit;
 
 #ifdef RequireRuntime
-  if not HasDesktopRuntime10() then
+  if (not SkipRuntime) and (not HasDesktopRuntime10()) then
   begin
     if not TryDownload('{#DotNetUrl}', 'windowsdesktop-runtime.exe', DotNetSetup) then
     begin
