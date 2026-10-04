@@ -249,6 +249,16 @@ public sealed class EnrollmentFlow
         }
         catch (EnrollmentException error)
         {
+            // The old "shared at" time would otherwise keep saying the
+            // storefront has the key when it holds a stale one.
+            try
+            {
+                _store.Save(state with { KeySharedAt = null });
+            }
+            catch (EnrollmentException)
+            {
+            }
+
             _out.WriteLine(
                 "warning: ByteBalance still has the old API key, so the "
                 + $"storefront cannot reach this gateway: {error.Message} "
@@ -270,7 +280,23 @@ public sealed class EnrollmentFlow
      */
     public async Task<int> UnenrollAsync(CancellationToken cancellationToken)
     {
-        var state = _store.Load();
+        EnrollmentState? state;
+
+        try
+        {
+            state = _store.Load();
+        }
+        catch (EnrollmentException)
+        {
+            // Half-saved settings: this is the recovery path the message
+            // names, so it has to work on exactly that.
+            _gateway.ClearEdgeAccess();
+            _store.Clear();
+
+            _out.WriteLine("The incomplete enrolment settings were cleared.");
+
+            return ExitCode.Ok;
+        }
 
         if (state == null)
         {

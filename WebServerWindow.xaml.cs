@@ -4,6 +4,7 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using ByteBridge.Configuration;
 using ByteBridge.Data;
+using ByteBridge.Enrollment;
 using ByteBridge.Localization;
 
 namespace ByteBridge;
@@ -330,6 +331,12 @@ public partial class WebServerWindow : Window
         }
 
         _database.RegenerateApiKey();
+
+        // On a machine connected to ByteBalance the storefront still holds the
+        // old key, so the new one is sent now, as `key new` does. It does not
+        // throw and runs off the UI thread.
+        var database = _database;
+        _ = Task.Run(() => EnrollmentCommands.AfterKeyRotation(database));
 
         MessageBox.Show(
             Strings.Get("NewKeyMessage"),

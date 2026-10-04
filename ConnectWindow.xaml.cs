@@ -179,7 +179,17 @@ public partial class ConnectWindow : Window
 
         await RunAsync(flow => flow.UnenrollAsync(_cancellation.Token));
 
-        EmailTextBox.Text = string.Empty;
+        try
+        {
+            if (new SettingsEnrollmentStore(_database).Load() == null)
+            {
+                EmailTextBox.Text = string.Empty;
+            }
+        }
+        catch (EnrollmentException)
+        {
+            // Still damaged: leave the box as it is.
+        }
     }
 
     /*

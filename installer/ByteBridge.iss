@@ -401,10 +401,15 @@ begin
   begin
     if (Trim(ConnectPage.Values[0]) <> '') and (not ValidEmail(Trim(ConnectPage.Values[0]))) then
     begin
-      MsgBox('That does not look like an email address. Enter one address, such as'
-             + ' owner@example.com, or leave the box empty to connect later.',
-             mbError, MB_OK);
-      Result := False;
+      if WizardSilent() then
+        Log('Silent install: ByteBalanceEmail is not a valid address; skipping enrolment.')
+      else
+      begin
+        MsgBox('That does not look like an email address. Enter one address, such as'
+               + ' owner@example.com, or leave the box empty to connect later.',
+               mbError, MB_OK);
+        Result := False;
+      end;
     end;
 
     Exit;

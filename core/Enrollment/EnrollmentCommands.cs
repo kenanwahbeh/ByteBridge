@@ -121,6 +121,15 @@ public static partial class EnrollmentCommands
         CancellationToken cancellationToken)
     {
         var verb = args[0].ToLowerInvariant();
+
+        if (args.Skip(1).Any(a => a is "--help" or "-h" or "/?"))
+        {
+            services.Out.WriteLine(Usage(verb));
+            return ExitCode.Ok;
+        }
+
+        RejectUnknown(args, verb);
+
         var options = ParseOptions(args);
 
         var flow = services.CreateFlow(database);
@@ -166,17 +175,28 @@ public static partial class EnrollmentCommands
         SqliteDatabase database,
         EnrollmentServices? services = null)
     {
-        if (new SettingsEnrollmentStore(database).Load() is not { Phase: Phase.Connected })
+        try
         {
-            return;
+            if (new SettingsEnrollmentStore(database).Load() is not { Phase: Phase.Connected })
+            {
+                return;
+            }
+
+            services ??= EnrollmentServices.Create();
+
+            services.CreateFlow(database)
+                .TrySyncKeyAsync(CancellationToken.None)
+                .GetAwaiter()
+                .GetResult();
         }
-
-        services ??= EnrollmentServices.Create();
-
-        services.CreateFlow(database)
-            .TrySyncKeyAsync(CancellationToken.None)
-            .GetAwaiter()
-            .GetResult();
+        catch (EnrollmentException)
+        {
+            // Damaged enrolment settings: the key is already replaced, so say
+            // what to do rather than make a successful rotation look failed.
+            Console.Error.WriteLine(
+                "warning: the ByteBalance enrolment settings are incomplete, so the new "
+                + "API key was not sent. Run `unenroll`, then enrol again.");
+        }
     }
 
     /*
@@ -186,7 +206,16 @@ public static partial class EnrollmentCommands
      */
     public static string Summary(SqliteDatabase database)
     {
-        var state = new SettingsEnrollmentStore(database).Load();
+        EnrollmentState? state;
+
+        try
+        {
+            state = new SettingsEnrollmentStore(database).Load();
+        }
+        catch (EnrollmentException)
+        {
+            return "enrolment settings are incomplete (run: unenroll)";
+        }
 
         return state switch
         {
@@ -303,6 +332,55 @@ public static partial class EnrollmentCommands
         }
 
         return TimeSpan.FromMinutes(minutes);
+    }
+
+    private static string Usage(string verb) => verb switch
+    {
+        "enroll" =>
+            "enroll --email <address> [--name <label>] [--server <https://...>]\n"
+            + "       [--timeout <minutes>] [--no-wait] [--replace-connector]\n\n"
+            + "Asks ByteBalance for a tunnel for this machine and installs the\n"
+            + "cloudflared connector once it is approved.",
+        "claim" =>
+            "claim [--timeout <minutes>] [--replace-connector]\n\n"
+            + "Continues an enrolment that is waiting for approval.",
+        _ => $"{verb}\n\nTakes no options. See the enroll command for the rest."
+    };
+
+    /*
+     * A typo such as --no-wiat would otherwise be dropped silently and the
+     * command would wait half an hour; so anything the verb does not take,
+     * and any stray word, is an error.
+     */
+    private static void RejectUnknown(string[] args, string verb)
+    {
+        var allowed = verb switch
+        {
+            "enroll" => new[] { "email", "name", "server", "timeout", "no-wait", "replace-connector" },
+            "claim" => new[] { "timeout", "replace-connector" },
+            _ => Array.Empty<string>()
+        };
+
+        for (var i = 1; i < args.Length; i++)
+        {
+            if (!args[i].StartsWith("--", StringComparison.Ordinal))
+            {
+                throw new EnrollmentException(
+                    $"{verb}: unexpected argument '{args[i]}'. See: {verb} --help");
+            }
+
+            if (!allowed.Contains(args[i][2..], StringComparer.OrdinalIgnoreCase))
+            {
+                throw new EnrollmentException(
+                    $"{verb}: unknown option '{args[i]}'. See: {verb} --help");
+            }
+
+            if (i + 1 < args.Length
+                && !args[i + 1].StartsWith("--", StringComparison.Ordinal))
+            {
+                i++;
+            }
+        }
     }
 
     /*
