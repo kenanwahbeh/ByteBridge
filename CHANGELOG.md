@@ -13,6 +13,30 @@ file is the single source of truth for what shipped.
 
 ## [Unreleased]
 
+### Added
+
+- **Connect a machine to ByteBalance without touching Cloudflare.** The new
+  `enroll` command (and a **Connect to ByteBalance** dialog in the control
+  panel, and an optional page in the installer) asks ByteBalance for a tunnel,
+  waits for it to be approved, and installs the `cloudflared` connector.
+  Only the owner's email is let through to the tunnel. `claim` continues an
+  interrupted enrolment, `enrollment` shows its state, `sync-key` and `unenroll`
+  cover the rest. Silent installs take `/ByteBalanceEmail=owner@example.com`.
+  See [Connecting to ByteBalance](docs/reference/bytebalance.md).
+- **The API key follows the gateway to ByteBalance.** After connecting, the key is
+  sent to ByteBalance (encrypted there) so the storefront can call this gateway,
+  and `key new` sends the replacement automatically.
+- **The gateway can require the Cloudflare Access token itself.** `oauth edge on`
+  makes a request that arrives through Cloudflare carry a valid Access token in
+  addition to the API key; enrolment turns it on. Local requests are not asked
+  for one, and it does not switch the Access login on.
+
+### Changed
+
+- `status` shows whether the machine is connected to ByteBalance.
+- An existing Cloudflare connector service is never replaced by enrolment unless
+  `--replace-connector` is passed.
+
 ## [1.2.0] - 2026-09-21
 
 ### Added

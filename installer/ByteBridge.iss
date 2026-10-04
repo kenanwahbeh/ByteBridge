@@ -103,8 +103,10 @@ Name: "desktopicon"; \
 
 ; Offered only when cloudflared is not already on the machine, and
 ; ticked by default because this app is meant to be reached through a
-; tunnel. Installing the binary does not connect a tunnel: that still
-; needs your own token, which is deliberate -- see GATEWAY.md.
+; tunnel. Installing the binary does not connect a tunnel by itself:
+; that takes a token, which the "Connect to ByteBalance" page below (or
+; the control panel's Connect to ByteBalance dialog, or the `enroll`
+; command) obtains once ByteBalance has approved this machine.
 Name: "cloudflared"; \
   Description: "Download and install Cloudflare Tunnel (cloudflared), about 18 MB"; \
   GroupDescription: "Cloudflare Tunnel:"; \
@@ -158,6 +160,7 @@ var
   PrereqPage: TDownloadWizardPage;
   DotNetSetup: String;
   CloudflaredSetup: String;
+  ConnectPage: TInputQueryWizardPage;
 
 function OnDownloadProgress(const Url, FileName: String; const Progress, ProgressMax: Int64): Boolean;
 begin
@@ -263,6 +266,57 @@ begin
   PrereqPage := CreateDownloadPage(SetupMessage(msgWizardPreparing),
                                    SetupMessage(msgPreparingDesc),
                                    @OnDownloadProgress);
+
+  { After the task choices, so the person has just decided about the
+    tunnel software. Optional: an empty box connects nothing, and the
+    same thing can be done later from the control panel. A silent
+    install can supply the address as /ByteBalanceEmail=owner@example.com. }
+  ConnectPage := CreateInputQueryPage(
+    wpSelectTasks,
+    'Connect to ByteBalance (optional)',
+    'Give this machine a private tunnel to ByteBalance.',
+    'Enter the one email address that should be allowed through to this '
+    + 'machine''s tunnel. ByteBalance approves each request before anything is '
+    + 'opened.'
+    + #13#10#13#10
+    + 'Leave it empty to connect later: ByteBridge > Connect to ByteBalance.');
+
+  ConnectPage.Add('Owner email:', False);
+  ConnectPage.Values[0] := ExpandConstant('{param:ByteBalanceEmail|}');
+end;
+
+{
+  A plain check, only to catch a typo before it is sent. ByteBalance
+  validates strictly and has the last word. It also refuses everything
+  that would mean something to the command line the address is later
+  placed on.
+}
+function ValidEmail(const Address: String): Boolean;
+var
+  At, I: Integer;
+  Domain: String;
+begin
+  Result := False;
+
+  At := Pos('@', Address);
+
+  if (At < 2) or (At = Length(Address)) then
+    Exit;
+
+  Domain := Copy(Address, At + 1, Length(Address));
+
+  if (Pos('@', Domain) > 0) or (Pos('.', Domain) = 0) then
+    Exit;
+
+  for I := 1 to Length(Address) do
+  begin
+    if (Ord(Address[I]) <= 32) or (Address[I] = '"') or (Address[I] = ',')
+       or (Address[I] = ';') or (Address[I] = '<') or (Address[I] = '>')
+       or (Address[I] = '\') then
+      Exit;
+  end;
+
+  Result := True;
 end;
 
 function InitializeSetup(): Boolean;
@@ -297,6 +351,19 @@ var
   ErrorCode: Integer;
 begin
   Result := True;
+
+  if CurPageID = ConnectPage.ID then
+  begin
+    if (Trim(ConnectPage.Values[0]) <> '') and (not ValidEmail(Trim(ConnectPage.Values[0]))) then
+    begin
+      MsgBox('That does not look like an email address. Enter one address, such as'
+             + ' owner@example.com, or leave the box empty to connect later.',
+             mbError, MB_OK);
+      Result := False;
+    end;
+
+    Exit;
+  end;
 
   if CurPageID <> wpReady then
     Exit;
@@ -359,6 +426,16 @@ var
   Code: Integer;
 begin
   Result := Sc('query {#ServiceName}', Code) and (Code = 0);
+end;
+
+{
+  An upgrade of a machine that already has the service has nothing to
+  ask: it is either connected already or was left unconnected on
+  purpose, and asking every release would be noise.
+}
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  Result := (PageID = ConnectPage.ID) and ServiceExists();
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
@@ -536,12 +613,57 @@ begin
   Sc('start {#ServiceName}', Code);
 end;
 
+{
+  Asks ByteBalance for a tunnel, without waiting for the approval: a
+  person has to click an email first, and Setup should not sit there.
+  Exit code 2 is "request sent, waiting", which is the success case here.
+  The connector itself is installed later by `claim`, or by the Connect
+  dialog in the control panel, once the request is approved.
+
+  Never fatal. A machine that could not reach ByteBalance is a working
+  gateway that is not connected yet, and says how to fix it.
+}
+procedure ConnectToByteBalance();
+var
+  Code: Integer;
+  Address: String;
+begin
+  Address := Trim(ConnectPage.Values[0]);
+
+  if Address = '' then
+    Exit;
+
+  if not ValidEmail(Address) then
+  begin
+    Log('ByteBalance email "' + Address + '" is not a valid address; not connecting.');
+    Exit;
+  end;
+
+  if RunHidden(ExpandConstant('{app}\{#ServiceExe}'),
+               'enroll --email "' + Address + '" --no-wait', Code)
+     and ((Code = 0) or (Code = 2)) then
+  begin
+    Log('ByteBalance enrolment requested for ' + Address + '.');
+    Exit;
+  end;
+
+  if WizardSilent() then
+    Log(Format('Silent install: could not ask ByteBalance for a tunnel (code %d).', [Code]))
+  else
+    MsgBox('ByteBridge is installed, but ByteBalance could not be asked for a tunnel'
+           + ' (code ' + IntToStr(Code) + ').'
+           + #13#10#13#10
+           + 'Open ByteBridge and choose Connect to ByteBalance to try again.',
+           mbInformation, MB_OK);
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
   begin
     SecureDataFolder();
     InstallService();
+    ConnectToByteBalance();
   end;
 end;
 

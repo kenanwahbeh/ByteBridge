@@ -4,6 +4,10 @@ The gateway binds to loopback only. `cloudflared` runs on the same
 machine and reaches it over `127.0.0.1`, so nothing needs to be
 opened on the LAN or the router.
 
+If this machine is used with a ByteBalance storefront, do not make the tunnel by
+hand: [Connecting to ByteBalance](bytebalance.md) asks for one, waits for
+approval and installs the connector for you.
+
 Quick tunnel, for testing:
 
 ```bash

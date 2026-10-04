@@ -175,7 +175,7 @@ public sealed class GatewayServer : IDisposable
      */
     public void UpdateOAuth(OAuthConfig config)
     {
-        var validator = config.Enabled
+        var validator = config.Enabled || config.RequireEdgeAccess
             ? new CloudflareAccessValidator(config)
             : null;
 
@@ -462,6 +462,25 @@ public sealed class GatewayServer : IDisposable
             if (path.StartsWith("/auth/", StringComparison.OrdinalIgnoreCase))
             {
                 await HandleAuthAsync(context, path, cancellationToken);
+                return;
+            }
+
+            /*
+             * Before the key is even looked at: a request that came
+             * through Cloudflare has to have come through Access too,
+             * when this gateway was set up to require it.
+             */
+            if (!await PassesEdgeAccessAsync(context.Request))
+            {
+                await DrainOrCloseAsync(context);
+
+                await WriteJsonAsync(
+                    context,
+                    403,
+                    new ErrorResponse(
+                        "This gateway only answers requests that came "
+                        + "through Cloudflare Access."));
+
                 return;
             }
 
@@ -923,6 +942,48 @@ public sealed class GatewayServer : IDisposable
         }
 
         context.Response.KeepAlive = false;
+    }
+
+    /*
+     * The "came through Access" requirement. Three cases:
+     *
+     *   - Not required: everything passes, as before.
+     *   - Required, and the request never touched Cloudflare (it has no
+     *     Cf-Ray, which Cloudflare puts on every request it forwards and
+     *     a caller cannot remove): a local tool on this machine, which
+     *     still needs the API key. Refusing it would break every local
+     *     report and script for no gain.
+     *   - Required, and it came through Cloudflare: it must carry an
+     *     Access token that validates for this team and audience. The
+     *     same applies to a service token, whose token has no email.
+     *
+     * With no validator yet (the service applies the settings a moment
+     * after it starts listening) a request from Cloudflare is refused,
+     * never waved through.
+     */
+    private async Task<bool> PassesEdgeAccessAsync(
+        HttpListenerRequest request)
+    {
+        var oauth = _oauth;
+
+        if (!oauth.Config.RequireEdgeAccess)
+        {
+            return true;
+        }
+
+        if (string.IsNullOrEmpty(request.Headers["Cf-Ray"]))
+        {
+            return true;
+        }
+
+        var token = request.Headers["Cf-Access-Jwt-Assertion"];
+
+        if (oauth.Validator == null || string.IsNullOrEmpty(token))
+        {
+            return false;
+        }
+
+        return await oauth.Validator.ValidateTokenAsync(token) != null;
     }
 
     private bool IsAuthorized(HttpListenerRequest request)

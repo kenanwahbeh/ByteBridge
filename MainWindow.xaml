@@ -39,6 +39,8 @@
 
             <MenuItem x:Name="CloudflareTunnelMenuItem" Click="CloudflareTunnelMenuItem_Click"/>
 
+            <MenuItem x:Name="ConnectMenuItem" Click="ConnectMenuItem_Click"/>
+
             <MenuItem x:Name="OptionsMenuItem" Click="OptionsMenuItem_Click"/>
 
             <MenuItem x:Name="HelpMenuItem">

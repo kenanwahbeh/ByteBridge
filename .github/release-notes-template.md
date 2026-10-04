@@ -51,6 +51,10 @@ point your tunnel at the address shown in the Gateway API panel:
 cloudflared tunnel --url http://127.0.0.1:8080
 ```
 
+To reach the gateway from a ByteBalance storefront, choose **Connect to
+ByteBalance** in the menu bar (or run `ByteBridge.Service.exe enroll --email
+you@example.com`) instead of making a tunnel by hand.
+
 Copy the API key from the same panel — every endpoint except `/health`
 requires it in the `X-API-Key` header.
 
