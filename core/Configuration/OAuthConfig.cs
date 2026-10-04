@@ -56,6 +56,20 @@ public class OAuthConfig
      */
     public string RedirectUri { get; set; } = string.Empty;
 
+    /*
+     * When on, a request that arrives through Cloudflare must also carry
+     * a valid Access token (Cf-Access-Jwt-Assertion) for this team and
+     * audience, on top of the API key. It is what makes "only the owner
+     * can reach this hostname" hold even for a request that somehow got
+     * past the edge.
+     *
+     * It is a requirement, never an alternative: it does not let anyone
+     * in without the key, and it does not depend on Enabled (the login
+     * flow). Requests that did not come through Cloudflare at all, such
+     * as a local tool calling 127.0.0.1, are not asked for a token.
+     */
+    public bool RequireEdgeAccess { get; set; }
+
     public string Issuer =>
         $"https://{TeamDomain}";
 
