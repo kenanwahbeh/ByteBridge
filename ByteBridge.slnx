@@ -4,5 +4,5 @@
   </Folder>
   <Project Path="core/ByteBridge.Core.csproj" />
   <Project Path="service/ByteBridge.Service.csproj" />
-  <Project Path="ByteBridge.csproj" />
+  <Project Path="app/ByteBridge.csproj" />
 </Solution>

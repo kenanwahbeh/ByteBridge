@@ -40,6 +40,11 @@ file is the single source of truth for what shipped.
 - `status` shows whether the machine is connected to ByteBalance.
 - An existing Cloudflare connector service is never replaced by enrolment unless
   `--replace-connector` is passed.
+- The control panel project moved from the repository root to `app/`. Its SDK
+  glob now only ever sees its own sources, so the hand-maintained exclusion
+  list for `core/`, `service/` and `tests/` is gone, and a new project folder
+  can no longer be compiled into the app by accident. Nothing about the
+  installed app changes.
 
 ### Fixed
 

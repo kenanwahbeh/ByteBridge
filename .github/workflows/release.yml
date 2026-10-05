@@ -78,12 +78,12 @@ jobs:
 
           # publish    -> .NET bundled, runs on a bare machine
           # publish-fx -> needs the .NET Desktop Runtime installed
-          dotnet publish ByteBridge.csproj `
+          dotnet publish app/ByteBridge.csproj `
             -c Release -r win-x64 --self-contained true `
             -p:Version=${{ steps.version.outputs.msiVersion }} `
             -o publish
 
-          dotnet publish ByteBridge.csproj `
+          dotnet publish app/ByteBridge.csproj `
             -c Release -r win-x64 --self-contained false `
             -p:Version=${{ steps.version.outputs.msiVersion }} `
             -o publish-fx
