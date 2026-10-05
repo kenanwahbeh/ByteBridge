@@ -43,11 +43,37 @@ API key as a database credential.
 
 Connections are stored in
 `C:\ProgramData\ByteBridge\bytebridge.db`. Firebird passwords and the
-API key are encrypted there with a key that never leaves the machine —
-DPAPI on Windows, an owner-only key file on Linux — so a stolen copy
-of the file, from a backup or a disk image, opens nothing. On the
-running machine itself an administrator can still unwrap them, so that
-file keeps deserving the same care as the credentials themselves.
+API key are encrypted with a key that never leaves the machine and is
+kept *outside* the data folder — DPAPI on Windows; on Linux an
+owner-only key file in `/var/lib/bytebridge-keys`, a sibling of the
+data folder — so a copy of the data folder alone, from a backup or a
+stolen file, opens nothing. A full-machine image (a disk clone, a VM
+snapshot) still contains both halves on either OS and stays
+decryptable, so treat those images as credentials too. And on the
+running machine itself an administrator can still unwrap the secrets,
+which is why the folder stays restricted.
+
+## Backups and moving to a new machine
+
+- **Back up the data folder as usual; do not add the key to it.** The
+  whole point of the layout is that a data-folder backup is ciphertext
+  to anyone else. On Linux the key lives in `/var/lib/bytebridge-keys`
+  (override with `BYTEBRIDGE_KEY_DIR` if your backup policy wants a
+  different split); on Windows it is the machine's DPAPI key, which is
+  not in any folder you would back up.
+- **Restoring onto the same machine** just works: the key never moved,
+  so the restored file decrypts as before.
+- **Moving to a new machine** means re-entering secrets, not copying
+  them: install ByteBridge there, add the connections again (a moved
+  file reads its passwords as empty until you do), and rotate the API
+  key with `ByteBridge.Service.exe key new`. On Linux you *can* carry
+  `/var/lib/bytebridge-keys` over deliberately for a lift-and-shift —
+  on Windows DPAPI keys are not portable at all — but know that you are
+  cloning the machine's identity, and anyone holding both halves holds
+  everything.
+- **Lost the key?** The database is not bricked. Passwords read empty
+  until re-entered and the API key is re-minted on next start; no data
+  is lost, only the stored secrets are.
 
 ## Failed-key lockout
 

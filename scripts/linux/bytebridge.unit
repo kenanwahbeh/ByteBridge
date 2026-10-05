@@ -10,8 +10,11 @@ Group=bytebridge
 ExecStart=/opt/bytebridge/ByteBridge.Service
 Restart=on-failure
 RestartSec=5
-# /var/lib/bytebridge, owned by the service account, created by systemd.
-StateDirectory=bytebridge
+# /var/lib/bytebridge (data) and /var/lib/bytebridge-keys (the secrets
+# key), owned by the service account, created by systemd. The key is a
+# sibling of the data, not inside it, so backing up the data folder
+# alone does not carry the key that opens it.
+StateDirectory=bytebridge bytebridge-keys
 StateDirectoryMode=0700
 NoNewPrivileges=true
 ProtectSystem=strict

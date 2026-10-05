@@ -26,6 +26,7 @@ on:
 permissions:
   contents: write
   id-token: write
+  attestations: write
 
 jobs:
   build:
@@ -269,6 +270,20 @@ jobs:
           Get-ChildItem artifacts -File |
             Select-Object Name, @{ n = 'MB'; e = { [math]::Round($_.Length / 1MB, 1) } } |
             Format-Table -AutoSize | Out-String | Write-Host
+
+      # Signs each release file with the workflow's own identity, so a
+      # downloader can prove a file was built here, from this commit,
+      # and not re-uploaded by someone who only has release access:
+      #
+      #   gh attestation verify ByteBridge-1.2.3-x64-setup.exe \
+      #     --repo kenanwahbeh/ByteBridge
+      #
+      # artifacts/ holds exactly the release files at this point, so
+      # the glob attests all four installers and SHA256SUMS.txt.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v4.2.2
+        with:
+          subject-path: artifacts/*
 
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v7

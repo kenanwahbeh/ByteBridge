@@ -64,3 +64,12 @@ for the endpoints and the tunnel configuration.
 ### Verifying the download
 
 `SHA256SUMS.txt` lists the SHA-256 checksum of each file.
+
+Each file also carries a **build-provenance attestation**: signed proof
+that it was built by this repository's release workflow, from the tag's
+own commit, and not re-uploaded by anyone else. Verify with the GitHub
+CLI:
+
+```
+gh attestation verify ByteBridge-{{VERSION}}-x64-setup.exe --repo kenanwahbeh/ByteBridge
+```

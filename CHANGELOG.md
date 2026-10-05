@@ -15,6 +15,11 @@ file is the single source of truth for what shipped.
 
 ### Added
 
+- **Release files carry a signed statement of where they were built.**
+  Every installer and `SHA256SUMS.txt` now gets a build-provenance
+  attestation from the release workflow, verifiable with
+  `gh attestation verify <file> --repo kenanwahbeh/ByteBridge`. A file
+  that was tampered with or re-uploaded anywhere else fails that check.
 - **Connect a machine to ByteBalance without touching Cloudflare.** The new
   `enroll` command (and a **Connect to ByteBalance** dialog in the control
   panel, and an optional page in the installer) asks ByteBalance for a tunnel,
@@ -67,15 +72,18 @@ file is the single source of truth for what shipped.
 
 - **The secrets in `bytebridge.db` are encrypted at rest.** Firebird
   passwords, the API key and the enrolment claim secret used to sit in
-  the settings file in plain text, so a stolen copy — a backup, a disk
-  image — handed them over. They are now wrapped with a key that never
-  leaves the machine: DPAPI on Windows, an owner-only key file beside
-  the database on Linux. Existing files are migrated on first open, and
+  the settings file in plain text, so a stolen copy of the data folder
+  handed them over. They are now wrapped with a key that never leaves
+  the machine and is kept outside the data folder: DPAPI on Windows;
+  on Linux an owner-only key file in `/var/lib/bytebridge-keys`
+  (override with `BYTEBRIDGE_KEY_DIR`), so a backup of the data folder
+  alone opens nothing. Existing files are migrated on first open, and
   a file copied to another machine no longer yields its secrets —
   passwords read empty until re-entered, and the API key is re-minted.
-  On the running machine itself an administrator can still unwrap them,
-  which is why the data folder stays restricted to Administrators and
-  the service account.
+  A full-machine image still contains both halves and stays
+  decryptable, and on the running machine an administrator can still
+  unwrap the secrets, which is why the data folder stays restricted to
+  Administrators and the service account.
 
 ## [3.0.0] - 2026-10-01
 

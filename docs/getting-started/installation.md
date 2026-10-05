@@ -61,9 +61,10 @@ It asks for administrator rights, because
 `C:\ProgramData\ByteBridge` holds your database passwords beside the
 API key, and that key is all that stands between the public internet
 and those databases. The secrets are encrypted at rest with a key that
-never leaves the machine, but on the running machine any administrator
-can still read them, so the folder is restricted to Administrators and
-the service account, and no other account on the machine can read it.
+never leaves the machine and is stored outside the data folder, but on
+the running machine any administrator can still read them, so the
+folder is restricted to Administrators and the service account, and no
+other account on the machine can read it.
 
 ### Windows Server Core
 

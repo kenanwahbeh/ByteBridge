@@ -174,6 +174,13 @@ public class SqliteDatabase
      *
      * synchronous=NORMAL is the documented companion to WAL: still
      * crash-safe, without an fsync on every commit.
+     *
+     * secure_delete makes SQLite zero the content of rows it deletes
+     * or overwrites instead of leaving it in the page. It costs a
+     * little on every write and buys this: rotating the API key or
+     * changing a password leaves nothing of the old value behind in
+     * the free space of the page. Set on every connection, because it
+     * is a connection setting rather than part of the file.
      */
     private SqliteConnection OpenConnection()
     {
@@ -188,6 +195,7 @@ public class SqliteDatabase
             PRAGMA journal_mode=WAL;
             PRAGMA busy_timeout=30000;
             PRAGMA synchronous=NORMAL;
+            PRAGMA secure_delete=ON;
             """;
 
         pragma.ExecuteNonQuery();
@@ -1033,91 +1041,168 @@ public class SqliteDatabase
      * is -- overwriting it would destroy whatever it was. Reads
      * report it empty and SecretsError explains, until the owner
      * re-enters it, which writes a fresh protected value.
+     *
+     * A migration that changed something is followed by
+     * ScrubMigratedSecrets: committing is not enough on its own to
+     * take the old plaintext out of the files.
      */
     private void MigrateSecrets()
     {
-        using var connection = OpenConnection();
-        using var transaction = connection.BeginTransaction();
+        var migrated = false;
+        var migratedSettings = false;
 
-        var stalePasswords = new List<(string Id, string Password)>();
-
-        using (var read = connection.CreateCommand())
+        using (var connection = OpenConnection())
+        using (var transaction = connection.BeginTransaction())
         {
-            read.Transaction = transaction;
-            read.CommandText = "SELECT Id, Password FROM Databases;";
-
-            using var reader = read.ExecuteReader();
-
-            while (reader.Read())
-            {
-                var stored = reader.GetString(1);
-
-                if (!_protector.IsProtected(stored))
-                {
-                    stalePasswords.Add(
-                        (reader.GetString(0), stored));
-                }
-            }
-        }
-
-        foreach (var (id, password) in stalePasswords)
-        {
-            using var update = connection.CreateCommand();
-
-            update.Transaction = transaction;
-            update.CommandText = """
-                UPDATE Databases
-                SET Password = $password
-                WHERE Id = $id;
-                """;
-
-            update.Parameters.AddWithValue(
-                "$password",
-                _protector.Protect(password));
-
-            update.Parameters.AddWithValue("$id", id);
-
-            update.ExecuteNonQuery();
-        }
-
-        foreach (var key in ProtectedSettingKeys)
-        {
-            string? stored;
+            var stalePasswords = new List<(string Id, string Password)>();
 
             using (var read = connection.CreateCommand())
             {
                 read.Transaction = transaction;
-                read.CommandText = """
-                    SELECT SettingValue
-                    FROM Settings
-                    WHERE SettingKey = $key;
+                read.CommandText = "SELECT Id, Password FROM Databases;";
+
+                using var reader = read.ExecuteReader();
+
+                while (reader.Read())
+                {
+                    var stored = reader.GetString(1);
+
+                    if (!_protector.IsProtected(stored))
+                    {
+                        stalePasswords.Add(
+                            (reader.GetString(0), stored));
+                    }
+                }
+            }
+
+            foreach (var (id, password) in stalePasswords)
+            {
+                using var update = connection.CreateCommand();
+
+                update.Transaction = transaction;
+                update.CommandText = """
+                    UPDATE Databases
+                    SET Password = $password
+                    WHERE Id = $id;
                     """;
 
-                read.Parameters.AddWithValue("$key", key);
+                update.Parameters.AddWithValue(
+                    "$password",
+                    _protector.Protect(password));
 
-                stored = read.ExecuteScalar() as string;
+                update.Parameters.AddWithValue("$id", id);
+
+                update.ExecuteNonQuery();
             }
 
-            if (stored == null || _protector.IsProtected(stored))
+            foreach (var key in ProtectedSettingKeys)
             {
-                continue;
+                string? stored;
+
+                using (var read = connection.CreateCommand())
+                {
+                    read.Transaction = transaction;
+                    read.CommandText = """
+                        SELECT SettingValue
+                        FROM Settings
+                        WHERE SettingKey = $key;
+                        """;
+
+                    read.Parameters.AddWithValue("$key", key);
+
+                    stored = read.ExecuteScalar() as string;
+                }
+
+                if (stored == null || _protector.IsProtected(stored))
+                {
+                    continue;
+                }
+
+                using var update = connection.CreateCommand();
+
+                update.Transaction = transaction;
+                update.CommandText = UpsertSetting;
+
+                update.Parameters.AddWithValue("$key", key);
+
+                update.Parameters.AddWithValue(
+                    "$value",
+                    _protector.Protect(stored));
+
+                update.ExecuteNonQuery();
+
+                migratedSettings = true;
             }
 
-            using var update = connection.CreateCommand();
+            migrated =
+                stalePasswords.Count > 0 || migratedSettings;
 
-            update.Transaction = transaction;
-            update.CommandText = UpsertSetting;
-
-            update.Parameters.AddWithValue("$key", key);
-
-            update.Parameters.AddWithValue(
-                "$value",
-                _protector.Protect(stored));
-
-            update.ExecuteNonQuery();
+            transaction.Commit();
         }
 
-        transaction.Commit();
+        if (migrated)
+        {
+            ScrubMigratedSecrets();
+        }
+    }
+
+    /*
+     * Takes the plaintext the migration just superseded out of the
+     * files, not just out of the live rows. Committing alone leaves it
+     * twice over: in the write-ahead log, which still holds the old
+     * pages, and in the freed space of the pages the new rows landed
+     * in, because SQLite reuses those bytes rather than erasing them.
+     *
+     * So, in order: fold the log into the database and truncate it,
+     * rebuild the database into fresh pages (VACUUM is what actually
+     * drops the old ones -- no pragma erases free space in place), and
+     * checkpoint again, because the rebuild itself writes.
+     *
+     * Best effort on purpose. VACUUM needs the database to itself, and
+     * the service and the control panel share this file; a rebuild
+     * that loses that race is skipped rather than refused, and
+     * secure_delete on every connection means whatever overwrites
+     * those values next leaves nothing behind either.
+     */
+    private void ScrubMigratedSecrets()
+    {
+        try
+        {
+            using var connection = OpenConnection();
+
+            using (var checkpoint = connection.CreateCommand())
+            {
+                checkpoint.CommandText = """
+                    PRAGMA wal_checkpoint(TRUNCATE);
+                    """;
+
+                checkpoint.ExecuteNonQuery();
+            }
+
+            using (var vacuum = connection.CreateCommand())
+            {
+                vacuum.CommandText = "VACUUM;";
+
+                vacuum.ExecuteNonQuery();
+            }
+
+            using var finalCheckpoint = connection.CreateCommand();
+
+            finalCheckpoint.CommandText = """
+                PRAGMA wal_checkpoint(TRUNCATE);
+                """;
+
+            finalCheckpoint.ExecuteNonQuery();
+        }
+        catch (Exception)
+        {
+            /*
+             * Another process had the file, or the filesystem would not
+             * give us the temporary file VACUUM needs. The secrets are
+             * wrapped either way; only the removal of the superseded
+             * bytes is deferred.
+             */
+        }
     }
 
     /*
