@@ -92,11 +92,12 @@ gateway could not bind is exactly what is behind a `502`, so it is
 named rather than reported as healthy.
 
 It asks for administrator rights, because
-`C:\ProgramData\ByteBridge` holds your database passwords in the clear
-beside the API key, and that key is all that stands between the public
-internet and those databases. The folder is restricted to
-Administrators and the service account, so no other account on the
-machine can read it.
+`C:\ProgramData\ByteBridge` holds your database passwords beside the
+API key, and that key is all that stands between the public internet
+and those databases. The secrets are encrypted at rest with a key that
+never leaves the machine, but on the running machine any administrator
+can still read them, so the folder is restricted to Administrators and
+the service account, and no other account on the machine can read it.
 
 ### Windows Server Core
 
@@ -208,9 +209,12 @@ API key as a database credential.
   written; the statement is.
 
 Connections are stored in
-`C:\ProgramData\ByteBridge\bytebridge.db`. Firebird passwords are kept
-there in plain text, so that file deserves the same care as the
-credentials themselves.
+`C:\ProgramData\ByteBridge\bytebridge.db`. Firebird passwords and the
+API key are encrypted there with a key that never leaves the machine —
+DPAPI on Windows, an owner-only key file on Linux — so a stolen copy
+of the file, from a backup or a disk image, opens nothing. On the
+running machine itself an administrator can still unwrap them, so that
+file keeps deserving the same care as the credentials themselves.
 
 ## Build from source
 

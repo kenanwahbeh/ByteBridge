@@ -58,11 +58,12 @@ gateway could not bind is exactly what is behind a `502`, so it is
 named rather than reported as healthy.
 
 It asks for administrator rights, because
-`C:\ProgramData\ByteBridge` holds your database passwords in the clear
-beside the API key, and that key is all that stands between the public
-internet and those databases. The folder is restricted to
-Administrators and the service account, so no other account on the
-machine can read it.
+`C:\ProgramData\ByteBridge` holds your database passwords beside the
+API key, and that key is all that stands between the public internet
+and those databases. The secrets are encrypted at rest with a key that
+never leaves the machine, but on the running machine any administrator
+can still read them, so the folder is restricted to Administrators and
+the service account, and no other account on the machine can read it.
 
 ### Windows Server Core
 

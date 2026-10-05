@@ -63,6 +63,20 @@ file is the single source of truth for what shipped.
   shipped it. The gateway, the Windows service and the control panel
   are unchanged.
 
+### Security
+
+- **The secrets in `bytebridge.db` are encrypted at rest.** Firebird
+  passwords, the API key and the enrolment claim secret used to sit in
+  the settings file in plain text, so a stolen copy — a backup, a disk
+  image — handed them over. They are now wrapped with a key that never
+  leaves the machine: DPAPI on Windows, an owner-only key file beside
+  the database on Linux. Existing files are migrated on first open, and
+  a file copied to another machine no longer yields its secrets —
+  passwords read empty until re-entered, and the API key is re-minted.
+  On the running machine itself an administrator can still unwrap them,
+  which is why the data folder stays restricted to Administrators and
+  the service account.
+
 ## [3.0.0] - 2026-10-01
 
 ### Changed
