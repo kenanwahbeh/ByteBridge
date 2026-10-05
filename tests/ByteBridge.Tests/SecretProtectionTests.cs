@@ -378,7 +378,11 @@ public class SecretProtectionTests
                 StringComparison.Ordinal);
         }
 
-        // And the log was truncated rather than left holding frames.
+        /*
+         * And the log was truncated rather than left holding frames.
+         * Length rather than opening the file, because the pooled
+         * connections hold it open on Windows.
+         */
         var wal = root.CurrentDatabasePath + "-wal";
 
         Assert.True(
@@ -409,9 +413,27 @@ public class SecretProtectionTests
                 continue;
             }
 
+            /*
+             * Opened with FileShare left alone, because the pooled
+             * connections this test cannot dispose still hold these
+             * files: on Linux reading an open file is fine, and on
+             * Windows it is an IOException unless the handle is opened
+             * for sharing. ReadWrite|Delete covers the pooled writer,
+             * and the read is of raw bytes either way.
+             */
+            using var stream = new FileStream(
+                file,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+
+            using var buffer = new MemoryStream();
+
+            stream.CopyTo(buffer);
+
             text.Append(
                 System.Text.Encoding.Latin1.GetString(
-                    File.ReadAllBytes(file)));
+                    buffer.ToArray()));
         }
 
         return text.ToString();
