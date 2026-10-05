@@ -39,7 +39,7 @@ flowchart LR
 
 | Project | Path | Target | What it is |
 | --- | --- | --- | --- |
-| `ByteBridge` | repo root (`*.xaml`, `*.cs`) | `net10.0-windows`, WPF + WPF-UI | The control panel. Runs elevated (`app.manifest`), one copy per Windows session, lives in the tray. |
+| `ByteBridge` | `app/` (`*.xaml`, `*.cs`) | `net10.0-windows`, WPF + WPF-UI | The control panel. Runs elevated (`app.manifest`), one copy per Windows session, lives in the tray. |
 | `ByteBridge.Core` | `core/` | `net10.0` | The gateway, the Firebird executor, storage, the request log, localisation, and the admin CLI. No Windows APIs, so the tests run on Linux. |
 | `ByteBridge.Service` | `service/` | `net10.0-windows` | The service host. With no arguments it is the service; with arguments it is the admin CLI (`Cli.Run`) for Server Core. |
 | `ByteBridge.Tests` | `tests/ByteBridge.Tests/` | `net10.0` | xUnit. Drives a real listener on a spare port against a temporary data folder. |
@@ -49,10 +49,10 @@ One thing at the root is **not** part of the product:
 - `installer/` — the Inno Setup (`.exe`) and WiX (`.msi`) definitions,
   built only by the release workflow.
 
-The root `ByteBridge.csproj` globs every `.cs` under the repo, so it
-excludes `core/`, `service/` and `tests/` by hand. **A new project
-directory needs adding to that exclude list**, or its sources compile
-into the app twice.
+The app project lives in `app/`, so the SDK's default glob only ever
+picks up that project's own sources. There is no exclusion list to
+maintain: a new project directory anywhere else in the repo cannot
+leak into the app's build.
 
 ## Where things live in `core/`
 

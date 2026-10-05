@@ -218,7 +218,7 @@ Needs the .NET 10 SDK and Windows.
 
 ```
 dotnet build ByteBridge.slnx
-dotnet run --project ByteBridge.csproj
+dotnet run --project app/ByteBridge.csproj
 ```
 
 To produce the installers the way the release does, see
