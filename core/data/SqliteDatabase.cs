@@ -8,6 +8,7 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using Microsoft.Data.Sqlite;
 using ByteBridge.Configuration;
+using ByteBridge.Security;
 
 namespace ByteBridge.Data;
 
@@ -42,6 +43,36 @@ public class SqliteDatabase
      */
     public Exception? PermissionsError { get; }
 
+    /*
+     * Wraps and unwraps the secrets this file holds: the Firebird
+     * passwords, the API key and the enrolment claim secret. See
+     * core/Security/SecretProtector.cs for what that does and does
+     * not protect against.
+     */
+    private readonly ISecretProtector _protector;
+
+    /*
+     * Settings keys whose values are secrets, stored protected.
+     * GetSetting and SetSetting wrap and unwrap them transparently,
+     * so their callers keep dealing in plaintext.
+     */
+    private static readonly HashSet<string> ProtectedSettingKeys =
+        new(StringComparer.Ordinal)
+        {
+            "Gateway.ApiKey",
+            "Enrollment.ClaimSecret"
+        };
+
+    /*
+     * Set when a stored secret could not be opened on this machine --
+     * the file was copied from elsewhere, or the key is gone. The
+     * affected values come back empty rather than wrong, and the
+     * unreadable originals are left in place for the owner to
+     * re-enter. Reported rather than thrown, the way PermissionsError
+     * is, so one bad value does not take everything else down.
+     */
+    public string? SecretsError { get; private set; }
+
     public SqliteDatabase()
         : this(null)
     {
@@ -52,7 +83,9 @@ public class SqliteDatabase
      * CommonApplicationData in a real install. Tests pass a temporary
      * directory so they never touch a machine's real settings.
      */
-    public SqliteDatabase(string? dataRoot)
+    public SqliteDatabase(
+        string? dataRoot,
+        ISecretProtector? protector = null)
     {
         string directory;
 
@@ -112,7 +145,12 @@ public class SqliteDatabase
         _connectionString =
             $"Data Source={_databasePath}";
 
+        _protector =
+            protector ?? SecretProtector.ForMachine(directory);
+
         Initialize();
+
+        MigrateSecrets();
     }
 
     /*
@@ -243,6 +281,26 @@ public class SqliteDatabase
                 testedAt = parsedDate;
             }
 
+            var storedPassword = reader.GetString(5);
+
+            /*
+             * One unreadable row must not take the rest of the
+             * connections down with it. It comes back with an empty
+             * password: its queries fail at the database, and typing
+             * the password again in the window or with db add fixes
+             * the row.
+             */
+            if (!_protector.TryUnprotect(
+                    storedPassword,
+                    out var password))
+            {
+                password = string.Empty;
+
+                SecretsError =
+                    "A stored database password could not be decrypted " +
+                    "on this machine. Re-enter it to repair the connection.";
+            }
+
             result.Add(
                 new DatabaseConfig
                 {
@@ -251,7 +309,7 @@ public class SqliteDatabase
                     Server = reader.GetString(2),
                     Port = reader.GetInt32(3),
                     Username = reader.GetString(4),
-                    Password = reader.GetString(5),
+                    Password = password,
                     Database = reader.GetString(6),
                     Enabled = reader.GetInt32(7) == 1,
                     LastTestSuccessful = reader.GetInt32(8) == 1,
@@ -611,7 +669,29 @@ public class SqliteDatabase
 
         command.Parameters.AddWithValue("$key", key);
 
-        return command.ExecuteScalar() as string;
+        var value = command.ExecuteScalar() as string;
+
+        if (value == null || !ProtectedSettingKeys.Contains(key))
+        {
+            return value;
+        }
+
+        if (_protector.TryUnprotect(value, out var plaintext))
+        {
+            return plaintext;
+        }
+
+        /*
+         * Reported as "not set": the API key path then mints a fresh
+         * one and enrolment restarts, both recoverable, while the
+         * unreadable original is left alone until something
+         * deliberately replaces it. SecretsError says why.
+         */
+        SecretsError =
+            $"The stored secret \"{key}\" could not be decrypted " +
+            "on this machine.";
+
+        return null;
     }
 
     /*
@@ -639,6 +719,11 @@ public class SqliteDatabase
 
     public void SetSetting(string key, string value)
     {
+        if (ProtectedSettingKeys.Contains(key))
+        {
+            value = _protector.Protect(value);
+        }
+
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
 
@@ -940,6 +1025,102 @@ public class SqliteDatabase
     }
 
     /*
+     * Rewrites secrets stored by versions from before protection
+     * existed. Runs on every open: it is a handful of rows, and
+     * idempotent because already-protected values are skipped.
+     *
+     * A wrapped value this machine cannot open is left exactly as it
+     * is -- overwriting it would destroy whatever it was. Reads
+     * report it empty and SecretsError explains, until the owner
+     * re-enters it, which writes a fresh protected value.
+     */
+    private void MigrateSecrets()
+    {
+        using var connection = OpenConnection();
+        using var transaction = connection.BeginTransaction();
+
+        var stalePasswords = new List<(string Id, string Password)>();
+
+        using (var read = connection.CreateCommand())
+        {
+            read.Transaction = transaction;
+            read.CommandText = "SELECT Id, Password FROM Databases;";
+
+            using var reader = read.ExecuteReader();
+
+            while (reader.Read())
+            {
+                var stored = reader.GetString(1);
+
+                if (!_protector.IsProtected(stored))
+                {
+                    stalePasswords.Add(
+                        (reader.GetString(0), stored));
+                }
+            }
+        }
+
+        foreach (var (id, password) in stalePasswords)
+        {
+            using var update = connection.CreateCommand();
+
+            update.Transaction = transaction;
+            update.CommandText = """
+                UPDATE Databases
+                SET Password = $password
+                WHERE Id = $id;
+                """;
+
+            update.Parameters.AddWithValue(
+                "$password",
+                _protector.Protect(password));
+
+            update.Parameters.AddWithValue("$id", id);
+
+            update.ExecuteNonQuery();
+        }
+
+        foreach (var key in ProtectedSettingKeys)
+        {
+            string? stored;
+
+            using (var read = connection.CreateCommand())
+            {
+                read.Transaction = transaction;
+                read.CommandText = """
+                    SELECT SettingValue
+                    FROM Settings
+                    WHERE SettingKey = $key;
+                    """;
+
+                read.Parameters.AddWithValue("$key", key);
+
+                stored = read.ExecuteScalar() as string;
+            }
+
+            if (stored == null || _protector.IsProtected(stored))
+            {
+                continue;
+            }
+
+            using var update = connection.CreateCommand();
+
+            update.Transaction = transaction;
+            update.CommandText = UpsertSetting;
+
+            update.Parameters.AddWithValue("$key", key);
+
+            update.Parameters.AddWithValue(
+                "$value",
+                _protector.Protect(stored));
+
+            update.ExecuteNonQuery();
+        }
+
+        transaction.Commit();
+    }
+
+    /*
      * OAuth session management.
      */
 
@@ -1042,7 +1223,7 @@ public class SqliteDatabase
         command.ExecuteNonQuery();
     }
 
-    private static void AddParameters(
+    private void AddParameters(
         SqliteCommand command,
         DatabaseConfig database)
     {
@@ -1068,7 +1249,7 @@ public class SqliteDatabase
 
         command.Parameters.AddWithValue(
             "$password",
-            database.Password);
+            _protector.Protect(database.Password));
 
         command.Parameters.AddWithValue(
             "$database",

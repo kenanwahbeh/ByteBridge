@@ -42,9 +42,12 @@ API key as a database credential.
   written; the statement is. See [The request log](request-log.md).
 
 Connections are stored in
-`C:\ProgramData\ByteBridge\bytebridge.db`. Firebird passwords are kept
-there in plain text, so that file deserves the same care as the
-credentials themselves.
+`C:\ProgramData\ByteBridge\bytebridge.db`. Firebird passwords and the
+API key are encrypted there with a key that never leaves the machine —
+DPAPI on Windows, an owner-only key file on Linux — so a stolen copy
+of the file, from a backup or a disk image, opens nothing. On the
+running machine itself an administrator can still unwrap them, so that
+file keeps deserving the same care as the credentials themselves.
 
 ## Failed-key lockout
 

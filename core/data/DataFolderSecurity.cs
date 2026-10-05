@@ -7,11 +7,14 @@ namespace ByteBridge.Data;
 /*
  * Locks down the folder holding the settings file.
  *
- * That file carries the Firebird passwords in the clear and the gateway
- * API key, and the key is the only thing between the public internet,
- * by way of the tunnel, and those databases. Left to inherit from
- * C:\ProgramData it would be readable by every account on the machine,
- * which on a server is a real number of accounts.
+ * That file carries the Firebird passwords and the gateway API key,
+ * and the key is the only thing between the public internet, by way
+ * of the tunnel, and those databases. The secrets are wrapped at rest
+ * (see core/Security/SecretProtector.cs), but on the live machine any
+ * local process can ask for them to be unwrapped -- so this ACL stays
+ * the real boundary. Left to inherit from C:\ProgramData it would be
+ * readable by every account on the machine, which on a server is a
+ * real number of accounts.
  *
  * SqliteDatabase applies this itself, right after creating the folder,
  * so it covers every process that can create it. It used to live in the
