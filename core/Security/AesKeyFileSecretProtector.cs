@@ -5,14 +5,16 @@ using System.Security.Cryptography;
 namespace ByteBridge.Security;
 
 /*
- * Linux: AES-256-GCM with a random key in a file beside the database.
+ * Linux: AES-256-GCM with a random key file OUTSIDE the data folder.
  *
  * Linux has no DPAPI, so the machine key is made by hand: 32 random
- * bytes in <dataDirectory>/.secrets-key, created once and never
- * overwritten -- overwriting it would orphan every secret encrypted
- * with it. The file is owner-read/write only, and the directory above
- * it is owner-only already (DataFolderSecurity), so the key is
- * reachable by root and the service account and nobody else.
+ * bytes in .secrets-key under the given key directory -- a sibling of
+ * the data folder in a real install, so a backup of the data folder
+ * does not carry the key that opens it. The key is created once and
+ * never overwritten -- overwriting it would orphan every secret
+ * encrypted with it. The file is owner-read/write only and its
+ * directory owner-only, so the key is reachable by root and the
+ * service account and nobody else.
  *
  * Stored blob layout: 12-byte nonce, 16-byte tag, then ciphertext.
  * A fresh nonce per value, so two equal secrets do not encrypt to
@@ -26,10 +28,14 @@ public sealed class AesKeyFileSecretProtector : SecretProtectorBase
 
     private readonly byte[] _key;
 
-    public AesKeyFileSecretProtector(string dataDirectory)
+    public AesKeyFileSecretProtector(string keyDirectory)
     {
+        Directory.CreateDirectory(keyDirectory);
+
+        RestrictDirectoryToOwner(keyDirectory);
+
         _key = LoadOrCreateKey(
-            Path.Combine(dataDirectory, ".secrets-key"));
+            Path.Combine(keyDirectory, ".secrets-key"));
     }
 
     protected override byte[] ProtectBytes(byte[] plaintext)
@@ -115,6 +121,27 @@ public sealed class AesKeyFileSecretProtector : SecretProtectorBase
         }
 
         return key;
+    }
+
+    private static void RestrictDirectoryToOwner(string path)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        try
+        {
+            File.SetUnixFileMode(
+                path,
+                UnixFileMode.UserRead |
+                UnixFileMode.UserWrite |
+                UnixFileMode.UserExecute);
+        }
+        catch (Exception)
+        {
+            // Best effort, as with the key file below.
+        }
     }
 
     private static void RestrictToOwner(string path)

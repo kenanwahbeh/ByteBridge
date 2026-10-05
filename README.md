@@ -55,6 +55,13 @@ offer when it is already present. That gets you the connector; pointing
 it at a tunnel still needs your own token, which is the whole point —
 see [GATEWAY.md](GATEWAY.md).
 
+Every file also carries a signed statement of where it was built, which
+the GitHub CLI can check before you run anything:
+
+```
+gh attestation verify ByteBridge-<version>-x64-setup.exe --repo kenanwahbeh/ByteBridge
+```
+
 Requires 64-bit Windows 8.1 or later. All installers are per-machine
 and ask for administrator rights once.
 
@@ -210,11 +217,17 @@ API key as a database credential.
 
 Connections are stored in
 `C:\ProgramData\ByteBridge\bytebridge.db`. Firebird passwords and the
-API key are encrypted there with a key that never leaves the machine —
-DPAPI on Windows, an owner-only key file on Linux — so a stolen copy
-of the file, from a backup or a disk image, opens nothing. On the
-running machine itself an administrator can still unwrap them, so that
-file keeps deserving the same care as the credentials themselves.
+API key are encrypted with a key that never leaves the machine and is
+kept *outside* the data folder — DPAPI on Windows; on Linux an
+owner-only key file in `/var/lib/bytebridge-keys`, a sibling of the
+data folder — so a copy of the data folder alone, from a backup or a
+stolen file, opens nothing. A full-machine image (a disk clone, a VM
+snapshot) still contains both halves on either OS and stays
+decryptable, so treat those images as credentials too. And on the
+running machine itself an administrator can still unwrap the secrets,
+which is why the folder stays restricted. See
+[Moving to a new machine](docs/reference/security.md#backups-and-moving-to-a-new-machine)
+for backup and recovery guidance.
 
 ## Build from source
 

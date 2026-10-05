@@ -8,18 +8,21 @@ namespace ByteBridge.Security;
  *
  * What this does and does not buy, stated once and for all:
  *
- *   A stolen copy of bytebridge.db -- a backup, a disk image, a
- *   shadow copy -- used to hand over every secret in plain text.
- *   Now it hands over ciphertext that only the originating machine
- *   can open. On Windows the key is the machine's DPAPI master key;
- *   on Linux it is a random key file beside the database, readable
- *   only by its owner (and the folder above it is owner-only too).
+ *   A stolen copy of bytebridge.db on its own -- the data folder
+ *   backed up, the file exfiltrated -- used to hand over every
+ *   secret in plain text. Now it hands over ciphertext: on Windows
+ *   the key is the machine's DPAPI master key, which lives in the
+ *   OS profile, not the data folder; on Linux it is a random key
+ *   file in a SIBLING of the data folder, never inside it, so a
+ *   backup of the data folder does not carry the key that opens it.
  *
  *   It does NOT keep secrets from someone already running code as
  *   an administrator (or root) on the live machine: LocalMachine
  *   DPAPI decrypts for any local process, and root reads any file.
- *   That boundary was and stays the data-folder ACL. What changes
- *   is that the file on its own is no longer enough.
+ *   And a FULL-MACHINE image -- disk clone, VM snapshot -- contains
+ *   both halves on either OS, so it stays decryptable. Those images
+ *   remain credentials in their own right. What this changes is
+ *   that the data folder on its own is no longer enough.
  */
 public interface ISecretProtector
 {
@@ -62,13 +65,39 @@ public static class SecretProtector
 
     /*
      * The protector for this machine: DPAPI on Windows, an AES key
-     * file on Linux. The data directory is where the Linux key file
-     * lives; it is ignored on Windows.
+     * file on Linux. The data directory only locates the Linux key
+     * folder; it is ignored on Windows.
      */
     public static ISecretProtector ForMachine(string dataDirectory) =>
         OperatingSystem.IsWindows()
             ? new DpapiSecretProtector()
-            : new AesKeyFileSecretProtector(dataDirectory);
+            : new AesKeyFileSecretProtector(
+                KeyDirectory(dataDirectory));
+
+    /*
+     * Where the Linux key lives: a SIBLING of the data directory,
+     * never inside it. Backing up bytebridge.db means backing up the
+     * data folder, and a backup that carried the key alongside the
+     * ciphertext would defeat the whole point. BYTEBRIDGE_KEY_DIR
+     * overrides, e.g. to match a site's backup policy.
+     */
+    internal static string KeyDirectory(string dataDirectory)
+    {
+        var overridden =
+            Environment.GetEnvironmentVariable("BYTEBRIDGE_KEY_DIR");
+
+        if (!string.IsNullOrWhiteSpace(overridden))
+        {
+            return overridden;
+        }
+
+        var parent =
+            Path.GetDirectoryName(
+                Path.GetFullPath(dataDirectory))
+            ?? dataDirectory;
+
+        return Path.Combine(parent, "bytebridge-keys");
+    }
 }
 
 /*

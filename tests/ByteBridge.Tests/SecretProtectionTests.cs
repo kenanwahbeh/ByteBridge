@@ -1,3 +1,4 @@
+using System.Text;
 using Microsoft.Data.Sqlite;
 using Xunit;
 using ByteBridge.Configuration;
@@ -257,6 +258,163 @@ public class SecretProtectionTests
 
         Assert.False(string.IsNullOrEmpty(reminted));
         Assert.NotEqual(originalKey, reminted);
+    }
+
+    [Fact]
+    public void The_Key_Lives_Outside_The_Data_Folder()
+    {
+        using var root = new TempDataRoot();
+
+        var database = root.OpenDatabase();
+
+        database.GetGatewayConfig();
+
+        var dataFolder =
+            System.IO.Path.Combine(root.Path, "ByteBridge");
+
+        /*
+         * Whatever the OS, nothing named .secrets-key may sit beside
+         * bytebridge.db: a copy of the data folder must not carry the
+         * key that opens it. On Linux the key is a sibling directory
+         * away, owner-only, with an owner-read/write file inside.
+         */
+        Assert.False(
+            File.Exists(
+                System.IO.Path.Combine(
+                    dataFolder, ".secrets-key")));
+
+        if (!OperatingSystem.IsWindows())
+        {
+            var keyFile = System.IO.Path.Combine(
+                root.Path, "bytebridge-keys", ".secrets-key");
+
+            Assert.True(File.Exists(keyFile));
+
+            Assert.Equal(
+                UnixFileMode.UserRead | UnixFileMode.UserWrite,
+                File.GetUnixFileMode(keyFile));
+        }
+    }
+
+    [Fact]
+    public void Migrating_Leaves_No_Plaintext_In_Any_Database_File()
+    {
+        const string LegacyPassword = "legacy-plaintext-password";
+        const string LegacyApiKey = "legacy-plaintext-api-key";
+        const string LegacyClaimSecret = "legacy-plaintext-claim-secret";
+
+        using var root = new TempDataRoot();
+
+        var database = root.OpenDatabase();
+
+        database.AddConnection(SampleConnection());
+        database.GetGatewayConfig();
+
+        /*
+         * The state a version from before protection existed would
+         * have left: every secret readable in the file itself, not
+         * only in the log. Each row is seeded first -- the claim
+         * secret in particular is written by the enrolment flow
+         * rather than the panel, so nothing has written a row there
+         * yet -- and then the log is checkpointed into the main file,
+         * so what this test hunts for afterwards is the
+         * leftover-in-a-page case rather than only the log.
+         */
+        RawExecute(
+            root.CurrentDatabasePath,
+            $"UPDATE Databases SET Password = '{LegacyPassword}';");
+
+        RawExecute(
+            root.CurrentDatabasePath,
+            $"UPDATE Settings SET SettingValue = '{LegacyApiKey}' " +
+            "WHERE SettingKey = 'Gateway.ApiKey';");
+
+        RawExecute(
+            root.CurrentDatabasePath,
+            "INSERT INTO Settings (SettingKey, SettingValue) " +
+            $"VALUES ('Enrollment.ClaimSecret', '{LegacyClaimSecret}');");
+
+        RawExecute(
+            root.CurrentDatabasePath,
+            "PRAGMA wal_checkpoint(TRUNCATE);");
+
+        Assert.Contains(
+            LegacyPassword,
+            AllDatabaseText(root.CurrentDatabasePath),
+            StringComparison.Ordinal);
+
+        // Opens, migrates, and scrubs.
+        var reopened = root.OpenDatabase();
+
+        Assert.Equal(
+            LegacyPassword,
+            reopened.GetConnections().Single().Password);
+
+        Assert.Equal(
+            LegacyApiKey,
+            reopened.GetGatewayConfig().ApiKey);
+
+        Assert.Equal(
+            LegacyClaimSecret,
+            reopened.GetSetting("Enrollment.ClaimSecret"));
+
+        /*
+         * The migrated values still work, and the plaintext they
+         * replaced is in none of the three files -- not the database,
+         * not the write-ahead log, not the shared-memory index.
+         */
+        SqliteConnection.ClearAllPools();
+
+        foreach (var plaintext in new[]
+                 {
+                     LegacyPassword,
+                     LegacyApiKey,
+                     LegacyClaimSecret
+                 })
+        {
+            Assert.DoesNotContain(
+                plaintext,
+                AllDatabaseText(root.CurrentDatabasePath),
+                StringComparison.Ordinal);
+        }
+
+        // And the log was truncated rather than left holding frames.
+        var wal = root.CurrentDatabasePath + "-wal";
+
+        Assert.True(
+            !File.Exists(wal) || new FileInfo(wal).Length == 0);
+    }
+
+    /*
+     * Every file SQLite may have written, as text: the database, the
+     * write-ahead log and the shared-memory index, each if it exists.
+     * Latin-1 so a byte-for-byte reading does not throw on whatever
+     * the files happen to contain.
+     */
+    private static string AllDatabaseText(string databasePath)
+    {
+        var files = new List<string> { databasePath };
+
+        foreach (var suffix in new[] { "-wal", "-shm" })
+        {
+            files.Add(databasePath + suffix);
+        }
+
+        var text = new StringBuilder();
+
+        foreach (var file in files)
+        {
+            if (!File.Exists(file))
+            {
+                continue;
+            }
+
+            text.Append(
+                System.Text.Encoding.Latin1.GetString(
+                    File.ReadAllBytes(file)));
+        }
+
+        return text.ToString();
     }
 
     [Fact]
