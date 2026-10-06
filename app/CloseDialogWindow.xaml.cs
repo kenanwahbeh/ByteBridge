@@ -1,6 +1,7 @@
 using System;
 using System.Windows;
 using System.Windows.Input;
+using ByteBridge.Gateway;
 using ByteBridge.Localization;
 
 namespace ByteBridge;
@@ -22,7 +23,7 @@ public partial class CloseDialogWindow : Window
          * also needs to read right-to-left rather than force Arabic
          * text through a left-to-right layout.
          */
-        FlowDirection = Strings.CurrentLanguage == "ar"
+        FlowDirection = Strings.IsRightToLeft
             ? FlowDirection.RightToLeft
             : FlowDirection.LeftToRight;
 

@@ -1,7 +1,9 @@
 using System;
 using System.ComponentModel;
 using System.Threading.Tasks;
+using ByteBridge.Configuration;
 using ByteBridge.Data;
+using ByteBridge.Gateway;
 using ByteBridge.Localization;
 
 namespace ByteBridge;
@@ -43,7 +45,7 @@ public sealed class GatewaySwitch
          * port outside 1 to 65535, so keeping one would have started the
          * gateway on the old port and reported that it worked.
          */
-        if (port is < 1 or > 65535)
+        if (port is int asked && !GatewayConfig.IsValidPort(asked))
         {
             return Strings.Get("InvalidPort");
         }
@@ -71,7 +73,7 @@ public sealed class GatewaySwitch
 
             return null;
         }
-        catch (Exception error) when (IsServiceFailure(error))
+        catch (Exception error) when (ServiceFailures.IsServiceFailure(error))
         {
             return Strings.Format("ServiceError", error.Message);
         }
@@ -96,14 +98,10 @@ public sealed class GatewaySwitch
 
             return null;
         }
-        catch (Exception error) when (IsServiceFailure(error))
+        catch (Exception error) when (ServiceFailures.IsServiceFailure(error))
         {
             return Strings.Format("ServiceStopError", error.Message);
         }
     }
 
-    private static bool IsServiceFailure(Exception error) =>
-        error is Win32Exception
-            or InvalidOperationException
-            or System.ServiceProcess.TimeoutException;
 }

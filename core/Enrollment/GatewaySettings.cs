@@ -1,3 +1,4 @@
+using ByteBridge.Configuration;
 using ByteBridge.Data;
 
 namespace ByteBridge.Enrollment;
@@ -59,7 +60,7 @@ public sealed class DatabaseGatewaySettings : IGatewaySettings
 
         config.TeamDomain = teamDomain;
         config.Audience = audience;
-        config.JwksUri = $"https://{teamDomain}/cdn-cgi/access/certs";
+        config.JwksUri = OAuthConfig.JwksUriFor(teamDomain);
         config.RequireEdgeAccess = true;
 
         _database.SaveOAuthConfig(config);

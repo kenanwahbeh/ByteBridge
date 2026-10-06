@@ -127,34 +127,42 @@ public partial class MainWindow : Window
     {
         var state = _service.State();
 
-        if (state == ServiceState.NotInstalled)
+        switch (ServiceLaunch.For(
+            state,
+            _database.GetGatewayConfig().AutoStart))
         {
-            MessageBox.Show(
-                this,
-                Strings.Get("ServiceNotInstalledMessage"),
-                Strings.Get("ServiceTitle"),
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
+            case LaunchAdvice.ServiceMissing:
+                MessageBox.Show(
+                    this,
+                    Strings.Get("ServiceNotInstalledMessage"),
+                    Strings.Get("ServiceTitle"),
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
 
-            return;
-        }
+                return;
 
-        if (state != ServiceState.Stopped
-            || !_database.GetGatewayConfig().AutoStart)
-        {
-            return;
-        }
+            /*
+             * Asked of the rule rather than of two negations here: a
+             * gateway somebody deliberately turned off is not something
+             * to ask about on every single launch.
+             */
+            case LaunchAdvice.OfferToStart:
+                var answer = MessageBox.Show(
+                    this,
+                    Strings.Get("ServiceStoppedPrompt"),
+                    Strings.Get("ServiceTitle"),
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning);
 
-        var answer = MessageBox.Show(
-            this,
-            Strings.Get("ServiceStoppedPrompt"),
-            Strings.Get("ServiceTitle"),
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Warning);
+                if (answer == MessageBoxResult.Yes)
+                {
+                    await SwitchGatewayAsync(on: true);
+                }
 
-        if (answer == MessageBoxResult.Yes)
-        {
-            await SwitchGatewayAsync(on: true);
+                return;
+
+            default:
+                return;
         }
     }
 
@@ -587,7 +595,7 @@ public partial class MainWindow : Window
     private void OpenUserGuide()
     {
         OpenInBrowser(
-            Strings.CurrentLanguage == "ar"
+            Strings.IsRightToLeft
                 ? UserGuideUrlArabic
                 : UserGuideUrlEnglish);
     }
@@ -629,48 +637,39 @@ public partial class MainWindow : Window
             state == ServiceState.Running
             && await _service.IsAnsweringAsync(config.BaseUrl);
 
-        string gatewayText;
-        Brush color;
+        var status = GatewayStatus.For(config, state, answering);
 
-        if (answering)
-        {
-            gatewayText = Strings.Format("Answering", config.BaseUrl);
-            color = Brushes.Green;
-        }
-        else if (!config.AutoStart)
-        {
-            gatewayText = Strings.Get("TurnedOff");
-            color = Brushes.Gray;
-        }
-        else if (state == ServiceState.Running)
-        {
-            gatewayText = Strings.Get("Starting");
-            color = Brushes.DarkOrange;
-        }
-        else
-        {
-            gatewayText = Strings.Get("NotRunning");
-            color = Brushes.Red;
-        }
+        StatusTextBlock.Text =
+            $"{Strings.Format(status.TextKey, config.BaseUrl)}    ·    "
+            + $"{Strings.Get(ServiceStatus.KeyFor(state))}";
 
-        var serviceKey = state switch
+        /*
+         * Keyed on the four outcome names the shared rule returns, which
+         * is what the tests pin: a key renamed here falls through to red
+         * rather than failing the build, and the tests are what say so.
+         */
+        StatusTextBlock.Foreground = status.TextKey switch
         {
-            ServiceState.Running => "ServiceRunning",
-            ServiceState.Stopped => "ServiceStopped",
-            ServiceState.Pending => "ServicePending",
-            _ => "ServiceNotInstalled"
+            "Answering" => Brushes.Green,
+            "TurnedOff" => Brushes.Gray,
+            "Starting" => Brushes.DarkOrange,
+            _ => Brushes.Red
         };
-
-        StatusTextBlock.Text = $"{gatewayText}    ·    {Strings.Get(serviceKey)}";
-        StatusTextBlock.Foreground = color;
 
         ServiceToggleButton.Visibility =
             state == ServiceState.NotInstalled
                 ? Visibility.Collapsed
                 : Visibility.Visible;
 
+        /*
+         * The gateway, not the service: with the setting off and the
+         * service up -- which is what turning it off leaves behind --
+         * this offered to stop a service nobody had asked to start,
+         * while the Web Server dialog, asking the other question,
+         * offered Turn On and set the setting back to true.
+         */
         ServiceToggleButton.Content =
-            state == ServiceState.Running
+            config.GatewayIsOn(state)
                 ? Strings.Get("StopService")
                 : Strings.Get("StartService");
 
@@ -1144,7 +1143,7 @@ public partial class MainWindow : Window
         AboutMenuItem.Header = Strings.Get("MenuHelpAbout");
 
         FlowDirection =
-            Strings.CurrentLanguage == "ar"
+            Strings.IsRightToLeft
                 ? FlowDirection.RightToLeft
                 : FlowDirection.LeftToRight;
 

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using ByteBridge.Gateway;
 using Microsoft.Extensions.Logging;
 
 namespace ByteBridge.Service;
@@ -35,9 +36,7 @@ public static class UrlReservation
          * the prefix to netsh, so it checks for itself rather than
          * trusting that it was asked for something sensible.
          */
-        if (!Uri.TryCreate(prefix, UriKind.Absolute, out var uri)
-            || uri.Scheme != Uri.UriSchemeHttp
-            || !uri.IsLoopback)
+        if (!HttpPrefixes.IsReservablePrefix(prefix))
         {
             logger.LogWarning(
                 "Refusing to reserve {Prefix}: only a loopback address is ever reserved.",

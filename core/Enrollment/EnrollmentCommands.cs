@@ -230,7 +230,7 @@ public static partial class EnrollmentCommands
     {
         var email = options.GetValueOrDefault("email", string.Empty).Trim();
 
-        if (!Address().IsMatch(email))
+        if (!IsAcceptableEmail(email))
         {
             throw new EnrollmentException(
                 "enroll needs --email <address>: the one person who will be "
@@ -342,4 +342,23 @@ public static partial class EnrollmentCommands
      */
     [GeneratedRegex(@"^[^\s@<>()\[\]\\,;:""]+@[^\s@<>()\[\]\\,;:""]+\.[^\s@<>()\[\]\\,;:"".]{2,}$")]
     private static partial Regex Address();
+
+    /*
+     * Whether this is an address worth attempting, asked before anything
+     * is built rather than thrown afterwards.
+     *
+     * The control panel asked a different question -- Contains('@') --
+     * and "a@" passes it, so EnrollOptionsFor threw EnrollmentException
+     * from inside an async void handler, outside the try that catches
+     * it. That is an unhandled exception on the dispatcher, and the app's
+     * own handler for those says ByteBridge hit an unexpected error and
+     * needs to close. Typing an incomplete address and pressing the
+     * button closed the control panel.
+     *
+     * Same rule as ParseEnroll, so the panel and the CLI cannot disagree
+     * about what an address is.
+     */
+    public static bool IsAcceptableEmail(string? email) =>
+        !string.IsNullOrWhiteSpace(email)
+        && Address().IsMatch(email.Trim());
 }

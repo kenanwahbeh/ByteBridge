@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using ByteBridge.Configuration;
 using ByteBridge.Data;
+using ByteBridge.Gateway;
 using ByteBridge.Localization;
 
 namespace ByteBridge;
@@ -32,7 +33,7 @@ public partial class AddDatabaseWizardWindow : Window
     {
         InitializeComponent();
 
-        FlowDirection = Strings.CurrentLanguage == "ar"
+        FlowDirection = Strings.IsRightToLeft
             ? FlowDirection.RightToLeft
             : FlowDirection.LeftToRight;
 
@@ -332,7 +333,8 @@ public partial class AddDatabaseWizardWindow : Window
                     return false;
                 }
 
-                if (!int.TryParse(PortTextBox.Text.Trim(), out var port) || port < 1 || port > 65535)
+                if (!int.TryParse(PortTextBox.Text.Trim(), out var port)
+                    || !GatewayConfig.IsValidPort(port))
                 {
                     PortTextBox.Focus();
                     return false;

@@ -2,6 +2,8 @@ using System;
 using System.Windows;
 using System.Windows.Media;
 using ByteBridge.Data;
+using ByteBridge.Configuration;
+using ByteBridge.Gateway;
 using ByteBridge.Localization;
 
 namespace ByteBridge;
@@ -18,7 +20,7 @@ public partial class CloudflareTunnelWindow : Window
     {
         InitializeComponent();
 
-        FlowDirection = Strings.CurrentLanguage == "ar"
+        FlowDirection = Strings.IsRightToLeft
             ? FlowDirection.RightToLeft
             : FlowDirection.LeftToRight;
 
@@ -52,7 +54,8 @@ public partial class CloudflareTunnelWindow : Window
 
         TeamDomainTextBox.Text = oauthConfig.TeamDomain;
         AudienceTextBox.Text = oauthConfig.Audience;
-        PublicHostnameTextBox.Text = ExtractHostname(oauthConfig.RedirectUri);
+        PublicHostnameTextBox.Text =
+            OAuthConfig.HostFromRedirectUri(oauthConfig.RedirectUri);
 
         if (oauthConfig.Enabled)
         {
@@ -80,13 +83,6 @@ public partial class CloudflareTunnelWindow : Window
      * actually has to look up (the tunnel's public hostname); the
      * scheme and path are always the same.
      */
-    private static string ExtractHostname(string redirectUri)
-    {
-        return Uri.TryCreate(redirectUri, UriKind.Absolute, out var uri)
-            ? uri.Host
-            : string.Empty;
-    }
-
     private void OAuthToggleButton_Click(object sender, RoutedEventArgs e)
     {
         var config = _database.GetOAuthConfig();
@@ -106,16 +102,36 @@ public partial class CloudflareTunnelWindow : Window
         {
             var teamDomain = TeamDomainTextBox.Text.Trim();
             var audience = AudienceTextBox.Text.Trim();
+            var publicHostname = PublicHostnameTextBox.Text.Trim();
 
-            if (string.IsNullOrEmpty(teamDomain))
+            /*
+             * A hostname, not a URL. These two go into strings that
+             * already carry the scheme, and the command line has always
+             * refused anything else so that nobody ends up with
+             * https://https://my-team.cloudflareaccess.com/cdn-cgi/...
+             * as the JWKS URI -- which resolves to nothing, and so means
+             * no token can ever be checked: login on, every request
+             * afterwards refused, and no way back out of this dialog.
+             *
+             * Asked here as well as in the CLI because an admin types the
+             * whole URL, and this is the only place they can.
+             */
+            foreach (var (host, example) in new[]
+                     {
+                         (teamDomain, "my-team.cloudflareaccess.com"),
+                         (publicHostname, "tunnel.example.com")
+                     })
             {
-                MessageBox.Show(
-                    Strings.Get("OAuthTeamDomainRequired"),
-                    Strings.Get("AppTitle"),
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Warning);
+                if (!OAuthConfig.IsBareHostname(host))
+                {
+                    MessageBox.Show(
+                        Strings.Format("OAuthHostnameRequired", example),
+                        Strings.Get("AppTitle"),
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
 
-                return;
+                    return;
+                }
             }
 
             if (string.IsNullOrEmpty(audience))
@@ -129,24 +145,17 @@ public partial class CloudflareTunnelWindow : Window
                 return;
             }
 
-            var publicHostname = PublicHostnameTextBox.Text.Trim();
-
-            if (string.IsNullOrEmpty(publicHostname))
-            {
-                MessageBox.Show(
-                    Strings.Get("OAuthPublicHostnameRequired"),
-                    Strings.Get("AppTitle"),
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Warning);
-
-                return;
-            }
-
+            /*
+             * The redirect URI is now built from the checked hostname,
+             * so all three are present before Enabled is set: without it
+             * the browser is sent to a callback that does not exist and
+             * no session can be established at all.
+             */
             config.Enabled = true;
             config.TeamDomain = teamDomain;
             config.Audience = audience;
-            config.JwksUri = $"https://{teamDomain}/cdn-cgi/access/certs";
-            config.RedirectUri = $"https://{publicHostname}/auth/callback";
+            config.JwksUri = OAuthConfig.JwksUriFor(teamDomain);
+            config.RedirectUri = OAuthConfig.RedirectUriFor(publicHostname);
 
             _database.SaveOAuthConfig(config);
 

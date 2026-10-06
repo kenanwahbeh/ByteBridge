@@ -6,16 +6,9 @@ using System.Net.Http.Json;
 using System.ServiceProcess;
 using System.Threading;
 using System.Threading.Tasks;
+using ByteBridge.Gateway;
 
 namespace ByteBridge;
-
-public enum ServiceState
-{
-    NotInstalled,
-    Stopped,
-    Running,
-    Pending
-}
 
 /*
  * The control panel's view of the service that now hosts the gateway.
@@ -215,11 +208,7 @@ public sealed class GatewayServiceControl : IDisposable
 
             return true;
         }
-        catch (Win32Exception)
-        {
-            return false;
-        }
-        catch (InvalidOperationException)
+        catch (Exception error) when (ServiceFailures.IsServiceControlFailure(error))
         {
             return false;
         }

@@ -3,6 +3,7 @@ using System.Text;
 using System.Windows;
 using ByteBridge.Data;
 using ByteBridge.Enrollment;
+using ByteBridge.Gateway;
 using ByteBridge.Localization;
 
 namespace ByteBridge;
@@ -34,7 +35,7 @@ public partial class ConnectWindow : Window
     {
         InitializeComponent();
 
-        FlowDirection = Strings.CurrentLanguage == "ar"
+        FlowDirection = Strings.IsRightToLeft
             ? FlowDirection.RightToLeft
             : FlowDirection.LeftToRight;
 
@@ -133,7 +134,16 @@ public partial class ConnectWindow : Window
         {
             var email = EmailTextBox.Text.Trim();
 
-            if (email.Length == 0 || !email.Contains('@'))
+            /*
+             * The same rule ParseEnroll enforces, asked here because
+             * the throw would otherwise escape: this call sits outside
+             * RunAsync, so an EnrollmentException from it reaches the
+             * dispatcher unhandled and the app's handler for those says
+             * ByteBridge hit an unexpected error and needs to close.
+             * Contains('@') let "a@" through, so finishing an address
+             * badly was enough to close the panel.
+             */
+            if (!EnrollmentCommands.IsAcceptableEmail(email))
             {
                 MessageBox.Show(
                     Strings.Get("ConnectEmailRequired"),

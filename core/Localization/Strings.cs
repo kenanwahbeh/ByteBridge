@@ -173,6 +173,21 @@ public static class Strings
             ["OAuthAudienceRequired"] = "Please enter the Access application audience tag.\n\nFind it in Zero Trust → Access → Applications → Settings.",
             ["OAuthPublicHostnameRequired"] = "Please enter the public hostname your Cloudflare Tunnel exposes.\n\nExample: api.yourcompany.com\n\nThis is where Cloudflare Access sends visitors back after they sign in — without it, login cannot complete.",
 
+            /*
+             * Asked when the box holds something that is not a hostname.
+             * Two of them went unchecked until the panel and the command
+             * line were made to ask the same question: a URL typed into a
+             * hostname field produced a JWKS URI of
+             * https://https://..., which resolves to nothing, so no token
+             * could ever be checked and every request afterwards was
+             * refused.
+             */
+            ["OAuthHostnameRequired"] =
+                "Enter a bare hostname such as {0}, without https:// or a path.\n\nWhat goes in the two hostname boxes is put into a URL that already has the scheme, so a full URL would end up as https://https://...",
+
+            // Close dialog
+            ["CloseTitle"] = "ByteBridge",
+
             // Close dialog
             ["CloseTitle"] = "ByteBridge",
             ["CloseMessage"] = "What would you like to do?",
@@ -361,6 +376,12 @@ public static class Strings
             ["OAuthAudienceRequired"] = "الرجاء إدخال علامة جمهور تطبيق Access.\n\nاعثر عليها في Zero Trust → Access → Applications → Settings.",
             ["OAuthPublicHostnameRequired"] = "الرجاء إدخال النطاق العام الذي يعرضه Cloudflare Tunnel.\n\nمثال: api.yourcompany.com\n\nهذا هو المكان الذي يعيد Cloudflare Access توجيه الزوار إليه بعد تسجيل الدخول — بدونه لا يمكن إتمام تسجيل الدخول.",
 
+            ["OAuthHostnameRequired"] =
+                "أدخل نطاقاً مجرداً مثل {0}، بدون https:// وبدون مسار.\n\nما يُكتب في مربّعي النطاق يوضع داخل رابط يحمل البروتوكول أصلاً، فإذا كُتب رابط كامل يصبح https://https://...",
+
+            // Close dialog
+            ["CloseTitle"] = "ByteBridge",
+
             // Close dialog
             ["CloseTitle"] = "ByteBridge",
             ["CloseMessage"] = "ماذا تريد أن تفعل؟",
@@ -396,6 +417,21 @@ public static class Strings
     private static string _currentLanguage = "en";
 
     public static string CurrentLanguage => _currentLanguage;
+
+    /*
+     * Whether the windows lay themselves out right to left.
+     *
+     * Written as CurrentLanguage == "ar" in eleven places, in every
+     * window, and one of them was not about layout at all -- it picks the
+     * language of the user guide to open. So a rule that belongs to the
+     * strings is stated eleven times, and the next right-to-left language
+     * -- Hebrew, Urdu, Kurdish -- needs all eleven found by hand.
+     *
+     * Anything not known to be right-to-left is left-to-right, which is
+     * the answer that leaves a window usable rather than mirrored.
+     */
+    public static bool IsRightToLeft =>
+        string.Equals(_currentLanguage, "ar", StringComparison.OrdinalIgnoreCase);
 
     public static void SetLanguage(string language)
     {

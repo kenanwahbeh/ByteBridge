@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using Microsoft.Win32;
 using ByteBridge.Configuration;
 using ByteBridge.Data;
+using ByteBridge.Gateway;
 using ByteBridge.Localization;
 
 namespace ByteBridge;
@@ -27,7 +28,7 @@ public partial class SettingsWindow : Window
     {
         InitializeComponent();
 
-        FlowDirection = Strings.CurrentLanguage == "ar"
+        FlowDirection = Strings.IsRightToLeft
             ? FlowDirection.RightToLeft
             : FlowDirection.LeftToRight;
 
@@ -147,7 +148,7 @@ public partial class SettingsWindow : Window
     }
 
     private static MessageBoxOptions ReadingOptions() =>
-        Strings.CurrentLanguage == "ar"
+        Strings.IsRightToLeft
             ? MessageBoxOptions.RightAlign | MessageBoxOptions.RtlReading
             : MessageBoxOptions.None;
 
@@ -185,7 +186,7 @@ public partial class SettingsWindow : Window
 
     private void ApplyLocalization()
     {
-        FlowDirection = Strings.CurrentLanguage == "ar"
+        FlowDirection = Strings.IsRightToLeft
             ? FlowDirection.RightToLeft
             : FlowDirection.LeftToRight;
 

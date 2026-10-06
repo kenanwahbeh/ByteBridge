@@ -336,13 +336,13 @@ public sealed class GatewayServer : IDisposable
     {
         return exception.ErrorCode switch
         {
-            5 =>
+            ListenerFailures.AccessDenied =>
                 $"Windows refused to reserve {config.Prefix}\n\n" +
                 "Either run ByteBridge as administrator once, or grant the " +
                 "reservation from an elevated prompt:\n\n" +
                 $"netsh http add urlacl url={config.Prefix} user=\"%USERNAME%\"",
 
-            32 or 183 =>
+            var code when ListenerFailures.IsAddressInUse(code) =>
                 $"Port {config.Port} is already in use by another program.\n\n" +
                 "Pick a different port, or stop whatever is holding it:\n\n" +
                 $"netstat -ano | findstr :{config.Port}",
