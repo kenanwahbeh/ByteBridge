@@ -32,6 +32,20 @@ namespace ByteBridge.Tests;
  * The decisions are in core now. The windows and the service read them,
  * and these are the questions that used to have no one to ask them.
  */
+/*
+ * The one collection for the tests that change the current language.
+ *
+ * Strings.SetLanguage is static, and xUnit runs different test classes
+ * at the same time, so two classes that each set the language -- and
+ * each read it back in its own finally -- are reading and writing the
+ * same field over each other's heads. The failure is a test asserting
+ * Arabic and getting English, which reads as a translation bug and is
+ * nothing of the kind.
+ *
+ * The collection is what makes them take turns. Same reason the console
+ * redirection tests share one.
+ */
+[Collection("Language")]
 public class WindowsLayerTests
 {
     // ---- The reservation the service makes as Local System -------------
@@ -476,7 +490,11 @@ public class WindowsLayerTests
      */
     [Theory]
     [InlineData("ar", true)]
-    [InlineData("AR", true)]
+    // Not the language Strings recognises: SetLanguage gives it English
+    // text, so mirroring its window would be the one combination that
+    // helps nobody. This case was asserted true here at first, which
+    // made the test pin the disagreement rather than the rule.
+    [InlineData("AR", false)]
     [InlineData("en", false)]
     [InlineData("fr", false)]
     [InlineData("he", false)]

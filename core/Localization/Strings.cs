@@ -187,9 +187,6 @@ public static class Strings
 
             // Close dialog
             ["CloseTitle"] = "ByteBridge",
-
-            // Close dialog
-            ["CloseTitle"] = "ByteBridge",
             ["CloseMessage"] = "What would you like to do?",
             ["MinimizeToTray"] = "Minimize to Tray",
             ["ExitApp"] = "Exit",
@@ -381,9 +378,6 @@ public static class Strings
 
             // Close dialog
             ["CloseTitle"] = "ByteBridge",
-
-            // Close dialog
-            ["CloseTitle"] = "ByteBridge",
             ["CloseMessage"] = "ماذا تريد أن تفعل؟",
             ["MinimizeToTray"] = "تصغير إلى صينية النظام",
             ["ExitApp"] = "خروج",
@@ -429,9 +423,15 @@ public static class Strings
      *
      * Anything not known to be right-to-left is left-to-right, which is
      * the answer that leaves a window usable rather than mirrored.
+     *
+     * Compared exactly, because SetLanguage switches on "ar" and treats
+     * every other spelling as English: a case-insensitive match here
+     * would mirror a window whose text was in English, which is the one
+     * combination that helps nobody. The two have to agree on which
+     * strings are Arabic, so both read the same one.
      */
     public static bool IsRightToLeft =>
-        string.Equals(_currentLanguage, "ar", StringComparison.OrdinalIgnoreCase);
+        string.Equals(_currentLanguage, "ar", StringComparison.Ordinal);
 
     public static void SetLanguage(string language)
     {

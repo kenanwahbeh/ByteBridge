@@ -662,14 +662,21 @@ public partial class MainWindow : Window
                 : Visibility.Visible;
 
         /*
-         * The gateway, not the service: with the setting off and the
-         * service up -- which is what turning it off leaves behind --
-         * this offered to stop a service nobody had asked to start,
-         * while the Web Server dialog, asking the other question,
-         * offered Turn On and set the setting back to true.
+         * The service, because this is the button that stops and starts
+         * it -- ServiceToggleButton_Click branches on the service state
+         * and nothing else, so a label derived from anything else claims
+         * one thing and does another. With AutoStart off and the service
+         * up, this reads Stop, and pressing it stops the service, which
+         * is what a service that is running should be able to answer to.
+         *
+         * GatewayIsOn is the Web Server dialog's question, not this one:
+         * that button calls TurnOnAsync, which writes AutoStart, so it
+         * has to mean the setting as well as the state. Two buttons, two
+         * questions -- the earlier attempt to make them agree made this
+         * one lie.
          */
         ServiceToggleButton.Content =
-            config.GatewayIsOn(state)
+            state == ServiceState.Running
                 ? Strings.Get("StopService")
                 : Strings.Get("StartService");
 
