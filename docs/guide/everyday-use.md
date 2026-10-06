@@ -48,7 +48,9 @@ Choose **File → New Database…**. A short wizard asks four things:
 
 If you do not know the server, path, user or password, the person or
 company that installed your accounting or business software does. Ask
-them for "the Firebird connection details".
+them for "the database connection details", and which database program it
+is — Firebird or PostgreSQL. If it is PostgreSQL, choose it in the
+**Database type** box on the first step.
 
 ## 4. Online and Offline
 

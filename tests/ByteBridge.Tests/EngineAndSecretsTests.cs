@@ -360,28 +360,45 @@ public class EngineAndSecretsTests
             var text = File.ReadAllText(
                 Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar)));
 
-            var usesIsOnline = text.Contains("IsOnline");
-
-            // The panel is the one that presents a status, so it has to
-            // use it. The others must not derive the answer at all.
-            var derivesIt =
-                Regex.IsMatch(
-                    text,
-                    @"Enabled\s*&&\s*[\w.]*LastTestSuccessful");
+            /*
+             * Both operand orders, and either one qualified: the panel
+             * writes connection.Enabled, the core writes it bare. A
+             * pattern that only caught one order would have passed on
+             * the derivation this test exists to catch -- it was
+             * "connection.Enabled && connection.LastTestSuccessful",
+             * and the first version of this regex did not match it.
+             */
+            var derivesIt = Regex.IsMatch(
+                text,
+                @"(Enabled\s*&&\s*[\w.]*LastTestSuccessful)" +
+                @"|(LastTestSuccessful\s*&&\s*[\w.]*Enabled)");
 
             Assert.True(
                 !derivesIt,
                 $"{relative} derives online status from Enabled and " +
                 "LastTestSuccessful instead of IsOnline.");
 
-            if (relative != "app/MainWindow.xaml.cs")
+            if (relative == PanelFile)
             {
+                /*
+                 * Not deriving it is not the same as using it: the
+                 * panel could decide Online some third way and this
+                 * would still pass. It has to read the property.
+                 */
                 Assert.True(
-                    !usesIsOnline || !derivesIt,
-                    $"{relative} should read IsOnline rather than derive it.");
+                    text.Contains("IsOnline"),
+                    $"{relative} presents a status but never reads IsOnline.");
+
+                // Presentational branches on Enabled are fine; a status
+                // answer is not.
+                Assert.True(
+                    Regex.IsMatch(text, @"else\s+if\s*\(\s*connection\.IsOnline\s*\)"),
+                    $"{relative} does not decide its online branch with IsOnline.");
             }
         }
     }
+
+    private const string PanelFile = "app/MainWindow.xaml.cs";
 
     private static string FindRepositoryRoot()
     {

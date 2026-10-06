@@ -53,7 +53,14 @@ password (**2**), then **Next** (**3**).
 
 > **Tip:** Not sure what to type on pages 2 and 3? The person or company that
 > installed your business software has these details. Ask them for
-> "the Firebird connection details".
+> "the database connection details", and which database program it is.
+
+> **Using PostgreSQL rather than Firebird?** Choose it in the **Database
+> type** box on page 1, before you type anything else. The port and the
+> user name fill in that one's own, and page 2 asks for a database
+> *name* instead of a file. See
+> [Database engines](../reference/database-engines.md) if you are not
+> sure.
 
 **Page 4 — Test & Finish.** Press **Test Connection** (**1**). When it
 says **Connection succeeded.** in green, press **Finish** (**2**).

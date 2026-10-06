@@ -33,6 +33,16 @@ netsh http add urlacl url=http://127.0.0.1:8080/ user="%USERNAME%"
 the app; the gateway re-reads the connection list on every request,
 so the change applies immediately.
 
-**Firebird itself is unreachable** — `/health` still answers, because
-it does not touch Firebird. `/query` returns the Firebird error, which
-is the one to act on.
+**The database server itself is unreachable** — `/health` still
+answers, because it does not touch the database. `/query` returns the
+engine's own error, which is the one to act on.
+
+**409 naming a database engine** — the connection was added by a build
+that supported an engine this one does not. Its details are kept, so open
+it in the app and choose Firebird or PostgreSQL in the **Database type**
+box; it is counted as neither Online nor Offline until you do.
+
+**The card says "Engine not supported"** — the same thing, without a
+request involved. The engine box opens with nothing selected on purpose,
+so that an unrelated edit cannot turn the row into a working Firebird
+connection against an endpoint that does not speak it.

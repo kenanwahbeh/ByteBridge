@@ -58,26 +58,33 @@ public partial class AddDatabaseWizardWindow : Window
     private bool EngineNeedsRepair { get; set; }
 
     /*
-     * Read by index, because the box is filled in the order below and
-     * an engine with no item here falls back to Firebird rather than
-     * leaving the connection without one.
-     */
-    /*
-     * Read by index, because the box is filled in the order below and
-     * an engine with no item here falls back to Firebird rather than
-     * leaving the connection without one.
+     * Read by index, because the box is filled in the order below.
      *
-     * Falling back is safe only because nothing saves while a row needs
-     * its engine repaired: TryBuildConfiguration refuses that first, so
-     * this value is never written for a row that had no engine item.
-     * Changing that order would make an unrelated edit silently turn
-     * such a row into a working Firebird connection.
+     * The fallback to Firebird is what makes this safe to read before
+     * anything is chosen, which is the state a row needing repair opens
+     * in. Nothing saves from that state: TryBuildConfiguration refuses
+     * while the box is unselected, so this value is never written for a
+     * row that had no engine item. Changing that order would make an
+     * unrelated edit silently turn such a row into a working Firebird
+     * connection.
      */
     private DatabaseType SelectedType => TypeComboBox.SelectedIndex switch
     {
         1 => DatabaseType.PostgreSql,
         _ => DatabaseType.Firebird
     };
+
+    /*
+     * Whether an engine has actually been chosen here.
+     *
+     * A row whose stored engine this build cannot serve opens with
+     * nothing selected, because the box has no item for it and
+     * showing Firebird would read as "this is a Firebird connection".
+     * Until something is picked there is no engine to build a
+     * configuration from, and that -- not the row -- is what stops the
+     * save.
+     */
+    private bool EngineChosen => TypeComboBox.SelectedIndex >= 0;
 
     private static int IndexOf(DatabaseType type) => type switch
     {
@@ -94,9 +101,21 @@ public partial class AddDatabaseWizardWindow : Window
      * Words the Database box for the engine, and moves the port and user
      * to that engine's usual ones, but only while they still hold the
      * previous engine's: a port someone typed is theirs.
+     *
+     * Nothing at all happens while the box is unselected, which is how
+     * a row needing repair opens. Returning early is what stops the
+     * Firebird fallback in SelectedType from being acted on: without it
+     * the first step would label the field "database path" and a
+     * cancelled choice would have left Firebird's wording behind for a
+     * PostgreSQL connection.
      */
     private void ApplyType(bool userChoice)
     {
+        if (!EngineChosen)
+        {
+            return;
+        }
+
         var type = SelectedType;
 
         if (userChoice)
@@ -143,9 +162,11 @@ public partial class AddDatabaseWizardWindow : Window
         /*
          * The combo has no item for an engine this build cannot serve,
          * so it would show Firebird -- which reads as "this is a
-         * Firebird connection" and would be saved as one. The empty
-         * selection is honest: nothing is chosen yet, and the save is
-         * refused until something is.
+         * Firebird connection" and would be saved as one. Nothing
+         * selected is the honest state, and it is not a dead end: the
+         * box stays enabled so choosing an engine is how the
+         * administrator repairs the row. Only an unchosen box blocks
+         * the save.
          */
         if (existing.EngineIsSupported)
         {
@@ -154,7 +175,6 @@ public partial class AddDatabaseWizardWindow : Window
         else
         {
             TypeComboBox.SelectedIndex = -1;
-            TypeComboBox.IsEnabled = false;
         }
 
         ServerTextBox.Text = existing.Server;
@@ -182,7 +202,14 @@ public partial class AddDatabaseWizardWindow : Window
     {
         var text = Strings.Get("WizardEngineUnsupported");
 
-        if (!string.IsNullOrWhiteSpace(text))
+        /*
+         * The English fallback is for a build whose Strings table lacks
+         * the key entirely, so the person is told something rather than
+         * nothing. A missing Arabic entry falls back to English inside
+         * Strings.Get, which is what makes this the right test: a
+         * non-blank result is already the right language.
+         */
+        if (string.IsNullOrWhiteSpace(text))
         {
             text = "This connection names a database engine this version " +
                    "of ByteBridge cannot serve. Choose Firebird or " +
@@ -356,10 +383,13 @@ public partial class AddDatabaseWizardWindow : Window
          * worse than the state it started in, because it now looks
          * healthy.
          *
-         * So the administrator has to choose. Refused here, and the
-         * engine box says why.
+         * So the administrator has to choose, and choosing is how they
+         * repair it: the box is left enabled with nothing selected, and
+         * only an unchosen box refuses here. Once something is picked
+         * the row is saved with that engine, which is the point of
+         * opening it.
          */
-        if (_existing != null && !_existing.EngineIsSupported)
+        if (_existing != null && !_existing.EngineIsSupported && !EngineChosen)
         {
             config = new DatabaseConfig();
 
@@ -405,6 +435,14 @@ public partial class AddDatabaseWizardWindow : Window
 
         if (!TryBuildConfiguration(out var config))
         {
+            /*
+             * Said here as well as on the save path. Without it the
+             * Test button did nothing at all and said nothing either,
+             * which reads as a broken button rather than as an engine
+             * that has to be chosen first.
+             */
+            ReportEngineNeedsRepair();
+
             return;
         }
 

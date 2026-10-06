@@ -232,16 +232,26 @@ for backup and recovery guidance.
 
 ## Build from source
 
-Needs the .NET 10 SDK and Windows.
+Needs the .NET 10 SDK and Windows — the control panel is WPF. The rest
+of the solution builds on Linux too, which is how CI runs the tests.
 
 ```
 dotnet build ByteBridge.slnx
 dotnet run --project app/ByteBridge.csproj
 ```
 
+**How the projects fit together**, and where a change belongs, is in
+[docs/developers/architecture.md](docs/developers/architecture.md).
+
 To produce the installers the way the release does, see
 [`.github/workflows/release.yml`](.github/workflows/release.yml). WiX
 and Inno Setup both only run on Windows.
+
+## Contributing
+
+Want to help build ByteBridge? Start with
+[CONTRIBUTING.md](CONTRIBUTING.md) — it covers the build, the tests, and
+the conventions a pull request is expected to follow.
 
 For how the projects fit together, see
 [docs/developers/architecture.md](docs/developers/architecture.md).

@@ -15,15 +15,28 @@ API key as a database credential.
   gateway picks the new key up within a few seconds, and from then on
   every client still sending the old one is refused.
 - Send values in `parameters`, never concatenated into `sql`; they are
-  bound as Firebird parameters, so a value cannot become SQL.
+  bound as parameters of the engine you are talking to, so a value
+  cannot become SQL.
 - ByteBridge only reads until an administrator ticks **Options → Allow
   writing**. `/query` refuses anything that is not a `SELECT` or `WITH`
-  either way, and runs what it accepts in a transaction that Firebird
-  itself holds read-only, so a statement sent to it cannot change rows.
-  Generators change outside transactions, so `GEN_ID` with a step other
-  than 0 and `NEXT VALUE FOR` are refused as well; a procedure that
-  moves one inside its own body can only be stopped by limiting the
-  Firebird user. While writing is off, `/execute` answers `403`. While
+  either way, and runs what it accepts in a transaction **the database
+  itself holds read-only**, so a statement sent to it cannot change
+  rows. That is the engine's guarantee, not ByteBridge's — a read-only
+  transaction on Firebird, `SET TRANSACTION READ ONLY` on PostgreSQL —
+  and both are tested against a real server.
+- Sequences change outside any transaction, so the calls that move them
+  are refused as well: `GEN_ID` with a step other than 0 and `NEXT VALUE
+  FOR` on Firebird, `nextval` and `setval` on PostgreSQL. A procedure or
+  function that moves one inside its own body can only be stopped by
+  limiting the database user's privileges.
+- On PostgreSQL the text check also takes **one statement only**, because
+  a `COMMIT` in the middle would end the read-only transaction and
+  whatever follows it would run outside that protection. Session-level
+  advisory locks are refused there too: they belong to the session rather
+  than the transaction, so a read request could otherwise leave one held
+  that other clients wait on. See [Database
+  engines](database-engines.md).
+- While writing is off, `/execute` answers `403`. While
   it is on, anyone holding the API key, or signed in through ByteBridge's
   Cloudflare login, can run any statement: change and delete data and
   change the structure of your databases. Cloudflare Access in front of
@@ -31,8 +44,9 @@ API key as a database credential.
   writing off unless you need it, and turn it off again afterwards.
 - The listener binds to `127.0.0.1` only, and a request body over 1 MB
   is refused.
-- Anything holding the key can read whatever the Firebird user of an
-  Online connection can read. If the data is sensitive, put
+- Anything holding the key can read whatever the database user of an
+  Online connection can read — Firebird's or PostgreSQL's, whichever
+  that connection was added as. If the data is sensitive, put
   [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/)
   in front of the hostname as well, so callers are authenticated at
   Cloudflare's edge before a request reaches the machine at all — see
@@ -42,7 +56,7 @@ API key as a database credential.
   written; the statement is. See [The request log](request-log.md).
 
 Connections are stored in
-`C:\ProgramData\ByteBridge\bytebridge.db`. Firebird passwords and the
+`C:\ProgramData\ByteBridge\bytebridge.db`. Database passwords and the
 API key are encrypted with a key that never leaves the machine and is
 kept *outside* the data folder — DPAPI on Windows; on Linux an
 owner-only key file in `/var/lib/bytebridge-keys`, a sibling of the

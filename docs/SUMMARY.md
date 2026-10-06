@@ -34,8 +34,13 @@
 ## For developers
 
 * [How the code fits together](developers/architecture.md)
+* [Contributing](../CONTRIBUTING.md)
 * [Building and testing](contributing/building-and-testing.md)
 * [Versioning and releasing](contributing/versioning-and-releasing.md)
+
+Questions and ideas go to
+[GitHub Discussions](https://github.com/kenanwahbeh/ByteBridge/discussions),
+not to an issue.
 
 ## About
 

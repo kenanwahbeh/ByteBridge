@@ -21,9 +21,10 @@ Nothing listens on your LAN and no inbound port is opened: `cloudflared`
 dials out to Cloudflare, and the gateway itself only ever binds to
 loopback.
 
-**Requirements:** a Firebird database server (tested against Firebird
-4; the default port is 3050). Other database engines may be added in
-future versions.
+**Requirements:** a database server — Firebird 4 (the default, port
+3050) or PostgreSQL (5432). Both are tested against a real server, and
+both hold `/query` read-only themselves. See
+[Database engines](reference/database-engines.md).
 
 ## Where to start
 
