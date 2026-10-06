@@ -4,6 +4,7 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using ByteBridge.Configuration;
 using ByteBridge.Data;
+using ByteBridge.Gateway;
 using ByteBridge.Localization;
 
 namespace ByteBridge;
@@ -34,7 +35,7 @@ public partial class WebServerWindow : Window
     {
         InitializeComponent();
 
-        FlowDirection = Strings.CurrentLanguage == "ar"
+        FlowDirection = Strings.IsRightToLeft
             ? FlowDirection.RightToLeft
             : FlowDirection.LeftToRight;
 
@@ -93,10 +94,14 @@ public partial class WebServerWindow : Window
         LockoutHintTextBlock.Text =
             Strings.Format("LockoutHint", config.AuthWindowSeconds);
 
-        LockoutMinutesTextBox.Text =
-            ((config.AuthBlockSeconds + 59) / 60).ToString();
+        LockoutMinutesTextBox.Text = config.LockoutMinutes.ToString();
 
-        LockoutMinutesTextBox.IsEnabled = config.AuthMaxFailures > 0;
+        /*
+         * Zero attempts is the limiter being off, which cannot be written
+         * in minutes at all -- so the box is disabled rather than blank,
+         * and the value in it must not be written back on the way past.
+         */
+        LockoutMinutesTextBox.IsEnabled = config.LockoutIsEnabled;
     }
 
     private void LockoutAttemptsTextBox_LostFocus(object sender, RoutedEventArgs e)
@@ -170,13 +175,8 @@ public partial class WebServerWindow : Window
 
     private void RenderServiceState(ServiceState state)
     {
-        ServiceStatusTextBlock.Text = state switch
-        {
-            ServiceState.Running => Strings.Get("ServiceRunning"),
-            ServiceState.Stopped => Strings.Get("ServiceStopped"),
-            ServiceState.Pending => Strings.Get("ServicePending"),
-            _ => Strings.Get("ServiceNotInstalled")
-        };
+        ServiceStatusTextBlock.Text =
+            Strings.Get(ServiceStatus.KeyFor(state));
     }
 
     private void RenderGatewayState(
@@ -184,30 +184,28 @@ public partial class WebServerWindow : Window
         ServiceState state,
         bool answering)
     {
-        if (answering)
+        /*
+         * The same four-way answer the main page gives, asked of the
+         * shared rule rather than of a second copy of it -- and this one
+         * carries a hint line as well, which is why the rule returns
+         * both keys.
+         */
+        var status = GatewayStatus.For(config, state, answering);
+
+        GatewayStatusTextBlock.Text =
+            Strings.Format(status.TextKey, config.BaseUrl);
+
+        /* Keyed on the four outcome names; see the tests that pin them. */
+        GatewayStatusTextBlock.Foreground = status.TextKey switch
         {
-            GatewayStatusTextBlock.Text = Strings.Format("Answering", config.BaseUrl);
-            GatewayStatusTextBlock.Foreground = Brushes.Green;
-            GatewayHintTextBlock.Text = Strings.Format("TunnelHint", config.BaseUrl);
-        }
-        else if (!config.AutoStart)
-        {
-            GatewayStatusTextBlock.Text = Strings.Get("TurnedOff");
-            GatewayStatusTextBlock.Foreground = Brushes.Gray;
-            GatewayHintTextBlock.Text = Strings.Get("TurnedOffHint");
-        }
-        else if (state == ServiceState.Running)
-        {
-            GatewayStatusTextBlock.Text = Strings.Get("Starting");
-            GatewayStatusTextBlock.Foreground = Brushes.DarkOrange;
-            GatewayHintTextBlock.Text = Strings.Format("StartingHint", config.BaseUrl);
-        }
-        else
-        {
-            GatewayStatusTextBlock.Text = Strings.Get("NotRunning");
-            GatewayStatusTextBlock.Foreground = Brushes.Red;
-            GatewayHintTextBlock.Text = Strings.Get("NotRunningHint");
-        }
+            "Answering" => Brushes.Green,
+            "TurnedOff" => Brushes.Gray,
+            "Starting" => Brushes.DarkOrange,
+            _ => Brushes.Red
+        };
+
+        GatewayHintTextBlock.Text =
+            Strings.Format(status.HintKey, config.BaseUrl);
 
         /*
          * On means the gateway is meant to listen and the service that
@@ -215,7 +213,7 @@ public partial class WebServerWindow : Window
          * on reads as off here, because turning it on is exactly what
          * brings it back.
          */
-        var on = config.AutoStart && state == ServiceState.Running;
+        var on = config.GatewayIsOn(state);
 
         GatewayToggleButton.Content =
             on ? Strings.Get("TurnOff") : Strings.Get("TurnOn");
@@ -253,7 +251,7 @@ public partial class WebServerWindow : Window
         {
             var portText = GatewayPortTextBox.Text.Trim();
 
-            if (!int.TryParse(portText, out var chosen) || chosen < 1 || chosen > 65535)
+            if (!int.TryParse(portText, out var chosen) || !GatewayConfig.IsValidPort(chosen))
             {
                 MessageBox.Show(
                     Strings.Get("InvalidPort"),

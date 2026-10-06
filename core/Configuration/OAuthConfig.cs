@@ -77,4 +77,85 @@ public class OAuthConfig
         string.IsNullOrWhiteSpace(JwksUri)
             ? $"https://{TeamDomain}/cdn-cgi/access/certs"
             : JwksUri;
+
+    /*
+     * Whether this text is a bare hostname, which is what these two
+     * settings splice into a URL.
+     *
+     * The CLI asked this and refused anything else, precisely so that
+     * nobody produces https://https://... . The Cloudflare dialog did not
+     * ask it: an admin who typed the whole URL got it accepted, the
+     * JWKS URI written as "https://https://team/cdn-cgi/access/certs",
+     * login turned on -- and every request afterwards refused, because a
+     * JWKS URI that cannot resolve means no token can ever be checked.
+     * The dialog offered no way back from that but finding the setting
+     * and turning it off again by hand.
+     *
+     * One rule now, asked by both surfaces.
+     */
+    public static bool IsBareHostname(string? host) =>
+        !string.IsNullOrWhiteSpace(host)
+        && Uri.CheckHostName(host.Trim()) != UriHostNameType.Unknown;
+
+    public static string JwksUriFor(string teamDomain) =>
+        $"https://{teamDomain}/cdn-cgi/access/certs";
+
+    public static string RedirectUriFor(string publicHostname) =>
+        $"https://{publicHostname}/auth/callback";
+
+    /*
+     * The hostname a saved redirect URI belongs to, for the dialog that
+     * has to show the operator which one it is without asking them to
+     * read a URL.
+     */
+    public static string HostFromRedirectUri(string? redirectUri) =>
+        Uri.TryCreate(redirectUri, UriKind.Absolute, out var uri)
+            ? uri.Host
+            : string.Empty;
+
+    /*
+     * Whether login can be turned on with what is on file.
+     *
+     * The CLI refused unless all three are present, and its reason is the
+     * one above: half a configuration is a gateway that demands a token
+     * nobody can get. The dialog had its own three emptiness checks and
+     * missed the redirect URI entirely -- the public hostname is the
+     * field furthest from the team domain in the window, and the one that
+     * was easy to leave blank.
+     */
+    public bool CanEnable =>
+        !string.IsNullOrWhiteSpace(TeamDomain)
+        && !string.IsNullOrWhiteSpace(Audience)
+        && !string.IsNullOrWhiteSpace(RedirectUri);
+
+    public bool CanRequireEdgeAccess =>
+        !string.IsNullOrWhiteSpace(TeamDomain)
+        && !string.IsNullOrWhiteSpace(Audience);
+
+    /*
+     * Whether the running gateway's OAuth settings are the ones on file.
+     *
+     * Another field list, and this one is on the security type: leave a
+     * field off it and a change to it never reaches the running gateway,
+     * and the log line written beside the call claims it was applied.
+     */
+    public bool Matches(OAuthConfig other) =>
+        Enabled == other.Enabled
+        && TeamDomain == other.TeamDomain
+        && Audience == other.Audience
+        && JwksUri == other.JwksUri
+        && RedirectUri == other.RedirectUri
+        && SessionTimeoutMinutes == other.SessionTimeoutMinutes
+        && RequireEdgeAccess == other.RequireEdgeAccess;
+
+    public static string[] ComparedSettings =>
+    [
+        nameof(Enabled),
+        nameof(TeamDomain),
+        nameof(Audience),
+        nameof(JwksUri),
+        nameof(RedirectUri),
+        nameof(SessionTimeoutMinutes),
+        nameof(RequireEdgeAccess)
+    ];
 }

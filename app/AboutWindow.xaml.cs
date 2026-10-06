@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Windows;
 using ByteBridge.Data;
+using ByteBridge.Gateway;
 using ByteBridge.Localization;
 
 namespace ByteBridge;
@@ -14,7 +15,7 @@ public partial class AboutWindow : Window
     {
         InitializeComponent();
 
-        FlowDirection = Strings.CurrentLanguage == "ar"
+        FlowDirection = Strings.IsRightToLeft
             ? FlowDirection.RightToLeft
             : FlowDirection.LeftToRight;
 

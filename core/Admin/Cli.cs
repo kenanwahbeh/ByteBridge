@@ -257,7 +257,7 @@ public static class Cli
     {
         if (args.Length < 2
             || !int.TryParse(args[1], out var port)
-            || port is < 1 or > 65535)
+            || !GatewayConfig.IsValidPort(port))
         {
             Console.Error.WriteLine("error: port takes a number from 1 to 65535.");
             return 1;
@@ -559,7 +559,7 @@ public static class Cli
                      ("--public-hostname", publicHostname)
                  })
         {
-            if (Uri.CheckHostName(host) == UriHostNameType.Unknown)
+            if (!OAuthConfig.IsBareHostname(host))
             {
                 Console.Error.WriteLine(
                     $"error: {label} takes a bare hostname such as "
@@ -572,8 +572,8 @@ public static class Cli
 
         config.TeamDomain = teamDomain;
         config.Audience = audience;
-        config.JwksUri = $"https://{teamDomain}/cdn-cgi/access/certs";
-        config.RedirectUri = $"https://{publicHostname}/auth/callback";
+        config.JwksUri = OAuthConfig.JwksUriFor(teamDomain);
+        config.RedirectUri = OAuthConfig.RedirectUriFor(publicHostname);
 
         database.SaveOAuthConfig(config);
 
@@ -597,9 +597,7 @@ public static class Cli
 
         var config = database.GetOAuthConfig();
 
-        if (word == "on"
-            && (string.IsNullOrEmpty(config.TeamDomain)
-                || string.IsNullOrEmpty(config.Audience)))
+        if (word == "on" && !config.CanRequireEdgeAccess)
         {
             Console.Error.WriteLine(
                 "error: set the team domain and audience first (oauth set --help).");
@@ -623,10 +621,7 @@ public static class Cli
     {
         var config = database.GetOAuthConfig();
 
-        if (enabled
-            && (string.IsNullOrEmpty(config.TeamDomain)
-                || string.IsNullOrEmpty(config.Audience)
-                || string.IsNullOrEmpty(config.RedirectUri)))
+        if (enabled && !config.CanEnable)
         {
             Console.Error.WriteLine(
                 "error: set the team domain, audience and public hostname first "
@@ -776,7 +771,7 @@ public static class Cli
         var port = type.DefaultPort();
 
         if (options.TryGetValue("port", out var portText)
-            && (!int.TryParse(portText, out port) || port is < 1 or > 65535))
+            && (!int.TryParse(portText, out port) || !GatewayConfig.IsValidPort(port)))
         {
             Console.Error.WriteLine("error: --port takes a number from 1 to 65535.");
             return 1;

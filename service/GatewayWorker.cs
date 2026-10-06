@@ -221,7 +221,7 @@ public sealed class GatewayWorker : BackgroundService
             _running.ApiKey = desired.ApiKey;
         }
 
-        if (NeedsRebind(_running, desired))
+        if (_running.NeedsRebindFrom(desired))
         {
             _logger.LogInformation(
                 "Listener settings changed; rebinding from {Old} to {New}.",
@@ -266,7 +266,7 @@ public sealed class GatewayWorker : BackgroundService
     {
         var desired = _database.GetOAuthConfig();
 
-        if (_appliedOAuth != null && SameOAuth(_appliedOAuth, desired))
+        if (_appliedOAuth != null && _appliedOAuth.Matches(desired))
         {
             return;
         }
@@ -286,39 +286,6 @@ public sealed class GatewayWorker : BackgroundService
                 : "Requests through Cloudflare are not required to carry an Access token.",
             desired.TeamDomain);
     }
-
-    private static bool SameOAuth(OAuthConfig a, OAuthConfig b) =>
-        a.Enabled == b.Enabled
-        && a.TeamDomain == b.TeamDomain
-        && a.Audience == b.Audience
-        && a.JwksUri == b.JwksUri
-        && a.RedirectUri == b.RedirectUri
-        && a.SessionTimeoutMinutes == b.SessionTimeoutMinutes
-        && a.RequireEdgeAccess == b.RequireEdgeAccess;
-
-    /*
-     * Everything the running listener captured at Start time. The key
-     * is not here: it is handled without a rebind.
-     */
-    private static bool NeedsRebind(
-        GatewayConfig running,
-        GatewayConfig desired) =>
-        running.Host != desired.Host
-        || running.Port != desired.Port
-        || running.MaxRows != desired.MaxRows
-        || running.CommandTimeoutSeconds != desired.CommandTimeoutSeconds
-        || running.AuthMaxFailures != desired.AuthMaxFailures
-        || running.AuthWindowSeconds != desired.AuthWindowSeconds
-        || running.AuthBlockSeconds != desired.AuthBlockSeconds;
-
-    /*
-     * HttpListener's "access denied", which means HTTP.SYS has no
-     * reservation for this prefix rather than anything about the file
-     * system. GatewayServer wraps the original, so the code is on the
-     * inner exception.
-     */
-    private static bool NeedsReservation(Exception error) =>
-        error.InnerException is HttpListenerException { ErrorCode: 5 };
 
     private void StartWith(GatewayConfig config, bool reserved = false)
     {
@@ -349,7 +316,7 @@ public sealed class GatewayWorker : BackgroundService
              * it cannot loop.
              */
             if (!reserved
-                && NeedsReservation(error)
+                && ListenerFailures.NeedsUrlReservation(error)
                 && OperatingSystem.IsWindows()
                 && UrlReservation.TryAdd(config.Prefix, _logger))
             {

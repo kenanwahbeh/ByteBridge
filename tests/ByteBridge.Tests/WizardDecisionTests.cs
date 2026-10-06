@@ -15,6 +15,20 @@ namespace ByteBridge.Tests;
  * DatabaseConfig, GetOrDefault beside the strings -- and these are the
  * tests that were not possible before.
  */
+/*
+ * The one collection for the tests that change the current language.
+ *
+ * Strings.SetLanguage is static, and xUnit runs different test classes
+ * at the same time, so two classes that each set the language -- and
+ * each read it back in its own finally -- are reading and writing the
+ * same field over each other's heads. The failure is a test asserting
+ * Arabic and getting English, which reads as a translation bug and is
+ * nothing of the kind.
+ *
+ * The collection is what makes them take turns. Same reason the console
+ * redirection tests share one.
+ */
+[Collection("Language")]
 public class WizardDecisionTests
 {
     [Fact]
