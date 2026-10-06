@@ -65,26 +65,91 @@ public class WizardDecisionTests
         }
     }
 
+    /*
+     * A language the tables have no entry for at all, so the English
+     * table is the only place the key can come from.
+     *
+     * Which is the third case, and the only one reachable here: both
+     * tables carry all 155 keys, so "this language has no entry for
+     * this key" cannot be produced by choosing a different key. The
+     * earlier version of this test claimed to cover it with
+     * WizardTestSucceeded -- which has an Arabic entry -- and so passed
+     * without ever reaching the branch.
+     *
+     * A genuinely missing key in a present language needs a table that
+     * lags, which is a condition this project does not have and would
+     * rather not create to satisfy a test.
+     */
     [Fact]
-    public void A_missing_language_falls_back_to_English_rather_than_the_callers_text()
+    public void A_language_the_tables_do_not_have_comes_from_English()
     {
         try
         {
-            Strings.SetLanguage("ar");
+            Strings.SetLanguage("xx");
 
-            // A key with no Arabic entry falls back inside Get, so the
-            // caller's text is only for a build whose tables lack the
-            // key entirely.
-            var value = Strings.GetOrDefault(
-                "WizardTestSucceeded",
-                "english fallback");
+            var key = Strings.FindKeyWhoseEnglishTextIsItsOwnName();
 
-            Assert.Contains("نجح", value);
+            Assert.NotNull(key);
+
+            // Nothing for "xx" anywhere, so this is the English value
+            // and the caller's text is not consulted at all.
+            Assert.Equal(
+                key,
+                Strings.GetOrDefault(key!, "the caller's own text"));
         }
         finally
         {
             Strings.SetLanguage("en");
         }
+    }
+
+    /*
+     * A key the current language does have, so the other branch is the
+     * one taken. Without it, the English-fallback test above would pass
+     * on a code path that never consults the current language at all.
+     */
+    [Fact]
+    public void A_key_the_current_language_does_have_comes_from_it()
+    {
+        try
+        {
+            Strings.SetLanguage("ar");
+
+            Assert.Equal(
+                "نجح الاتصال.",
+                Strings.GetOrDefault(
+                    "WizardTestSucceeded",
+                    "the caller's text"));
+        }
+        finally
+        {
+            Strings.SetLanguage("en");
+        }
+    }
+
+    /*
+     * Twelve entries are their own translation -- "Port" is "Port",
+     * "Cancel" is "Cancel" -- so spotting a missing key by comparing
+     * the returned text with the key threw twelve good translations
+     * away and handed the caller the fallback instead. The key is asked
+     * of the tables now, which has an answer either way.
+     *
+     * The key is found rather than named: writing "Port" here would
+     * break the day somebody translates it, and a test should not fail
+     * for a reason it is not about.
+     */
+    [Fact]
+    public void A_translation_that_happens_to_equal_its_key_is_still_a_translation()
+    {
+        var key = Strings.FindKeyWhoseEnglishTextIsItsOwnName();
+
+        Assert.NotNull(key);
+
+        Assert.Equal(key, Strings.Get(key!));
+
+        Assert.Equal(
+            key,
+            Strings.GetOrDefault(key!, "the caller's own words"));
     }
 
     [Fact]
@@ -95,6 +160,28 @@ public class WizardDecisionTests
             "the caller's own words");
 
         Assert.Equal("the caller's own words", value);
+    }
+
+    /*
+     * The caller's text, when the caller supplied none.
+     *
+     * The reason this method exists is that a person is told something
+     * rather than shown an empty label, so handing back the blank it
+     * was given defeats it -- and does so quietly, since "" is a
+     * perfectly ordinary string. What Get would have shown is the
+     * least bad answer left.
+     *
+     * No key involved: the tables are never consulted on this path,
+     * and the value is a literal either way.
+     */
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void A_blank_caller_text_shows_the_key_rather_than_nothing(string fallback)
+    {
+        Assert.Equal(
+            "NoSuchKeyAnywhere",
+            Strings.GetOrDefault("NoSuchKeyAnywhere", fallback));
     }
 
     [Fact]
