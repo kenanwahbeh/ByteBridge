@@ -253,8 +253,16 @@ Want to help build ByteBridge? Start with
 [CONTRIBUTING.md](CONTRIBUTING.md) — it covers the build, the tests, and
 the conventions a pull request is expected to follow.
 
-For how the projects fit together, see
-[docs/developers/architecture.md](docs/developers/architecture.md).
+| | |
+| --- | --- |
+| [ROADMAP.md](ROADMAP.md) | What is being worked on, and what is deliberately not |
+| [docs/developers/architecture.md](docs/developers/architecture.md) | How the projects fit together, and where a change belongs |
+| [docs/decisions/](docs/decisions/) | Why the project is the way it is — the reasoning a rebuild cannot re-derive |
+
+ByteBridge is a standalone product, with ByteBalance as an optional
+integration. That is
+[decided, and the reasoning is written down](docs/decisions/0001-standalone-product.md);
+the roadmap follows from it.
 
 ## Tests
 

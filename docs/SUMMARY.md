@@ -34,9 +34,21 @@
 ## For developers
 
 * [How the code fits together](developers/architecture.md)
+* [Roadmap](../ROADMAP.md)
 * [Contributing](../CONTRIBUTING.md)
 * [Building and testing](contributing/building-and-testing.md)
 * [Versioning and releasing](contributing/versioning-and-releasing.md)
+
+## Decisions
+
+Why the project is the way it is. Written before the code, so the
+reasoning is still there afterwards.
+
+* [0001 — ByteBridge is a standalone product](decisions/0001-standalone-product.md)
+* [0002 — Version numbers are meaningful from here](decisions/0002-meaningful-versioning.md)
+* [0003 — `HttpListener`, not Kestrel](decisions/0003-httplistener-not-kestrel.md)
+* [0004 — Secrets at rest, and where the key lives](decisions/0004-secrets-at-rest.md)
+* [0005 — SQL Server was written, and then taken back out](decisions/0005-sql-server-removed.md)
 
 Questions and ideas go to
 [GitHub Discussions](https://github.com/kenanwahbeh/ByteBridge/discussions),
