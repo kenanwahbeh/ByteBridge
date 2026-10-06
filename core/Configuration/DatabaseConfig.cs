@@ -31,6 +31,29 @@ public class DatabaseConfig
      */
     public bool EngineIsSupported { get; set; } = true;
 
+    /*
+     * Whether the gateway is serving this connection now. This is the
+     * ONE place that decides, because four surfaces report it: the
+     * control panel's card, /health's online count, /databases, and
+     * ByteBalanceTech's companion agent, which reads /health. A second
+     * derivation is how an unsupported connection came to be counted
+     * online on some of them and not others.
+     *
+     * Use IsOnline rather than Enabled && LastTestSuccessful. There is
+     * no exception; a surface that needs one has to say so here.
+     *
+     * The engine is part of it because a row this build cannot serve is
+     * not an online database: requests for it are refused with 409 and
+     * the health probe skips it, so counting it would report a
+     * connection that answers nothing. Its LastTestSuccessful may well
+     * be true from before the engine was taken away, and a stored
+     * result from the past is not the present.
+     */
+    public bool IsOnline =>
+        Enabled &&
+        EngineIsSupported &&
+        LastTestSuccessful;
+
     public string Server { get; set; } =
         "localhost";
 

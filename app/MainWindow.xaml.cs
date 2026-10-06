@@ -849,12 +849,24 @@ public partial class MainWindow : Window
         /*
          * Status logic:
          *
-         * Enabled + successful test = Online / green
+         * Enabled + supported engine + successful test = Online / green
          * Disabled = Offline / gray
          * Enabled + failed test = Offline / red
+         *
+         * An engine this build cannot serve gets its own line rather
+         * than one of the three above. It is not offline: the
+         * connection is enabled and may well have been working. It is
+         * not online either -- requests for it are refused. Saying
+         * "Offline" would send someone to look at the server instead
+         * of at the engine, so it says what is actually wrong.
          */
 
-        if (!connection.Enabled)
+        if (!connection.EngineIsSupported)
+        {
+            status.Text = Strings.Get("EngineUnsupported");
+            status.Foreground = Brushes.DarkOrange;
+        }
+        else if (!connection.Enabled)
         {
             status.Text = Strings.Get("Offline");
             status.Foreground = Brushes.Gray;

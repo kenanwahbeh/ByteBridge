@@ -94,6 +94,19 @@ a supported engine — but nothing is dispatched through it: a request for
 it is answered `409` naming the engine, and the health probe skips it
 rather than reporting a database that is working as broken.
 
+It is not counted as online anywhere. `/health`, `/databases`, the
+control panel and the companion agent all read one property,
+`DatabaseConfig.IsOnline`, which requires a supported engine as well as
+an enabled flag and a successful test — a stored test result from
+before the engine went is not the present. On the card it says
+**Engine not supported** rather than Offline, because the connection is
+enabled and the server may well be fine.
+
+And the wizard will not save one: the engine box is disabled with
+nothing selected, so editing the name or the password cannot quietly
+turn the row into a working Firebird connection against an endpoint
+that does not speak it. Choosing an engine is the only way out.
+
 ## Notes
 
 - **PostgreSQL**: a parameter that arrives as a JSON string is sent as text,

@@ -1102,9 +1102,7 @@ public sealed class GatewayServer : IDisposable
                     Id = connection.Id,
                     Name = connection.Name,
 
-                    Online =
-                        connection.Enabled &&
-                        connection.LastTestSuccessful
+                    Online = connection.IsOnline
                 });
         }
 
@@ -1120,7 +1118,7 @@ public sealed class GatewayServer : IDisposable
 
         foreach (var connection in connections)
         {
-            if (connection.Enabled)
+            if (connection.IsOnline)
             {
                 online++;
             }

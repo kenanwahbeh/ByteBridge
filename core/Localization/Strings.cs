@@ -64,6 +64,11 @@ public static class Strings
             ["WizardNext"] = "Next",
             ["WizardTestConnection"] = "Test Connection",
             ["WizardTestSucceeded"] = "Connection succeeded.",
+            ["WizardEngineUnsupported"] =
+                "This connection names a database engine this version of " +
+                "ByteBridge cannot serve. Choose Firebird or PostgreSQL " +
+                "before saving.",
+            ["EngineUnsupported"] = "Engine not supported",
             ["WizardTestFailed"] = "Connection failed.\n\n{0}",
             ["WizardFinish"] = "Finish",
             ["WizardSave"] = "Save",
@@ -248,6 +253,10 @@ public static class Strings
             ["WizardNext"] = "التالي",
             ["WizardTestConnection"] = "اختبار الاتصال",
             ["WizardTestSucceeded"] = "نجح الاتصال.",
+            ["WizardEngineUnsupported"] =
+                "هذا الاتصال يشير إلى نوع قاعدة بيانات لا تدعمه هذه " +
+                "النسخة من ByteBridge. اختر Firebird أو PostgreSQL قبل الحفظ.",
+            ["EngineUnsupported"] = "المحرك غير مدعوم",
             ["WizardTestFailed"] = "فشل الاتصال.\n\n{0}",
             ["WizardFinish"] = "إنهاء",
             ["WizardSave"] = "حفظ",

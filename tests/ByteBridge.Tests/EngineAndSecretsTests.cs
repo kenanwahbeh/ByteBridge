@@ -327,6 +327,83 @@ public class EngineAndSecretsTests
             Firebird().ConnectionKey);
     }
 
+    /*
+ * The status the gateway, /health and the panel all derive. An
+ * unsupported engine is neither online nor offline: requests for it are
+ * refused and the probe skips it, so counting it would report a
+ * connection that answers nothing -- and its stored LastTestSuccessful
+ * may well be true from before the engine was taken away.
+ */
+    [Fact]
+    public void An_unsupported_engine_is_never_online()
+    {
+        var connection = Postgres();
+
+        connection.Enabled = true;
+        connection.LastTestSuccessful = true;
+
+        Assert.True(connection.IsOnline);
+
+        connection.EngineIsSupported = false;
+
+        Assert.False(connection.IsOnline);
+    }
+
+    [Theory]
+    [InlineData(true, true, true)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    public void Being_online_needs_all_three(
+        bool enabled,
+        bool tested,
+        bool supported)
+    {
+        var connection = Postgres();
+
+        connection.Enabled = enabled;
+        connection.LastTestSuccessful = tested;
+        connection.EngineIsSupported = supported;
+
+        Assert.Equal(
+            enabled && tested && supported,
+            connection.IsOnline);
+    }
+
+    [Fact]
+    public async Task An_enabled_unsupported_connection_is_not_counted_as_online()
+    {
+        using var gateway = new GatewayHarness();
+
+        gateway.AddLegacyConnectionNamed("Mystery");
+
+        // Enabled, and its last test succeeded before the engine went.
+        RawExecute(
+            gateway.SettingsDatabasePath,
+            "UPDATE Databases SET DatabaseType = 'SqlServer', Enabled = 1, " +
+            "LastTestSuccessful = 1 WHERE Name = 'Mystery';");
+
+        var (_, health) = await GatewayHarness.Read(gateway.Get("/health"));
+
+        using var document = System.Text.Json.JsonDocument.Parse(health);
+
+        // Sales is the only one serving: Mystery is enabled but answers
+        // nothing, so counting it would overstate what is available.
+        Assert.Equal(
+            1,
+            document.RootElement.GetProperty("online").GetInt32());
+
+        var (_, list) = await GatewayHarness.Read(gateway.Get("/databases"));
+
+        using var listed = System.Text.Json.JsonDocument.Parse(list);
+
+        // /databases is the array itself, not an object holding one.
+        var mystery = listed.RootElement
+            .EnumerateArray()
+            .Single(d => d.GetProperty("name").GetString() == "Mystery");
+
+        Assert.False(mystery.GetProperty("online").GetBoolean());
+    }
+
     [Fact]
     public async Task An_unsupported_engine_is_refused_by_the_gateway()
     {
