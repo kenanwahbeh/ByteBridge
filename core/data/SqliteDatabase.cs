@@ -221,7 +221,8 @@ public class SqliteDatabase
                 Enabled INTEGER NOT NULL DEFAULT 1,
                 LastTestSuccessful INTEGER NOT NULL DEFAULT 0,
                 LastTestedAt TEXT NULL,
-                ConnectionKey TEXT NOT NULL UNIQUE
+                ConnectionKey TEXT NOT NULL UNIQUE,
+                DatabaseType TEXT NOT NULL DEFAULT 'Firebird'
             );
 
             CREATE TABLE IF NOT EXISTS Settings
@@ -240,6 +241,64 @@ public class SqliteDatabase
             """;
 
         command.ExecuteNonQuery();
+
+        /*
+         * Settings files written before there were other engines have
+         * no column for it, and CREATE TABLE IF NOT EXISTS does not add
+         * one to a table that already exists. Every one of those is a
+         * Firebird connection, which is what the default says.
+         */
+        EnsureColumn(
+            connection,
+            "Databases",
+            "DatabaseType",
+            "TEXT NOT NULL DEFAULT 'Firebird'");
+    }
+
+    /*
+     * Adds a column to an existing table, and does nothing when it is
+     * already there. SQLite has no "ADD COLUMN IF NOT EXISTS", so the
+     * table is asked first: PRAGMA table_info, whose second column is
+     * the name.
+     */
+    private static void EnsureColumn(
+        SqliteConnection connection,
+        string table,
+        string column,
+        string definition)
+    {
+        using (var info = connection.CreateCommand())
+        {
+            info.CommandText = $"PRAGMA table_info({table});";
+
+            using var reader = info.ExecuteReader();
+
+            while (reader.Read())
+            {
+                if (string.Equals(
+                        reader.GetString(1),
+                        column,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+            }
+        }
+
+        using var alter = connection.CreateCommand();
+
+        /*
+         * The table and column names are this file's own constants, not
+         * anything a caller supplies, so nothing here is quoted from
+         * the outside. CHECK quote() covers a table name with a space
+         * in it, which PRAGMA's own syntax would not accept unquoted.
+         */
+        alter.CommandText =
+            $"""
+             ALTER TABLE "{table}" ADD COLUMN "{column}" {definition};
+             """;
+
+        alter.ExecuteNonQuery();
     }
 
     public List<DatabaseConfig> GetConnections()
@@ -260,7 +319,8 @@ public class SqliteDatabase
                 DatabaseValue,
                 Enabled,
                 LastTestSuccessful,
-                LastTestedAt
+                LastTestedAt,
+                DatabaseType
             FROM Databases
             ORDER BY Name COLLATE NOCASE;
             """;
@@ -319,6 +379,19 @@ public class SqliteDatabase
                     Username = reader.GetString(4),
                     Password = password,
                     Database = reader.GetString(6),
+
+                    /*
+                     * A row that says something this build has no
+                     * provider for falls back to Firebird rather than
+                     * throwing: an engine taken back out must not make
+                     * every other connection unreadable.
+                     */
+                    Type = DatabaseTypes.TryParse(
+                        reader.GetString(10),
+                        out var type)
+                            ? type
+                            : DatabaseType.Firebird,
+
                     Enabled = reader.GetInt32(7) == 1,
                     LastTestSuccessful = reader.GetInt32(8) == 1,
                     LastTestedAt = testedAt
@@ -423,7 +496,8 @@ public class SqliteDatabase
                 Enabled,
                 LastTestSuccessful,
                 LastTestedAt,
-                ConnectionKey
+                ConnectionKey,
+                DatabaseType
             )
             VALUES
             (
@@ -437,7 +511,8 @@ public class SqliteDatabase
                 $enabled,
                 $tested,
                 $testedAt,
-                $key
+                $key,
+                $type
             );
             """;
 
@@ -488,7 +563,8 @@ public class SqliteDatabase
                 Enabled = $enabled,
                 LastTestSuccessful = $tested,
                 LastTestedAt = $testedAt,
-                ConnectionKey = $key
+                ConnectionKey = $key,
+                DatabaseType = $type
             WHERE Id = $id;
             """;
 
@@ -1356,5 +1432,13 @@ public class SqliteDatabase
         command.Parameters.AddWithValue(
             "$key",
             database.ConnectionKey);
+
+        /*
+         * By name, so the enum's numbers can be reordered without
+         * rewriting anybody's settings file.
+         */
+        command.Parameters.AddWithValue(
+            "$type",
+            database.Type.ToString());
     }
 }

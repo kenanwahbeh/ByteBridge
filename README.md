@@ -23,9 +23,10 @@ Nothing listens on your LAN and no inbound port is opened: `cloudflared`
 dials out to Cloudflare, and the gateway itself only ever binds to
 loopback.
 
-**Requirements:** a Firebird database server (tested against Firebird
-4; the default port is 3050). Other database engines may be added in
-future versions.
+**Requirements:** a database server — Firebird 4 (default port 3050) or
+PostgreSQL (5432). Both are tested against a real server, and both hold
+`/query` read-only themselves. See
+[Database engines](docs/reference/database-engines.md).
 
 **Not a developer?** The [picture guide](docs/guide/README.md) walks
 through setting ByteBridge up step by step, with no technical
@@ -262,6 +263,9 @@ connections of whoever is running it.
 | `SqliteDatabaseTests` | Storage, duplicate details and names, gateway settings including the loopback-only host, and a key rotation surviving another writer's save. |
 | `FirebirdExecutorTests` | The read-only guard on its own, including comments, word boundaries and unterminated blocks. |
 | `FirebirdIntegrationTests` | A real server end to end: type mapping, NULLs, UTF-8, parameter binding, the row cap, writes, and concurrency. |
+| `DatabaseTypeTests` | Engine names, each engine's usual port, connection keys, and a settings file from before engines existed opening as Firebird. |
+| `EngineAndSecretsTests` | The engine column and secret protection together: a PostgreSQL password still wrapped, a pre-engine file migrating both, and a row naming an engine this build lacks still reading. |
+| `PostgreSqlIntegrationTests` | PostgreSQL end to end against a real server: types, NULLs, parameter binding, the row cap, the engine refusing an INSERT and a second statement, sequences untouched, and `/execute` both ways. |
 | `CliTests` | The Server Core commands: status, on and off, the port, showing and replacing the key, and adding, enabling, disabling and removing a database. |
 | `RequestLogTests` | The log file itself: one JSON line per request, parameter values kept out, long statements truncated, concurrent writes, and pruning old files. |
 | `RequestLoggingTests` | The log as the running gateway fills it: served and refused requests, the statement and connection, the forwarded client address, and every request landing exactly once under load. |
@@ -278,12 +282,19 @@ dotnet test tests/ByteBridge.Tests
 It creates its own `EFS_TEST_CUSTOMERS` table and works only on rows it
 owns, but point it at a scratch database rather than anything real.
 
+`PostgreSqlIntegrationTests` works the same way, and has its own CI job:
+
+```powershell
+$env:BYTEBRIDGE_TEST_POSTGRES = "127.0.0.1:5432:postgres:password:shop"
+dotnet test tests/ByteBridge.Tests --filter Category=PostgreSql
+```
+
 [CI](.github/workflows/ci.yml) runs on every push and pull request, in
-two jobs: the build and the whole suite on `windows-latest`, where the
-live Firebird tests skip for want of a server, and those same tests on
-`ubuntu-latest` against Firebird 4 in a service container. The test
-project targets plain `net10.0`, so it runs on Linux unchanged even
-though the app itself is Windows-only.
+three jobs: the build and the whole suite on `windows-latest`, where the
+live tests skip for want of a server, and — on `ubuntu-latest` — the
+Firebird tests and the PostgreSQL tests against each engine in a service
+container. The test project targets plain `net10.0`, so it runs on Linux
+unchanged even though the app itself is Windows-only.
 
 ## Versioning
 

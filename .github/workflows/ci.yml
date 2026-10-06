@@ -126,3 +126,51 @@ jobs:
           name: firebird-test-results
           path: artifacts/tests/*.trx
           if-no-files-found: warn
+
+  postgresql:
+    name: Live PostgreSQL tests (Linux)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_PASSWORD: bbtest
+          POSTGRES_DB: shop
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      # There is no SQL Server job because there is no SQL Server engine:
+      # it was taken back out over its read-only guarantee and having
+      # never reached a real server. See docs/reference/database-engines.md.
+      - name: Test
+        env:
+          BYTEBRIDGE_TEST_POSTGRES: 127.0.0.1:5432:postgres:bbtest:shop
+        run: >
+          dotnet test tests/ByteBridge.Tests/ByteBridge.Tests.csproj
+          -c Release
+          --filter "Category=PostgreSql"
+          --logger "trx;LogFileName=postgresql.trx"
+          --results-directory artifacts/tests
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: postgresql-test-results
+          path: artifacts/tests/*.trx
+          if-no-files-found: warn

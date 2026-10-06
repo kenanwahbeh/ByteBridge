@@ -40,7 +40,74 @@ public partial class AddDatabaseWizardWindow : Window
 
         ApplyLocalization();
 
+        // Attached here, after the box has its first value, so filling it
+        // in is not taken for the person choosing another engine.
+        TypeComboBox.SelectedIndex = 0;
+        TypeComboBox.SelectionChanged += TypeComboBox_SelectionChanged;
+
         UpdateStepUi();
+    }
+
+    private DatabaseType _appliedType = DatabaseType.Firebird;
+
+    /*
+     * Read by index, because the box is filled in the order below and
+     * an engine with no item here falls back to Firebird rather than
+     * leaving the connection without one.
+     */
+    private DatabaseType SelectedType => TypeComboBox.SelectedIndex switch
+    {
+        1 => DatabaseType.PostgreSql,
+        _ => DatabaseType.Firebird
+    };
+
+    private static int IndexOf(DatabaseType type) => type switch
+    {
+        DatabaseType.PostgreSql => 1,
+        _ => 0
+    };
+
+    private void TypeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        ApplyType(userChoice: true);
+    }
+
+    /*
+     * Words the Database box for the engine, and moves the port and user
+     * to that engine's usual ones, but only while they still hold the
+     * previous engine's: a port someone typed is theirs.
+     */
+    private void ApplyType(bool userChoice)
+    {
+        var type = SelectedType;
+
+        if (userChoice)
+        {
+            if (PortTextBox.Text.Trim() == _appliedType.DefaultPort().ToString()
+                || string.IsNullOrWhiteSpace(PortTextBox.Text))
+            {
+                PortTextBox.Text = type.DefaultPort().ToString();
+            }
+
+            if (string.Equals(
+                    UsernameTextBox.Text.Trim(),
+                    _appliedType.DefaultUser(),
+                    StringComparison.OrdinalIgnoreCase)
+                || string.IsNullOrWhiteSpace(UsernameTextBox.Text))
+            {
+                UsernameTextBox.Text = type.DefaultUser();
+            }
+
+            // What was tested was another engine.
+            _lastTestSuccessful = false;
+        }
+
+        var file = type == DatabaseType.Firebird;
+
+        DatabaseLabel.Text = Strings.Get(file ? "WizardDatabase" : "WizardDatabaseName");
+        DatabaseHint.Text = Strings.Get(file ? "WizardDatabaseHint" : "WizardDatabaseNameHint");
+
+        _appliedType = type;
     }
 
     public AddDatabaseWizardWindow(DatabaseConfig existing)
@@ -51,6 +118,11 @@ public partial class AddDatabaseWizardWindow : Window
         Title = Strings.Get("WizardEditTitle");
 
         NameTextBox.Text = existing.Name;
+
+        _appliedType = existing.Type;
+        TypeComboBox.SelectedIndex = IndexOf(existing.Type);
+        ApplyType(userChoice: false);
+
         ServerTextBox.Text = existing.Server;
         PortTextBox.Text = existing.Port.ToString();
         UsernameTextBox.Text = existing.Username;
@@ -72,6 +144,7 @@ public partial class AddDatabaseWizardWindow : Window
         Step1Hint.Text = Strings.Get("WizardStep1Hint");
         Step1Label.Text = Strings.Get("WizardStep1Title");
         ConnectionNameLabel.Text = Strings.Get("WizardConnectionName");
+        EngineLabel.Text = Strings.Get("WizardEngine");
 
         Step2Title.Text = Strings.Get("WizardStep2Title");
         Step2Label.Text = Strings.Get("WizardStep2Title");
@@ -218,8 +291,9 @@ public partial class AddDatabaseWizardWindow : Window
         {
             Id = _existing?.Id ?? Guid.NewGuid().ToString(),
             Name = NameTextBox.Text.Trim(),
+            Type = SelectedType,
             Server = ServerTextBox.Text.Trim(),
-            Port = int.TryParse(PortTextBox.Text.Trim(), out var port) ? port : 3050,
+            Port = int.TryParse(PortTextBox.Text.Trim(), out var port) ? port : SelectedType.DefaultPort(),
             Username = UsernameTextBox.Text.Trim(),
             Password = PasswordBox.Password,
             Database = DatabaseTextBox.Text.Trim(),
@@ -255,7 +329,7 @@ public partial class AddDatabaseWizardWindow : Window
         TestResultTextBlock.Text = "…";
         TestResultTextBlock.Foreground = Brushes.Gray;
 
-        var (succeeded, error) = await FirebirdConnectionTester.TestAsync(config);
+        var (succeeded, error) = await DatabaseConnectionTester.TestAsync(config);
 
         _lastTestSuccessful = succeeded;
 

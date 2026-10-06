@@ -15,6 +15,14 @@ file is the single source of truth for what shipped.
 
 ### Added
 
+- **PostgreSQL next to Firebird.** Each connection now has an engine,
+  chosen in the add/edit wizard or with `db add --type`. Both are tested
+  against a real server, and both hold `/query` read-only themselves, so
+  a statement that got past the text check is refused by the database.
+  A parameter that arrives as text needs a cast to compare against a
+  non-text column, which
+  [database-engines.md](docs/reference/database-engines.md) explains.
+  The driver adds about 1 MB to the self-contained publish, measured.
 - **Release files carry a signed statement of where they were built.**
   Every installer and `SHA256SUMS.txt` now gets a build-provenance
   attestation from the release workflow, verifiable with

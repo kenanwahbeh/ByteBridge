@@ -40,8 +40,9 @@ public static class Cli
           db enable  <name>      Start answering for a database
           db disable <name>      Stop answering for a database
           db remove  <name>      Forget a database
-          db add --name <n> --server <host> --path <file>
-                 --user <u> --password <p> [--port <3050>]
+          db add --name <n> --server <host> --path <file|name>
+                 --user <u> --password <p> [--type firebird|postgresql]
+                 [--port <number>]
 
           oauth show             Show the Cloudflare Access settings
           oauth set --team-domain <team>.cloudflareaccess.com
@@ -94,10 +95,19 @@ public static class Cli
         """;
 
     private const string AddUsage = """
-        db add --name <n> --server <host> --path <file>
-               --user <u> --password <p> [--port <3050>]
+        db add --name <n> --server <host> --path <file|name>
+               --user <u> --password <p> [--type <engine>] [--port <number>]
 
-        --port is the database server's port, and defaults to 3050.
+        --type  firebird (the default) or postgresql.
+        --path  The database file for Firebird; the database name for
+                PostgreSQL. --database means the same thing.
+        --port  The database server's port. Defaults to the engine's own:
+                3050 for Firebird, 5432 for PostgreSQL.
+
+        Both engines hold the /query transaction read-only themselves, so
+        the database refuses a write even when a statement got past the
+        text check. That is why there is no third engine here yet: one
+        without it would rely on the text check alone.
         """;
 
     /*
@@ -220,6 +230,7 @@ public static class Cli
         {
             Console.WriteLine(
                 $"  {(item.Enabled ? "on " : "off")}  {item.Name}  "
+                + (item.Type == DatabaseType.Firebird ? string.Empty : $"[{item.Type.DisplayName()}]  ")
                 + $"{item.Server}:{item.Port}  {item.Database}");
         }
 
@@ -734,6 +745,22 @@ public static class Cli
             return null;
         }
 
+        var type = DatabaseType.Firebird;
+
+        if (options.TryGetValue("type", out var typeText)
+            && !DatabaseTypes.TryParse(typeText, out type))
+        {
+            Console.Error.WriteLine(
+                "error: --type takes firebird or postgresql.");
+            return 1;
+        }
+
+        // --database is the natural word for the engines that have no file.
+        if (!options.ContainsKey("path") && options.TryGetValue("database", out var named))
+        {
+            options["path"] = named;
+        }
+
         var name = Required("name");
         var server = Required("server");
         var path = Required("path");
@@ -746,7 +773,7 @@ public static class Cli
             return 1;
         }
 
-        var port = 3050;
+        var port = type.DefaultPort();
 
         if (options.TryGetValue("port", out var portText)
             && (!int.TryParse(portText, out port) || port is < 1 or > 65535))
@@ -758,6 +785,7 @@ public static class Cli
         database.AddConnection(new DatabaseConfig
         {
             Name = name,
+            Type = type,
             Server = server,
             Port = port,
             Username = user,
