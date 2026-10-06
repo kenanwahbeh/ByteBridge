@@ -444,9 +444,101 @@ public static class Strings
         return key;
     }
 
+    /*
+     * A key whose English text is the key itself.
+     *
+     * Only for tests, and only because Get cannot tell this case from
+     * a missing one: both come back as the key. Twelve entries are
+     * their own translation -- "Port", "Cancel", "Edit" -- so a test
+     * that needed one has to find one rather than name one, or it
+     * breaks the day somebody translates the word.
+     *
+     * Null when the table has none, which is a legitimate answer and
+     * not a failure: the property being tested still holds, there is
+     * just nothing here that exposes it.
+     */
+    internal static string? FindKeyWhoseEnglishTextIsItsOwnName()
+    {
+        if (!Translations.TryGetValue("en", out var english))
+        {
+            return null;
+        }
+
+        foreach (var (key, value) in english)
+        {
+            if (value == key)
+            {
+                return key;
+            }
+        }
+
+        return null;
+    }
+
     public static string Format(string key, params object[] args)
     {
         var template = Get(key);
         return string.Format(template, args);
+    }
+
+    /*
+     * Get, with the caller's own text for a key the tables do not have.
+     *
+     * Written because a caller got this backwards once: it tested
+     * !IsNullOrWhiteSpace and so replaced every translation it was
+     * given with the English fallback -- an Arabic string that existed,
+     * was fetched, and was then thrown away. The condition here is the
+     * only correct one: a non-blank result is already the right
+     * language, because Get falls back to English itself when the
+     * current language has no entry.
+     *
+     * For a build whose tables predate a key entirely, so the person
+     * is told something rather than shown the key name.
+     */
+    public static string GetOrDefault(string key, string fallback)
+    {
+        /*
+         * Asked of the tables rather than of Get's answer, because the
+         * answer cannot be told apart from the key.
+         *
+         * Get returns the key itself when neither table has it -- a
+         * deliberate convention, so a window built by a newer source
+         * than its tables shows something identifying rather than an
+         * empty label. But twelve entries are their own translation:
+         * "Port" is "Port", "Cancel" is "Cancel". Comparing the
+         * returned text with the key to spot a miss therefore discards
+         * twelve perfectly good translations and hands the caller the
+         * fallback instead. Looking the key up is the only question
+         * that has an answer either way.
+         *
+         * The two-step is Get's own: this language first, then
+         * English, which is where a missing translation falls back there
+         * too.
+         */
+        if (Translations.TryGetValue(
+                _currentLanguage,
+                out var strings) &&
+            strings.TryGetValue(key, out var value) &&
+            !string.IsNullOrWhiteSpace(value))
+        {
+            return value;
+        }
+
+        if (Translations.TryGetValue(
+                "en",
+                out var english) &&
+            english.TryGetValue(key, out var fallbackText) &&
+            !string.IsNullOrWhiteSpace(fallbackText))
+        {
+            return fallbackText;
+        }
+
+        /*
+         * Last resort, and not the caller's text when the caller
+         * supplied none: an empty label is the one outcome this
+         * method exists to prevent, so a blank fallback falls back
+         * again to what Get would have shown.
+         */
+        return string.IsNullOrWhiteSpace(fallback) ? key : fallback;
     }
 }

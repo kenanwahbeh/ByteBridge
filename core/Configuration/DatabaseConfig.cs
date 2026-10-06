@@ -54,6 +54,28 @@ public class DatabaseConfig
         EngineIsSupported &&
         LastTestSuccessful;
 
+    /*
+     * Whether this row has to be given an engine before it can be saved.
+     *
+     * The predicate the wizard's save and Test both ask, and it lives
+     * here rather than in the window for the reason IsOnline lives here:
+     * it is the decision, and a decision in WPF code cannot be tested.
+     * Both of these have been wrong in review already -- one shipped a
+     * save that quietly turned the row into a working Firebird
+     * connection, the other returned with no explanation at all.
+     *
+     * engineChosen is what the engine box says. It is false only while
+     * nothing is selected, which happens only for a row this build
+     * cannot serve: the box has no item for it, so it opens unselected
+     * rather than showing Firebird and inviting the save.
+     *
+     * Not an error state and not a dead end -- choosing an engine is
+     * how the row is repaired. It only blocks while there is nothing
+     * chosen to build from.
+     */
+    public bool NeedsEngineChoice(bool engineChosen) =>
+        !EngineIsSupported && !engineChosen;
+
     public string Server { get; set; } =
         "localhost";
 

@@ -625,9 +625,18 @@ internal static class SqlText
     }
 
     /*
-     * A dollar-quote opener: a $, then a tag of letters, digits and
-     * underscores, then the closing $. The tag may be empty, which is
-     * what "$$...$$" is.
+     * A dollar-quote opener: a $, then a tag, then the closing $.
+     *
+     * The tag follows PostgreSQL's own rule, which is not "letters,
+     * digits and underscores": the FIRST character must be a letter or
+     * an underscore, and only the ones after it may be digits. "$$" --
+     * the untagged form -- is the empty tag and is always valid.
+     *
+     * That distinction is not pedantry. "$1abc$" is a placeholder
+     * followed by noise, not a string, and reading it as one makes the
+     * guard skip text the server will read as SQL -- a guard that
+     * disagrees with the engine about what the statement is, is a guard
+     * that will eventually be wrong in the direction that matters.
      *
      * A $ that does not open one is left alone: it is far likelier to
      * be a placeholder or an operator than a string.
@@ -639,10 +648,17 @@ internal static class SqlText
     {
         var i = start + 1;
 
-        while (i < sql.Length &&
-               (char.IsLetterOrDigit(sql[i]) || sql[i] == '_'))
+        // The first character: a letter or an underscore, never a digit.
+        if (i < sql.Length &&
+            (char.IsLetter(sql[i]) || sql[i] == '_'))
         {
             i++;
+
+            while (i < sql.Length &&
+                   (char.IsLetterOrDigit(sql[i]) || sql[i] == '_'))
+            {
+                i++;
+            }
         }
 
         if (i < sql.Length && sql[i] == '$')

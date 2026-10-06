@@ -206,6 +206,37 @@ public class DatabaseTypeTests
     }
 
     /*
+     * The tag's first character must be a letter or an underscore;
+     * only the ones after it may be digits. PostgreSQL's rule, and
+     * reading more than the engine does is how a guard starts skipping
+     * text the server will execute.
+     */
+    [Theory]
+    [InlineData("$_tag$ SELECT 1")]       // valid: underscore first
+    [InlineData("$tag1$ SELECT 1")]       // valid: digit after a letter
+    [InlineData("$$ SELECT 1")]           // valid: the untagged form
+    public void PostgreSQL_opens_a_dollar_quote_that_it_should(string sql)
+    {
+        Assert.Null(PostgreSqlProvider.Instance.RejectQuery(sql));
+    }
+
+    [Theory]
+    [InlineData("$1abc$ SELECT 1; DROP TABLE Orders")]
+    [InlineData("$9$ SELECT 1; DROP TABLE Orders")]
+    public void PostgreSQL_does_not_treat_a_digit_tag_as_a_string(string sql)
+    {
+        /*
+         * The semicolon is the point. Read as a dollar-quoted string,
+         * the whole of it is one literal and nothing after it is
+         * visible. Read as PostgreSQL reads it -- a placeholder, then
+         * noise -- the DROP is a second statement, and the guard has to
+         * refuse it as one. The old scanner swallowed the DROP inside
+         * what it took for a string.
+         */
+        Assert.NotNull(PostgreSqlProvider.Instance.RejectQuery(sql));
+    }
+
+    /*
      * A dollar-quoted body is a string, so a semicolon inside one is
      * part of the text rather than a second statement.
      */
