@@ -200,21 +200,11 @@ public partial class AddDatabaseWizardWindow : Window
      */
     private void ReportEngineNeedsRepair()
     {
-        var text = Strings.Get("WizardEngineUnsupported");
-
-        /*
-         * The English fallback is for a build whose Strings table lacks
-         * the key entirely, so the person is told something rather than
-         * nothing. A missing Arabic entry falls back to English inside
-         * Strings.Get, which is what makes this the right test: a
-         * non-blank result is already the right language.
-         */
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            text = "This connection names a database engine this version " +
-                   "of ByteBridge cannot serve. Choose Firebird or " +
-                   "PostgreSQL before saving.";
-        }
+        var text = Strings.GetOrDefault(
+            "WizardEngineUnsupported",
+            "This connection names a database engine this version " +
+            "of ByteBridge cannot serve. Choose Firebird or " +
+            "PostgreSQL before saving.");
 
         TestResultBorder.Visibility = Visibility.Visible;
         TestResultTextBlock.Text = text;
@@ -389,7 +379,7 @@ public partial class AddDatabaseWizardWindow : Window
          * the row is saved with that engine, which is the point of
          * opening it.
          */
-        if (_existing != null && !_existing.EngineIsSupported && !EngineChosen)
+        if (_existing != null && _existing.NeedsEngineChoice(EngineChosen))
         {
             config = new DatabaseConfig();
 

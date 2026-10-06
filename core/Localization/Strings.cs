@@ -449,4 +449,38 @@ public static class Strings
         var template = Get(key);
         return string.Format(template, args);
     }
+
+    /*
+     * Get, with the caller's own text for a key the tables do not have.
+     *
+     * Written because a caller got this backwards once: it tested
+     * !IsNullOrWhiteSpace and so replaced every translation it was
+     * given with the English fallback -- an Arabic string that existed,
+     * was fetched, and was then thrown away. The condition here is the
+     * only correct one: a non-blank result is already the right
+     * language, because Get falls back to English itself when the
+     * current language has no entry.
+     *
+     * For a build whose tables predate a key entirely, so the person
+     * is told something rather than shown the key name.
+     */
+    public static string GetOrDefault(string key, string fallback)
+    {
+        var value = Get(key);
+
+        /*
+         * Get returns the key itself when neither table has it, which
+         * is a deliberate convention: a window built by a newer source
+         * than its tables still shows something identifying rather than
+         * an empty label. For a caller who has better words, that is
+         * the case to replace -- and it cannot be spotted by an empty
+         * check, because the key is not empty.
+         */
+        if (string.IsNullOrWhiteSpace(value) || value == key)
+        {
+            return fallback;
+        }
+
+        return value;
+    }
 }
