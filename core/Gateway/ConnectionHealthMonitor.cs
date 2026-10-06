@@ -49,6 +49,19 @@ public sealed class ConnectionHealthMonitor
         {
             cancellationToken.ThrowIfCancellationRequested();
 
+            /*
+             * Skipped, not probed. A connection whose engine this build
+             * cannot serve is not a database that is down, and marking
+             * it failed every minute would report a configuration
+             * problem as an outage. It keeps whatever test result it
+             * already had until an administrator saves a supported
+             * engine.
+             */
+            if (!connection.EngineIsSupported)
+            {
+                continue;
+            }
+
             var (succeeded, _) = await _test(connection, cancellationToken);
 
             _database.SetTestResult(connection.Id, succeeded);

@@ -26,11 +26,42 @@ is refused by the database rather than trusted not to write.
 | Engine | Held read-only by the engine | Also refused by ByteBridge |
 |---|---|---|
 | Firebird | Yes, a read-only transaction | `GEN_ID` with a step other than 0, `NEXT VALUE FOR` |
-| PostgreSQL | Yes, `SET TRANSACTION READ ONLY` | `nextval` and `setval` |
+| PostgreSQL | Yes, `SET TRANSACTION READ ONLY` | `nextval` and `setval`; more than one statement; session-level advisory locks |
 
 The sequence cases are refused separately because a sequence moves
 outside any transaction: PostgreSQL still lets one move inside a
 read-only one, so the read-only transaction does not cover it.
+
+### Why PostgreSQL refuses one statement
+
+The read-only transaction is not the whole answer on PostgreSQL, and
+the difference is worth stating plainly.
+
+Npgsql sends `SELECT 1; DELETE FROM t` as one batch, so both statements
+run inside the read-only transaction, and the engine refuses the second
+one. But a transaction-control statement in the middle ends it: in
+`SELECT 1; COMMIT; DELETE FROM t` the `COMMIT` closes the read-only
+transaction, and the `DELETE` after it runs in a new one that is not
+read-only. There the text check is the only thing standing in the way,
+so `/query` takes exactly one statement.
+
+A single trailing semicolon is fine. Literals, comments, quoted names
+and dollar-quoted bodies are skipped first, so a function body written
+in `$$ ... $$` may hold semicolons of its own.
+
+### Why PostgreSQL connections are not pooled
+
+A pooled connection is reset when it is next handed out, not when it is
+returned, so anything session-scoped outlives the request. A
+session-level advisory lock belongs to the session, so rolling the
+transaction back does not release it: `/query` refuses
+`pg_advisory_lock` and its variants, and the connection is not pooled
+either, so a lock taken inside a function the statement calls cannot
+outlive the request either. The transaction-scoped `pg_advisory_xact_lock`
+is left allowed — it dies with the transaction.
+
+The cost is a connection per request, which is nothing beside the
+tunnel round trip every one of these requests already pays.
 
 ## Why there are only two
 
@@ -54,6 +85,14 @@ never reached a server.
 What would bring it back: a guard that sees through `UNION`, and one
 real server to run against. `SqlServerIntegrationTests` is written and
 runs nothing until `BYTEBRIDGE_TEST_SQLSERVER` names one.
+
+## A settings file from a build with a third engine
+
+Such a file opens. The row keeps its name, server, credentials and
+password, so the control panel can show it and let an administrator pick
+a supported engine — but nothing is dispatched through it: a request for
+it is answered `409` naming the engine, and the health probe skips it
+rather than reporting a database that is working as broken.
 
 ## Notes
 

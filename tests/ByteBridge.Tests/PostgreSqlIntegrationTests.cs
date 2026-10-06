@@ -181,8 +181,15 @@ public class PostgreSqlIntegrationTests
         Assert.Equal(0, await CountAsync("id = 98765"));
     }
 
+    /*
+     * Both statements run inside the read-only transaction, and the
+     * engine refuses the second one. Straight to the provider, with no
+     * text guard in the way, which is what proves the engine is doing
+     * the refusing -- and it is the reason the text guard above exists:
+     * that protection is one COMMIT away from not applying.
+     */
     [PostgresFact]
-    public async Task A_second_statement_after_a_select_cannot_write()
+    public async Task The_engine_refuses_a_second_statement_inside_the_read_only_transaction()
     {
         await EnsureSchemaAsync();
 
@@ -193,6 +200,135 @@ public class PostgreSqlIntegrationTests
                 null, 100, 30, CancellationToken.None));
 
         Assert.Equal(3, await CountAsync());
+    }
+
+    [PostgresFact]
+    public async Task A_second_statement_after_a_select_cannot_write()
+    {
+        using var gateway = await LiveGatewayAsync();
+
+        /*
+         * Refused by ByteBridge rather than by the engine. Npgsql sends
+         * "SELECT 1; DELETE FROM t" as one batch, so both statements run
+         * inside the read-only transaction and the engine refuses the
+         * second one -- which is what the test above proves directly.
+         * This one is about the text guard, because a batch is the only
+         * way to get a second statement here at all.
+         */
+        var (status, body) = await GatewayHarness.Read(gateway.Post("/query", new
+        {
+            database = "Test",
+            sql = $"SELECT 1; DELETE FROM {Table}"
+        }));
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Contains("one statement", body);
+
+        Assert.Equal(3, await CountAsync());
+    }
+
+    /*
+     * The read-only transaction is not enough on its own here, and this
+     * is the statement that proves it.
+     *
+     * A COMMIT in the middle ends the read-only transaction, and the
+     * DELETE after it runs in a new one that is not read-only. So this
+     * has to be refused before it reaches the engine: nothing else stops
+     * it.
+     */
+    [PostgresFact]
+    public async Task A_commit_in_the_middle_cannot_end_the_read_only_transaction()
+    {
+        using var gateway = await LiveGatewayAsync();
+
+        var (status, body) = await GatewayHarness.Read(gateway.Post("/query", new
+        {
+            database = "Test",
+            sql = $"SELECT 1; COMMIT; DELETE FROM {Table}"
+        }));
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Contains("one statement", body);
+
+        Assert.Equal(3, await CountAsync());
+    }
+
+    [PostgresFact]
+    public async Task An_insert_after_a_commit_cannot_land_either()
+    {
+        using var gateway = await LiveGatewayAsync();
+
+        var (status, _) = await GatewayHarness.Read(gateway.Post("/query", new
+        {
+            database = "Test",
+            sql = $"SELECT 1; COMMIT; INSERT INTO {Table} (id) VALUES (98767)"
+        }));
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+
+        Assert.Equal(0, await CountAsync("id = 98767"));
+    }
+
+    /*
+     * A function body is written inside a dollar-quoted string and
+     * legitimately holds semicolons of its own, so the guard has to skip
+     * it rather than read one statement where there is only one.
+     *
+     * The refusal here is the engine's, not the guard's: the guard let
+     * it through, which is the point. A DO block is one statement, and
+     * PostgreSQL will not run one inside a read-only transaction.
+     */
+    [PostgresFact]
+    public async Task A_dollar_quoted_body_is_not_read_as_a_second_statement()
+    {
+        using var gateway = await LiveGatewayAsync();
+
+        var (status, body) = await GatewayHarness.Read(gateway.Post("/query", new
+        {
+            database = "Test",
+            sql = """
+                DO $$ BEGIN RAISE NOTICE 'a semicolon ; inside a body'; END $$;
+                """
+        }));
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+
+        // Not the guard's wording: it did not count those semicolons as
+        // statements.
+        Assert.DoesNotContain("one statement", body);
+
+        Assert.Equal(3, await CountAsync());
+    }
+
+    /*
+     * Session-level advisory locks are the other thing this guard has to
+     * refuse, and the reason is quieter than the COMMIT case: a lock
+     * taken by pg_advisory_lock belongs to the session, not the
+     * transaction, so rolling the transaction back does not release it.
+     * A read request could leave a lock held that other clients wait on.
+     */
+    [PostgresFact]
+    public async Task A_session_advisory_lock_cannot_be_taken_from_a_query()
+    {
+        using var gateway = await LiveGatewayAsync();
+
+        var (status, body) = await GatewayHarness.Read(gateway.Post("/query", new
+        {
+            database = "Test",
+            sql = "SELECT pg_advisory_lock(4242)"
+        }));
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Contains("advisory", body, StringComparison.OrdinalIgnoreCase);
+
+        /*
+         * Deliberately not counting pg_locks here. The claim being made
+         * is that the statement never ran, which the refusal above shows;
+         * whether a session-level lock can survive is a property of the
+         * connection, and the connection is not pooled, so it cannot.
+         * A cluster-wide count would only add a test that fails when
+         * something unrelated holds a lock.
+         */
     }
 
     [PostgresFact]

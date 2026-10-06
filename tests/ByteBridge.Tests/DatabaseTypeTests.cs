@@ -151,6 +151,93 @@ public class DatabaseTypeTests
      * IsReadOnlyStatement would still be refused by the database.
      */
 
+    /*
+     * The PostgreSQL guard, on its own, without a server.
+     *
+     * It exists because the read-only transaction is not enough on this
+     * engine: Npgsql sends a semicolon-separated text as one batch, so
+     * a COMMIT in the middle ends the read-only transaction and whatever
+     * follows runs in a new one that is not read-only. The text guard is
+     * the only thing standing there, so it is tested on its own.
+ */
+    [Theory]
+    [InlineData("SELECT 1; COMMIT; DELETE FROM Orders")]
+    [InlineData("SELECT 1; DELETE FROM Orders")]
+    [InlineData("SELECT 1;SELECT 2")]
+    [InlineData("WITH c AS (SELECT Id FROM Orders) SELECT * FROM c; DROP TABLE Orders")]
+    [InlineData("SELECT 1; BEGIN; INSERT INTO Orders (Id) VALUES (2)")]
+    [InlineData("SELECT 1; ROLLBACK; UPDATE Orders SET Id = 2")]
+    [InlineData("SELECT 1; PREPARE TRANSACTION 'x'")]
+    public void PostgreSQL_takes_one_statement(string sql)
+    {
+        Assert.NotNull(PostgreSqlProvider.Instance.RejectQuery(sql));
+    }
+
+    [Theory]
+    [InlineData("SELECT * FROM Orders")]
+    [InlineData("SELECT * FROM Orders;")]
+    [InlineData("  -- note" + "\n" + "SELECT Id FROM Orders WHERE Id = @id")]
+    [InlineData("SELECT 1;; ")]
+    [InlineData("SELECT 'DELETE FROM Orders; DROP TABLE Orders' AS note")]
+    [InlineData("SELECT /* ; */ Id FROM Orders")]
+    [InlineData("SELECT \"weird;name\" FROM Orders")]
+    [InlineData("SELECT Id FROM Orders WHERE Name = 'a;b'")]
+    [InlineData("SELECT Id FROM Orders WHERE Id = $1")]
+    public void PostgreSQL_lets_one_select_through(string sql)
+    {
+        Assert.Null(PostgreSqlProvider.Instance.RejectQuery(sql));
+    }
+
+    /*
+     * A dollar-quoted body is a string, so a semicolon inside one is
+     * part of the text rather than a second statement.
+     */
+    [Fact]
+    public void PostgreSQL_skips_a_dollar_quoted_body()
+    {
+        // One statement, with a semicolon inside the body.
+        Assert.Null(
+            PostgreSqlProvider.Instance.RejectQuery(
+                "CREATE FUNCTION f() RETURNS int AS $$ BEGIN RETURN 1; END $$ LANGUAGE plpgsql"));
+
+        // The second semicolon is a real one, outside the body.
+        Assert.NotNull(
+            PostgreSqlProvider.Instance.RejectQuery(
+                "SELECT $$a;b$$ UNION SELECT 1; DROP TABLE Orders"));
+    }
+
+    /*
+     * Session-level advisory locks belong to the session, not the
+     * transaction, so rolling back does not release them. A read request
+     * that took one would leave it held against other clients.
+     */
+    [Theory]
+    [InlineData("SELECT pg_advisory_lock(1)")]
+    [InlineData("SELECT pg_try_advisory_lock(1)")]
+    [InlineData("SELECT pg_advisory_lock_shared(2)")]
+    [InlineData("SELECT pg_advisory_lock_exclusive(2)")]
+    [InlineData("SELECT pg_try_advisory_lock_shared(2)")]
+    [InlineData("SELECT pg_advisory_unlock(1)")]
+    [InlineData("SELECT pg_advisory_unlock_shared(1)")]
+    [InlineData("SELECT pg_advisory_unlock_all()")]
+    [InlineData("SELECT * FROM f() WHERE pg_advisory_lock_shared(2)")]
+    public void PostgreSQL_refuses_a_session_advisory_lock(string sql)
+    {
+        Assert.NotNull(PostgreSqlProvider.Instance.RejectQuery(sql));
+    }
+
+    /*
+     * The transaction-scoped ones die with the transaction below, so
+     * they are not the hazard and refusing them would only be noise.
+     */
+    [Theory]
+    [InlineData("SELECT pg_advisory_xact_lock(1)")]
+    [InlineData("SELECT pg_try_advisory_xact_lock_shared(1)")]
+    public void PostgreSQL_allows_a_transaction_scoped_advisory_lock(string sql)
+    {
+        Assert.Null(PostgreSqlProvider.Instance.RejectQuery(sql));
+    }
+
     [Theory]
     [InlineData("SELECT nextval('orders_id_seq')")]
     [InlineData("select setval('orders_id_seq', 10)")]

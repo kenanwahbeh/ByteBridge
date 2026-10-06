@@ -319,7 +319,25 @@ internal sealed class PostgreSqlProvider : SqlProvider
             Username = config.Username,
             Password = config.Password,
             Timeout = 10,
-            ApplicationName = "ByteBridge"
+            ApplicationName = "ByteBridge",
+
+            /*
+             * Pooling off, deliberately.
+             *
+             * A pooled connection is reset when it is next handed out,
+             * not when it is returned -- so anything session-scoped a
+             * statement left behind outlives the request. A session-level
+             * advisory lock is the case that matters: it belongs to the
+             * session, so rolling back the transaction does not release
+             * it, and the lock would sit held on a connection other
+             * clients are waiting for. Without pooling the session ends
+             * at the end of the request and the server drops it.
+             *
+             * The cost is a connection per request, which is nothing
+             * beside the tunnel round trip every one of these requests
+             * already pays.
+             */
+            Pooling = false
         }.ToString();
 
     protected override DbConnection CreateConnection(DatabaseConfig config) =>
@@ -376,6 +394,77 @@ internal sealed class PostgreSqlProvider : SqlProvider
     }
 
     public override bool IsDatabaseError(Exception error) => error is NpgsqlException;
+
+    /*
+     * One statement only, and this is the engine's guard rather than a
+     * shared one, because here the read-only transaction is not enough
+     * on its own.
+     *
+     * Npgsql sends "SELECT 1; DELETE FROM t" as one batch, so both
+     * statements run inside the read-only transaction -- which is
+     * why that case is already refused by the engine. But a
+     * transaction-control statement in the middle ends it: in
+     * "SELECT 1; COMMIT; DELETE FROM t" the COMMIT closes the
+     * read-only transaction, and the DELETE that follows runs in a new
+     * one that is not read-only. The text check is the only thing
+     * standing in that path.
+     *
+     * So the check is on statement separators, after blanking what can
+     * hold one: string literals, comments, quoted names, and
+     * dollar-quoted bodies -- a function body written in one is a
+     * SELECT that legitimately contains semicolons of its own.
+     *
+     * A single trailing semicolon is allowed; the alternative is
+     * refusing a query a client sent with the semicolon a driver adds.
+     */
+    public override string? RejectQuery(string sql)
+    {
+        var text = SqlText.BlankLiteralsAndComments(
+            sql,
+            blankBracketNames: true,
+            dollarQuoted: true).Trim();
+
+        text = text.TrimEnd(';', ' ', '\t', '\r', '\n');
+
+        if (text.Contains(';'))
+        {
+            return "/query takes one statement on PostgreSQL. Remove " +
+                "the semicolon and whatever follows it.";
+        }
+
+        /*
+         * Session-level advisory locks, refused for a quieter reason
+         * than the statement count: a lock taken by pg_advisory_lock
+         * belongs to the session rather than the transaction, so
+         * rolling this transaction back does not release it, and the
+         * lock stays held against whatever else wants it.
+         *
+         * The transaction-scoped ones (pg_advisory_xact_lock) are left
+         * alone: those die with the transaction below.
+         *
+         * This cannot see a lock taken inside a function the statement
+         * calls. Pooling is off for that reason as well as for the
+         * direct case: see BuildConnectionString.
+         */
+        var lockCall = SessionAdvisoryLock.Match(text);
+
+        return lockCall.Success
+            ? $"/query does not accept {lockCall.Value.ToUpperInvariant()} " +
+              "on PostgreSQL. It would hold a lock after the request " +
+              "ends, which other clients then wait on."
+            : null;
+    }
+
+    /*
+     * Every session-level variant, including the shared and exclusive
+     * ones and the try_ forms -- all of them belong to the session and
+     * none is released by the rollback below. The _xact_lock family is
+     * deliberately not matched: those die with the transaction.
+     */
+    private static readonly Regex SessionAdvisoryLock =
+        new(@"\bpg_(?:try_)?advisory_(?:un)?lock"
+            + @"(?:_(?:shared|exclusive))?(?:_all)?\s*\(",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 }
 
 internal static class SqlProviders
@@ -386,7 +475,40 @@ internal static class SqlProviders
         _ => FirebirdProvider.Instance
     };
 
-    public static SqlProvider For(DatabaseConfig config) => For(config.Type);
+    /*
+     * Throws for a row whose engine this build cannot serve, rather
+     * than falling back to Firebird and reporting a connection failure
+     * that is really a configuration one. Callers turn this into a
+     * clean answer for the caller -- see UnsupportedEngineException.
+     */
+    public static SqlProvider For(DatabaseConfig config)
+    {
+        if (!config.EngineIsSupported)
+        {
+            throw new UnsupportedEngineException(config.Name);
+        }
+
+        return For(config.Type);
+    }
+}
+
+/*
+ * The engine named in a connection row is not one this build has a
+ * provider for. Separate from a database error on purpose: nothing is
+ * wrong with the database, and saying so is what tells an administrator
+ * to go and pick an engine rather than go and fix the server.
+ */
+public sealed class UnsupportedEngineException : Exception
+{
+    public UnsupportedEngineException(string connectionName)
+        : base($"Connection \"{connectionName}\" names a database engine " +
+               "this version of ByteBridge cannot serve. Open it in the " +
+               "control panel and choose a supported engine.")
+    {
+        ConnectionName = connectionName;
+    }
+
+    public string ConnectionName { get; }
 }
 
 /*
@@ -398,8 +520,16 @@ internal static class SqlText
      * Replaces string literals, comments and, when asked, [bracketed] and
      * "quoted" names with a space, so a word inside them is not mistaken
      * for a keyword.
+     *
+     * dollarQuoted covers PostgreSQL's $tag$...$tag$ strings. A
+     * function body is written inside one, and it may hold a semicolon,
+     * a quote and a whole second statement -- so a check for statement
+     * separators has to skip them or it will read one.
      */
-    public static string BlankLiteralsAndComments(string sql, bool blankBracketNames = false)
+    public static string BlankLiteralsAndComments(
+        string sql,
+        bool blankBracketNames = false,
+        bool dollarQuoted = false)
     {
         var result = new StringBuilder(sql.Length);
         var i = 0;
@@ -425,6 +555,13 @@ internal static class SqlText
 
                 i = end < 0 ? sql.Length : end + 2;
                 result.Append(' ');
+                continue;
+            }
+
+            if (dollarQuoted && c == '$' &&
+                TryReadDollarTag(sql, i, out var afterOpener))
+            {
+                i = SkipDollarQuoted(sql, i, afterOpener, result);
                 continue;
             }
 
@@ -474,5 +611,62 @@ internal static class SqlText
         }
 
         return i;
+    }
+
+    /*
+     * A dollar-quote opener: a $, then a tag of letters, digits and
+     * underscores, then the closing $. The tag may be empty, which is
+     * what "$$...$$" is.
+     *
+     * A $ that does not open one is left alone: it is far likelier to
+     * be a placeholder or an operator than a string.
+     */
+    private static bool TryReadDollarTag(
+        string sql,
+        int start,
+        out int afterOpener)
+    {
+        var i = start + 1;
+
+        while (i < sql.Length &&
+               (char.IsLetterOrDigit(sql[i]) || sql[i] == '_'))
+        {
+            i++;
+        }
+
+        if (i < sql.Length && sql[i] == '$')
+        {
+            afterOpener = i + 1;
+
+            return true;
+        }
+
+        afterOpener = 0;
+
+        return false;
+    }
+
+    /*
+     * From the opener through to just past its closing. An unterminated
+     * one runs to the end, which is how the server reads it too.
+     */
+    private static int SkipDollarQuoted(
+        string sql,
+        int openerStart,
+        int afterOpener,
+        StringBuilder result)
+    {
+        var closing = sql[openerStart..afterOpener];
+
+        var end = sql.IndexOf(
+            closing,
+            afterOpener,
+            StringComparison.Ordinal);
+
+        // One space for the whole literal, so nothing inside it can be
+        // read as a keyword or a statement separator.
+        result.Append(' ');
+
+        return end < 0 ? sql.Length : end + closing.Length;
     }
 }

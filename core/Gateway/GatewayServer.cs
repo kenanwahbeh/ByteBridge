@@ -856,7 +856,26 @@ public sealed class GatewayServer : IDisposable
 
         var config = _config;
 
-        var provider = SqlProviders.For(connection);
+        SqlProvider provider;
+
+        try
+        {
+            provider = SqlProviders.For(connection);
+        }
+        catch (UnsupportedEngineException ex)
+        {
+            /*
+             * Not a database error and not a refusal of the statement:
+             * the request names a connection this build cannot serve,
+             * and no statement against it can work.
+             */
+            await WriteJsonAsync(
+                context,
+                409,
+                new ErrorResponse(ex.Message));
+
+            return;
+        }
 
         var refusal = provider.RejectQuery(request.Sql);
 
@@ -964,7 +983,21 @@ public sealed class GatewayServer : IDisposable
             return;
         }
 
-        var executor = SqlProviders.For(connection);
+        SqlProvider executor;
+
+        try
+        {
+            executor = SqlProviders.For(connection);
+        }
+        catch (UnsupportedEngineException ex)
+        {
+            await WriteJsonAsync(
+                context,
+                409,
+                new ErrorResponse(ex.Message));
+
+            return;
+        }
 
         try
         {

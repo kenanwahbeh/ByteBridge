@@ -12,8 +12,23 @@ namespace ByteBridge.Data;
  */
 public static class DatabaseConnectionTester
 {
-    public static Task<(bool Succeeded, string? Error)> TestAsync(
+    public static async Task<(bool Succeeded, string? Error)> TestAsync(
         DatabaseConfig config,
-        CancellationToken cancellationToken = default) =>
-        SqlProviders.For(config).TestAsync(config, cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await SqlProviders.For(config)
+                .TestAsync(config, cancellationToken);
+        }
+        catch (UnsupportedEngineException ex)
+        {
+            /*
+             * Reported rather than thrown: the window asks this before
+             * saving, and an engine it cannot serve is an answer, not a
+             * crash.
+             */
+            return (false, ex.Message);
+        }
+    }
 }

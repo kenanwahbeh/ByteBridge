@@ -14,6 +14,23 @@ public class DatabaseConfig
     public DatabaseType Type { get; set; } =
         DatabaseType.Firebird;
 
+    /*
+     * Whether this build can actually serve that engine.
+     *
+     * False only for a row whose stored engine name is not one this
+     * build has a provider for -- a settings file written by a build
+     * that had it, read by one that does not. Such a row keeps its
+     * details so the window can show and repair it, but nothing may be
+     * dispatched through it: a Firebird client talking to a PostgreSQL
+     * endpoint fails in a way that looks like the database is down
+     * rather than the engine being unavailable, and a health probe
+     * would keep marking it broken for that reason.
+     *
+     * So Type stays Firebird for display, and this is what the gateway
+     * and the tester check before choosing a provider.
+     */
+    public bool EngineIsSupported { get; set; } = true;
+
     public string Server { get; set; } =
         "localhost";
 
@@ -48,7 +65,9 @@ public class DatabaseConfig
      * were other engines still matches itself.
      */
     public string ConnectionKey =>
-        (Type == DatabaseType.Firebird ? string.Empty : $"{Type}|") +
+        (Type == DatabaseType.Firebird && EngineIsSupported
+            ? string.Empty
+            : $"{(EngineIsSupported ? Type.ToString() : "unsupported")}|") +
         $"{Server.Trim().ToLowerInvariant()}|" +
         $"{Port}|" +
         $"{Username.Trim().ToLowerInvariant()}|" +

@@ -381,15 +381,20 @@ public class SqliteDatabase
                     Database = reader.GetString(6),
 
                     /*
-                     * A row that says something this build has no
-                     * provider for falls back to Firebird rather than
-                     * throwing: an engine taken back out must not make
-                     * every other connection unreadable.
+                     * An engine name this build has no provider for
+                     * keeps its row readable -- the window has to be
+                     * able to show it and let an administrator pick a
+                     * supported engine -- but says so, so nothing is
+                     * dispatched through it. See DatabaseConfig.
                      */
+                    EngineIsSupported = DatabaseTypes.TryParse(
+                        reader.GetString(10),
+                        out var type),
+
                     Type = DatabaseTypes.TryParse(
                         reader.GetString(10),
-                        out var type)
-                            ? type
+                        out var parsed)
+                            ? parsed
                             : DatabaseType.Firebird,
 
                     Enabled = reader.GetInt32(7) == 1,

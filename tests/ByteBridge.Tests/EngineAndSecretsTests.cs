@@ -2,6 +2,7 @@ using Microsoft.Data.Sqlite;
 using Xunit;
 using ByteBridge.Configuration;
 using ByteBridge.Data;
+using ByteBridge.Gateway;
 using ByteBridge.Security;
 
 namespace ByteBridge.Tests;
@@ -267,6 +268,101 @@ public class EngineAndSecretsTests
         Assert.Equal(
             "localhost|3050|sysdba|/data/sales.fdb",
             firebird.ConnectionKey);
+    }
+
+    /*
+     * An engine this build cannot serve is a configuration problem, and
+     * the three places that could answer for it all have to say so --
+     * each used to reach for Firebird and report something misleading.
+     */
+    [Fact]
+    public void An_unsupported_engine_is_refused_rather_than_tried_as_Firebird()
+    {
+        using var root = new TempDataRoot();
+
+        var database = root.OpenDatabase();
+
+        database.AddConnection(Postgres());
+
+        RawExecute(
+            root.CurrentDatabasePath,
+            "UPDATE Databases SET DatabaseType = 'SqlServer';");
+
+        var connection = root.OpenDatabase().GetConnections().Single();
+
+        Assert.False(connection.EngineIsSupported);
+
+        // The gateway and the tester both go through here.
+        var refused = Assert.Throws<UnsupportedEngineException>(
+            () => SqlProviders.For(connection));
+
+        Assert.Contains("Sales", refused.Message);
+
+        // The tester reports it rather than throwing at the window.
+        var (succeeded, error) =
+            DatabaseConnectionTester.TestAsync(connection).Result;
+
+        Assert.False(succeeded);
+        Assert.Contains("engine", error!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void An_unsupported_engine_keeps_its_own_connection_key()
+    {
+        var supported = Postgres();
+
+        var unsupported = Postgres();
+
+        unsupported.EngineIsSupported = false;
+
+        // Same details, different rows: falling back to Firebird's key
+        // would have made these two collide.
+        Assert.NotEqual(
+            supported.ConnectionKey,
+            unsupported.ConnectionKey);
+
+        // And Firebird's key is still the one it always was.
+        Assert.Equal(
+            "localhost|3050|sysdba|/data/sales.fdb",
+            Firebird().ConnectionKey);
+    }
+
+    [Fact]
+    public async Task An_unsupported_engine_is_refused_by_the_gateway()
+    {
+        using var gateway = new GatewayHarness();
+
+        gateway.AddLegacyConnectionNamed("Mystery");
+
+        // The row now names an engine this build has no provider for.
+        RawExecute(
+            gateway.SettingsDatabasePath,
+            "UPDATE Databases SET DatabaseType = 'SqlServer', Enabled = 1 " +
+            "WHERE Name = 'Mystery';");
+
+        var (status, body) = await GatewayHarness.Read(gateway.Post("/query", new
+        {
+            database = "Mystery",
+            sql = "SELECT 1"
+        }));
+
+        // 409, not a database error: nothing is wrong with the server,
+        // and saying otherwise would send an administrator to fix it.
+        Assert.Equal(System.Net.HttpStatusCode.Conflict, status);
+        Assert.Contains("engine", body, StringComparison.OrdinalIgnoreCase);
+
+        /*
+         * And the row keeps its details, so the window can show it and
+         * let an administrator pick a supported engine -- that was the
+         * point of not throwing it away.
+         */
+        var saved = gateway.Database
+            .GetConnections()
+            .Single(c => c.Name == "Mystery");
+
+        Assert.False(saved.EngineIsSupported);
+        Assert.Equal("Mystery", saved.Name);
+        Assert.Equal(3050, saved.Port);
     }
 
     private static DatabaseConfig Firebird() =>
