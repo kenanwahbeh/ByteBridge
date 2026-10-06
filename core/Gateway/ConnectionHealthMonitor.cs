@@ -30,7 +30,7 @@ public sealed class ConnectionHealthMonitor
         Func<DatabaseConfig, CancellationToken, Task<(bool Succeeded, string? Error)>>? test = null)
     {
         _database = database;
-        _test = test ?? FirebirdConnectionTester.TestAsync;
+        _test = test ?? DatabaseConnectionTester.TestAsync;
     }
 
     /*
@@ -48,6 +48,19 @@ public sealed class ConnectionHealthMonitor
         foreach (var connection in _database.GetConnections().Where(c => c.Enabled))
         {
             cancellationToken.ThrowIfCancellationRequested();
+
+            /*
+             * Skipped, not probed. A connection whose engine this build
+             * cannot serve is not a database that is down, and marking
+             * it failed every minute would report a configuration
+             * problem as an outage. It keeps whatever test result it
+             * already had until an administrator saves a supported
+             * engine.
+             */
+            if (!connection.EngineIsSupported)
+            {
+                continue;
+            }
 
             var (succeeded, _) = await _test(connection, cancellationToken);
 

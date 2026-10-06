@@ -1,8 +1,11 @@
 # Quick start
 
-1. **Add a database.** Choose **File → New Database…**, fill in the
-   database server, port, user, password and database path or alias,
-   and use **Test Connection** before saving.
+1. **Add a database.** Choose **File → New Database…**, pick your engine
+   on the first step — **Firebird** or **PostgreSQL** — then fill in the
+   database server, port, user, password and the database path or name.
+   The port and user fill in that engine's usual ones. Use **Test
+   Connection** before saving.
+   *Firebird's "database" is a file or alias; PostgreSQL's is a name.*
 2. **Check it is Online.** A connection saved after a successful test
    is Online straight away, and only Online connections answer
    requests. The button on its card takes it **Offline** and back; going

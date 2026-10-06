@@ -20,12 +20,19 @@ up whether or not that window is open.
 
 ByteBridge only reads unless an administrator ticks **Options → Allow
 writing** in the app. `/query` takes a `SELECT` or a `WITH` and nothing
-else, and runs it in a transaction that Firebird itself holds
+else, and runs it in a transaction that **the database itself** holds
 read-only, so a statement sent to it cannot change rows however it is
-written. Generators change outside transactions, so `GEN_ID` with a
-step other than 0 and `NEXT VALUE FOR` are refused as well. A procedure
-that moves a generator inside its own body cannot be seen from here;
-limit the Firebird user if that matters.
+written. That is the guarantee, and it belongs to the engine — see
+[Database engines](database-engines.md) for how each one does it.
+
+Sequences change outside transactions, so the ones that move them are
+refused as well: `GEN_ID` with a step other than 0 and `NEXT VALUE FOR`
+on Firebird, `nextval` and `setval` on PostgreSQL. On PostgreSQL the
+text check also takes one statement only, because a `COMMIT` in the
+middle would end the read-only transaction and whatever follows would
+run outside it. A procedure or function that moves a sequence inside its
+own body cannot be seen from here; limit the database user if that
+matters.
 
 `/execute` is for writes and answers `403` while **Allow writing** is
 off, which is how ByteBridge ships. The setting takes effect on the
@@ -111,18 +118,29 @@ curl -X POST https://your-tunnel.example.com/execute \
 ```
 
 Always pass values through `parameters` rather than concatenating
-them into `sql`; they are bound as Firebird parameters, so a value
-cannot turn into SQL.
+them into `sql`; they are bound as parameters of the engine you are
+talking to, so a value cannot turn into SQL.
 
 ## Types
 
-| Firebird              | JSON                                |
-| --------------------- | ------------------------------------ |
-| `INTEGER`, `BIGINT`   | number                              |
-| `NUMERIC`, `DECIMAL`  | number, scale preserved             |
-| `VARCHAR`, `CHAR`     | string                              |
-| `DATE`, `TIMESTAMP`   | ISO-8601 string                     |
-| `BLOB SUB_TYPE TEXT`  | string                              |
+Values are normalised on the way out, so the same column reads the same
+way whichever engine produced it. A JSON string stays a string, a
+numeric keeps its scale, and a blob comes back base64.
+
+| Kind                    | JSON                                |
+| ----------------------- | ------------------------------------ |
+| Integers, `BIGINT`      | number                              |
+| `NUMERIC`, `DECIMAL`    | number, scale preserved             |
+| Text (`VARCHAR`, `CHAR`, `TEXT`) | string                     |
+| Dates and times         | ISO-8601 string                     |
+| Blobs                   | base64 string                       |
+| Booleans                | `true` / `false`                    |
+| `NULL`                  | `null`                              |
+
+Firebird maps `BLOB SUB_TYPE TEXT` to a string rather than base64,
+because it is text. PostgreSQL's `numeric` arrives as a JSON number,
+so a value too large for one is sent as a string — compare it with a
+cast, as [Database engines](database-engines.md) describes.
 | `BLOB` (binary)       | base64 string                       |
 | `NULL`                | `null`                              |
 

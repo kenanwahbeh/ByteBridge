@@ -40,7 +40,111 @@ public partial class AddDatabaseWizardWindow : Window
 
         ApplyLocalization();
 
+        // Attached here, after the box has its first value, so filling it
+        // in is not taken for the person choosing another engine.
+        TypeComboBox.SelectedIndex = 0;
+        TypeComboBox.SelectionChanged += TypeComboBox_SelectionChanged;
+
         UpdateStepUi();
+    }
+
+    private DatabaseType _appliedType = DatabaseType.Firebird;
+
+    /*
+     * Set by TryBuildConfiguration when the row being edited names an
+     * engine this build cannot serve, so the wizard can say why it will
+     * not save rather than appearing to ignore the button.
+     */
+    private bool EngineNeedsRepair { get; set; }
+
+    /*
+     * Read by index, because the box is filled in the order below.
+     *
+     * The fallback to Firebird is what makes this safe to read before
+     * anything is chosen, which is the state a row needing repair opens
+     * in. Nothing saves from that state: TryBuildConfiguration refuses
+     * while the box is unselected, so this value is never written for a
+     * row that had no engine item. Changing that order would make an
+     * unrelated edit silently turn such a row into a working Firebird
+     * connection.
+     */
+    private DatabaseType SelectedType => TypeComboBox.SelectedIndex switch
+    {
+        1 => DatabaseType.PostgreSql,
+        _ => DatabaseType.Firebird
+    };
+
+    /*
+     * Whether an engine has actually been chosen here.
+     *
+     * A row whose stored engine this build cannot serve opens with
+     * nothing selected, because the box has no item for it and
+     * showing Firebird would read as "this is a Firebird connection".
+     * Until something is picked there is no engine to build a
+     * configuration from, and that -- not the row -- is what stops the
+     * save.
+     */
+    private bool EngineChosen => TypeComboBox.SelectedIndex >= 0;
+
+    private static int IndexOf(DatabaseType type) => type switch
+    {
+        DatabaseType.PostgreSql => 1,
+        _ => 0
+    };
+
+    private void TypeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        ApplyType(userChoice: true);
+    }
+
+    /*
+     * Words the Database box for the engine, and moves the port and user
+     * to that engine's usual ones, but only while they still hold the
+     * previous engine's: a port someone typed is theirs.
+     *
+     * Nothing at all happens while the box is unselected, which is how
+     * a row needing repair opens. Returning early is what stops the
+     * Firebird fallback in SelectedType from being acted on: without it
+     * the first step would label the field "database path" and a
+     * cancelled choice would have left Firebird's wording behind for a
+     * PostgreSQL connection.
+     */
+    private void ApplyType(bool userChoice)
+    {
+        if (!EngineChosen)
+        {
+            return;
+        }
+
+        var type = SelectedType;
+
+        if (userChoice)
+        {
+            if (PortTextBox.Text.Trim() == _appliedType.DefaultPort().ToString()
+                || string.IsNullOrWhiteSpace(PortTextBox.Text))
+            {
+                PortTextBox.Text = type.DefaultPort().ToString();
+            }
+
+            if (string.Equals(
+                    UsernameTextBox.Text.Trim(),
+                    _appliedType.DefaultUser(),
+                    StringComparison.OrdinalIgnoreCase)
+                || string.IsNullOrWhiteSpace(UsernameTextBox.Text))
+            {
+                UsernameTextBox.Text = type.DefaultUser();
+            }
+
+            // What was tested was another engine.
+            _lastTestSuccessful = false;
+        }
+
+        var file = type == DatabaseType.Firebird;
+
+        DatabaseLabel.Text = Strings.Get(file ? "WizardDatabase" : "WizardDatabaseName");
+        DatabaseHint.Text = Strings.Get(file ? "WizardDatabaseHint" : "WizardDatabaseNameHint");
+
+        _appliedType = type;
     }
 
     public AddDatabaseWizardWindow(DatabaseConfig existing)
@@ -51,6 +155,28 @@ public partial class AddDatabaseWizardWindow : Window
         Title = Strings.Get("WizardEditTitle");
 
         NameTextBox.Text = existing.Name;
+
+        _appliedType = existing.Type;
+        TypeComboBox.SelectedIndex = IndexOf(existing.Type);
+
+        /*
+         * The combo has no item for an engine this build cannot serve,
+         * so it would show Firebird -- which reads as "this is a
+         * Firebird connection" and would be saved as one. Nothing
+         * selected is the honest state, and it is not a dead end: the
+         * box stays enabled so choosing an engine is how the
+         * administrator repairs the row. Only an unchosen box blocks
+         * the save.
+         */
+        if (existing.EngineIsSupported)
+        {
+            ApplyType(userChoice: false);
+        }
+        else
+        {
+            TypeComboBox.SelectedIndex = -1;
+        }
+
         ServerTextBox.Text = existing.Server;
         PortTextBox.Text = existing.Port.ToString();
         UsernameTextBox.Text = existing.Username;
@@ -60,6 +186,39 @@ public partial class AddDatabaseWizardWindow : Window
         _lastTestSuccessful = existing.LastTestSuccessful;
 
         UpdateStepUi();
+    }
+
+    /*
+     * The engine a connection came in with is not one this build has a
+     * provider for. Saving would have to pick a different one, and
+     * doing that silently would turn the row into a working connection
+     * to an endpoint it does not talk to -- which is worse than the
+     * state it started in, because it would then look healthy.
+     *
+     * So the box is disabled and nothing is selected, and this is what
+     * the person pressing Save gets told.
+     */
+    private void ReportEngineNeedsRepair()
+    {
+        var text = Strings.Get("WizardEngineUnsupported");
+
+        /*
+         * The English fallback is for a build whose Strings table lacks
+         * the key entirely, so the person is told something rather than
+         * nothing. A missing Arabic entry falls back to English inside
+         * Strings.Get, which is what makes this the right test: a
+         * non-blank result is already the right language.
+         */
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            text = "This connection names a database engine this version " +
+                   "of ByteBridge cannot serve. Choose Firebird or " +
+                   "PostgreSQL before saving.";
+        }
+
+        TestResultBorder.Visibility = Visibility.Visible;
+        TestResultTextBlock.Text = text;
+        TestResultTextBlock.Foreground = Brushes.IndianRed;
     }
 
     private void ApplyLocalization()
@@ -72,6 +231,7 @@ public partial class AddDatabaseWizardWindow : Window
         Step1Hint.Text = Strings.Get("WizardStep1Hint");
         Step1Label.Text = Strings.Get("WizardStep1Title");
         ConnectionNameLabel.Text = Strings.Get("WizardConnectionName");
+        EngineLabel.Text = Strings.Get("WizardEngine");
 
         Step2Title.Text = Strings.Get("WizardStep2Title");
         Step2Label.Text = Strings.Get("WizardStep2Title");
@@ -214,12 +374,40 @@ public partial class AddDatabaseWizardWindow : Window
 
     private bool TryBuildConfiguration(out DatabaseConfig config)
     {
+        /*
+         * A row whose stored engine this build cannot serve cannot be
+         * saved by editing an unrelated field. The combo holds no item
+         * for it, so reading the box would hand back Firebird and the
+         * save would quietly turn the row into a working Firebird
+         * connection against an endpoint that is not one -- which is
+         * worse than the state it started in, because it now looks
+         * healthy.
+         *
+         * So the administrator has to choose, and choosing is how they
+         * repair it: the box is left enabled with nothing selected, and
+         * only an unchosen box refuses here. Once something is picked
+         * the row is saved with that engine, which is the point of
+         * opening it.
+         */
+        if (_existing != null && !_existing.EngineIsSupported && !EngineChosen)
+        {
+            config = new DatabaseConfig();
+
+            EngineNeedsRepair = true;
+
+            return false;
+        }
+
+        EngineNeedsRepair = false;
+
         config = new DatabaseConfig
         {
             Id = _existing?.Id ?? Guid.NewGuid().ToString(),
             Name = NameTextBox.Text.Trim(),
+            Type = SelectedType,
+            EngineIsSupported = true,
             Server = ServerTextBox.Text.Trim(),
-            Port = int.TryParse(PortTextBox.Text.Trim(), out var port) ? port : 3050,
+            Port = int.TryParse(PortTextBox.Text.Trim(), out var port) ? port : SelectedType.DefaultPort(),
             Username = UsernameTextBox.Text.Trim(),
             Password = PasswordBox.Password,
             Database = DatabaseTextBox.Text.Trim(),
@@ -245,7 +433,18 @@ public partial class AddDatabaseWizardWindow : Window
             return;
         }
 
-        TryBuildConfiguration(out var config);
+        if (!TryBuildConfiguration(out var config))
+        {
+            /*
+             * Said here as well as on the save path. Without it the
+             * Test button did nothing at all and said nothing either,
+             * which reads as a broken button rather than as an engine
+             * that has to be chosen first.
+             */
+            ReportEngineNeedsRepair();
+
+            return;
+        }
 
         TestButton.IsEnabled = false;
         BackButton.IsEnabled = false;
@@ -255,7 +454,7 @@ public partial class AddDatabaseWizardWindow : Window
         TestResultTextBlock.Text = "…";
         TestResultTextBlock.Foreground = Brushes.Gray;
 
-        var (succeeded, error) = await FirebirdConnectionTester.TestAsync(config);
+        var (succeeded, error) = await DatabaseConnectionTester.TestAsync(config);
 
         _lastTestSuccessful = succeeded;
 
@@ -282,7 +481,12 @@ public partial class AddDatabaseWizardWindow : Window
             return;
         }
 
-        TryBuildConfiguration(out var config);
+        if (!TryBuildConfiguration(out var config))
+        {
+            ReportEngineNeedsRepair();
+
+            return;
+        }
 
         Result = config;
 

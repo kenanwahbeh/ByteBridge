@@ -26,6 +26,7 @@
 * [API reference](reference/api-reference.md)
 * [Cloudflare Tunnel](reference/cloudflare-tunnel.md)
 * [Connecting to ByteBalance](reference/bytebalance.md)
+* [Database engines](reference/database-engines.md)
 * [Security](reference/security.md)
 * [The request log](reference/request-log.md)
 * [Troubleshooting](reference/troubleshooting.md)
@@ -33,8 +34,13 @@
 ## For developers
 
 * [How the code fits together](developers/architecture.md)
+* [Contributing](../CONTRIBUTING.md)
 * [Building and testing](contributing/building-and-testing.md)
 * [Versioning and releasing](contributing/versioning-and-releasing.md)
+
+Questions and ideas go to
+[GitHub Discussions](https://github.com/kenanwahbeh/ByteBridge/discussions),
+not to an issue.
 
 ## About
 

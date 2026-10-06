@@ -59,14 +59,17 @@ leak into the app's build.
 | Folder | Holds |
 | --- | --- |
 | `Gateway/GatewayServer.cs` | The listener: routing, auth, CORS, body limits, JSON shapes, the Cloudflare Access login routes. |
-| `Gateway/FirebirdExecutor.cs` | Opens a connection, binds `parameters`, runs the statement, maps Firebird types to JSON. Also the text guard for `/query`, which itself runs in a read-only Firebird transaction. `internal` — callers go through `GatewayServer`. |
+| `Gateway/SqlProviders.cs` | One engine, behind the four things the gateway needs from it: open a connection, run a query that cannot write, run a statement that can, and say whether an error is the database's own. The row cap, parameter binding and JSON values are written once, here. `SqlProviders.For` picks the engine, and refuses a connection whose stored engine this build has no provider for. `internal` — callers go through `GatewayServer`. |
+| `Gateway/FirebirdExecutor.cs` | Now only the text guard `IsReadOnlyStatement` / `AdvancesSequence` plus its tests, delegating execution to `FirebirdProvider`. It keeps its name because the guard is engine-independent and predates the providers. |
 | `Gateway/AuthFailureLimiter.cs` | The wrong-key lockout, keyed by `CF-Connecting-IP`. |
 | `Gateway/CloudflareAccessValidator.cs`, `OAuthSessionManager.cs` | Optional Cloudflare Access (JWT) sign-in and the session cookie it produces. |
-| `Gateway/ConnectionHealthMonitor.cs` | Probes every enabled connection once a minute so "online" reflects now. |
+| `Gateway/ConnectionHealthMonitor.cs` | Probes every enabled connection once a minute so "online" reflects now. Skips a connection whose engine this build cannot serve. |
 | `Gateway/RequestLog.cs` | One JSON line per request, written after the response; parameter values never logged. |
-| `data/SqliteDatabase.cs` | The only thing that touches `bytebridge.db`: connections, gateway settings, OAuth settings, sessions. |
+| `data/SqliteDatabase.cs` | The only thing that touches `bytebridge.db`: connections, gateway settings, OAuth settings, sessions. Wraps and unwraps the stored secrets, so callers deal in plaintext. |
 | `data/DataFolderSecurity.cs` | Restricts the data folder to SYSTEM and Administrators, on every open. |
-| `Configuration/` | Plain records: `DatabaseConfig`, `GatewayConfig`, `OAuthConfig`. |
+| `data/DatabaseConnectionTester.cs` | Whether a connection's details work, through its own engine's provider. |
+| `Security/` | `ISecretProtector` and its two implementations: DPAPI on Windows, an AES key file outside the data folder on Linux. |
+| `Configuration/` | Plain records: `DatabaseConfig`, `GatewayConfig`, `OAuthConfig`, `DatabaseType`. |
 | `Localization/Strings.cs` | Every UI string, English and Arabic. |
 | `Admin/Cli.cs` | The `ByteBridge.Service.exe <command>` admin tool. |
 
@@ -89,10 +92,16 @@ Take `POST /query` arriving through the tunnel:
    is validated once, at `/auth/callback`, which creates that session.
 5. The connection is looked up **from SQLite, on this request** — so
    toggling Online/Offline in the panel applies immediately. Unknown
-   name → `404`; Offline → `409`.
-6. `FirebirdExecutor` refuses anything but `SELECT`/`WITH` on `/query`,
-   binds `parameters` as Firebird parameters, runs it, and maps rows to
-   JSON.
+   name → `404`; Offline → `409`; an engine this build cannot serve →
+   `409` naming the engine, which is a configuration problem rather than
+   a database error.
+6. `FirebirdExecutor` refuses anything but `SELECT`/`WITH`, and refuses
+   a statement that moves a sequence. Then `SqlProviders.For` picks the
+   connection's engine: that provider binds `parameters`, opens the
+   read-only transaction **its engine understands**, runs it, and maps
+   rows to JSON. The text check is a courtesy on both engines — the
+   transaction is what refuses a write — which is why it lives here and
+   the enforcement lives in each provider.
 7. The response is written, and only then is a line appended to the
    request log.
 
@@ -122,7 +131,7 @@ Control Manager (`GatewaySwitch.cs`).
 | --- | --- |
 | `App.xaml.cs` | Start-up: single-instance mutex per session, language, the tray icon. |
 | `MainWindow.xaml(.cs)` | Menu bar, status line, one card per connection. Cards are built in code (`CreateConnectionCard`). |
-| `AddDatabaseWizardWindow` | The four-step add/edit wizard, with Test Connection. |
+| `AddDatabaseWizardWindow` | The four-step add/edit wizard, with Test Connection. Step 1 picks the engine, which moves the port and user to that engine's usual ones while they still hold the previous one's. |
 | `WebServerWindow` | Gateway on/off, port, API key copy/rotate, lockout settings. |
 | `CloudflareTunnelWindow` | Cloudflare Access (OAuth) settings. |
 | `SettingsWindow` | Options: language, start with Windows, ask before closing. |
@@ -146,6 +155,13 @@ table, so no schema change is needed), expose it in the window and in
 `core/Admin/Cli.cs` so Server Core can reach it too, and — if the
 running listener has to react — compare it in `GatewayWorker`.
 
+**A new stored secret.** Add its settings key to
+`SqliteDatabase.ProtectedSettingKeys`. `GetSetting` and `SetSetting`
+wrap and unwrap it transparently, so nothing else changes — and nothing
+else may write it raw. A value already in the file unwrapped is migrated
+on the next open, and the migration then checkpoints and rebuilds the
+database so the plaintext does not survive in a page.
+
 **A new endpoint.** Route it in `GatewayServer` and decide explicitly
 whether it needs the key. Data endpoints do. The exceptions today are
 `/health` and the sign-in routes (`/auth/login`, `/auth/callback`,
@@ -155,10 +171,23 @@ in the request log, add tests in `GatewayServerTests`, and document it
 in `docs/reference/api-reference.md` and `GATEWAY.md`. A new endpoint
 is a MINOR version bump.
 
-**Another database engine.** Everything engine-specific is in
-`FirebirdExecutor` and `FirebirdConnectionTester`; `DatabaseConfig`
-has no engine field yet. That is the seam a second engine would go
-through.
+**Another database engine.** Add a `DatabaseType`, its defaults in
+`DatabaseTypes`, and a `SqlProvider` subclass in `SqlProviders.cs` —
+four members: how to open a connection, how to begin a transaction that
+the engine itself holds read-only, whether an error is the database's
+own, and (only where the engine leaves a gap) a `RejectQuery` text
+check. Everything shared is already written once, so there is nothing to
+duplicate. `DatabaseConfig.Type` already exists, so a row naming the new
+engine reads and dispatches with no storage change.
+
+Two things decide whether an engine is ready. Its transaction must
+hold `/query` read-only **itself**, so a statement that got past the
+text check is still refused by the database — without that, a text
+check is the whole of the protection. And it must have run against a
+real server in CI, not only against unit tests. SQL Server was written
+and then taken back out for failing the first, and never having
+satisfied the second; `docs/reference/database-engines.md` has the
+reasoning.
 
 **A change a user can see.** Update the user guide under `docs/guide/`
 and `docs/ar/`, and, if a window changed, the drawings:

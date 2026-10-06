@@ -61,6 +61,12 @@
 
                     <TextBlock x:Name="ConnectionNameLabel" FontSize="15" FontWeight="SemiBold"/>
                     <TextBox x:Name="NameTextBox" Margin="0,8,0,0" Padding="10" GotKeyboardFocus="TextBox_GotKeyboardFocus"/>
+
+                    <TextBlock x:Name="EngineLabel" FontSize="15" FontWeight="SemiBold" Margin="0,18,0,0"/>
+                    <ComboBox x:Name="TypeComboBox" Margin="0,8,0,0" Padding="10">
+                        <ComboBoxItem Content="Firebird"/>
+                        <ComboBoxItem Content="PostgreSQL"/>
+                    </ComboBox>
                 </StackPanel>
 
                 <!-- Step 2: Server details -->

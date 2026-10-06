@@ -12,7 +12,6 @@ using System.Text.Json;
 using System.Text.Unicode;
 using System.Threading;
 using System.Threading.Tasks;
-using FirebirdSql.Data.FirebirdClient;
 using ByteBridge.Configuration;
 using ByteBridge.Data;
 
@@ -837,8 +836,9 @@ public sealed class GatewayServer : IDisposable
                 context,
                 400,
                 new ErrorResponse(
-                    "/query does not accept a statement that moves a generator: " +
-                    "GEN_ID with a step other than 0, or NEXT VALUE FOR."));
+                    "/query does not accept a statement that moves a generator " +
+                    "or sequence: GEN_ID with a step other than 0, NEXT VALUE FOR, " +
+                    "nextval or setval."));
 
             return;
         }
@@ -856,6 +856,36 @@ public sealed class GatewayServer : IDisposable
 
         var config = _config;
 
+        SqlProvider provider;
+
+        try
+        {
+            provider = SqlProviders.For(connection);
+        }
+        catch (UnsupportedEngineException ex)
+        {
+            /*
+             * Not a database error and not a refusal of the statement:
+             * the request names a connection this build cannot serve,
+             * and no statement against it can work.
+             */
+            await WriteJsonAsync(
+                context,
+                409,
+                new ErrorResponse(ex.Message));
+
+            return;
+        }
+
+        var refusal = provider.RejectQuery(request.Sql);
+
+        if (refusal != null)
+        {
+            await WriteJsonAsync(context, 400, new ErrorResponse(refusal));
+
+            return;
+        }
+
         var maxRows =
             Math.Clamp(
                 request.MaxRows ?? config.MaxRows,
@@ -865,7 +895,7 @@ public sealed class GatewayServer : IDisposable
         try
         {
             var result =
-                await FirebirdExecutor.QueryAsync(
+                await provider.QueryAsync(
                     connection,
                     request.Sql,
                     request.Parameters,
@@ -877,7 +907,7 @@ public sealed class GatewayServer : IDisposable
 
             await WriteJsonAsync(context, 200, result);
         }
-        catch (FbException ex)
+        catch (Exception ex) when (provider.IsDatabaseError(ex))
         {
             record.Error = ex.Message;
 
@@ -953,10 +983,26 @@ public sealed class GatewayServer : IDisposable
             return;
         }
 
+        SqlProvider executor;
+
+        try
+        {
+            executor = SqlProviders.For(connection);
+        }
+        catch (UnsupportedEngineException ex)
+        {
+            await WriteJsonAsync(
+                context,
+                409,
+                new ErrorResponse(ex.Message));
+
+            return;
+        }
+
         try
         {
             var result =
-                await FirebirdExecutor.ExecuteAsync(
+                await executor.ExecuteAsync(
                     connection,
                     request.Sql,
                     request.Parameters,
@@ -967,7 +1013,7 @@ public sealed class GatewayServer : IDisposable
 
             await WriteJsonAsync(context, 200, result);
         }
-        catch (FbException ex)
+        catch (Exception ex) when (executor.IsDatabaseError(ex))
         {
             record.Error = ex.Message;
 
@@ -1056,9 +1102,7 @@ public sealed class GatewayServer : IDisposable
                     Id = connection.Id,
                     Name = connection.Name,
 
-                    Online =
-                        connection.Enabled &&
-                        connection.LastTestSuccessful
+                    Online = connection.IsOnline
                 });
         }
 
@@ -1074,7 +1118,7 @@ public sealed class GatewayServer : IDisposable
 
         foreach (var connection in connections)
         {
-            if (connection.Enabled)
+            if (connection.IsOnline)
             {
                 online++;
             }

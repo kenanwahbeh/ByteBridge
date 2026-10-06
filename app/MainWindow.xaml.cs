@@ -847,19 +847,29 @@ public partial class MainWindow : Window
         };
 
         /*
-         * Status logic:
+         * Status logic. Which branch runs is a presentation choice, but
+         * the online answer itself comes from IsOnline and nowhere else:
+         * it is the same property /health and /databases use, and
+         * deriving it here as well is how the two drifted apart before.
          *
-         * Enabled + successful test = Online / green
-         * Disabled = Offline / gray
-         * Enabled + failed test = Offline / red
+         * An engine this build cannot serve gets its own line rather
+         * than Offline. It is not offline: the connection is enabled and
+         * the server may well be fine. It is not online either --
+         * requests for it are refused. "Offline" would send someone to
+         * the server instead of to the engine.
          */
 
-        if (!connection.Enabled)
+        if (!connection.EngineIsSupported)
+        {
+            status.Text = Strings.Get("EngineUnsupported");
+            status.Foreground = Brushes.DarkOrange;
+        }
+        else if (!connection.Enabled)
         {
             status.Text = Strings.Get("Offline");
             status.Foreground = Brushes.Gray;
         }
-        else if (connection.LastTestSuccessful)
+        else if (connection.IsOnline)
         {
             status.Text = Strings.Get("Online");
             status.Foreground = Brushes.Green;
@@ -1046,7 +1056,7 @@ public partial class MainWindow : Window
             }
 
             var (succeeded, error) =
-                await FirebirdConnectionTester.TestAsync(connection);
+                await DatabaseConnectionTester.TestAsync(connection);
 
             if (!succeeded)
             {

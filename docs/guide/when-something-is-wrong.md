@@ -73,7 +73,7 @@ working on ByteBridge will ever ask you for them.
 
 | Word | Meaning |
 | --- | --- |
-| **Database** | Where your business software keeps its information. ByteBridge works with *Firebird* databases. |
+| **Database** | Where your business software keeps its information. ByteBridge works with *Firebird* and *PostgreSQL* databases. |
 | **API** | A way for one program to ask another for information. ByteBridge gives your database one. |
 | **API key** | The password every request must carry. |
 | **Gateway** | Another name for the part of ByteBridge that answers requests. |

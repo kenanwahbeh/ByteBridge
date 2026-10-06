@@ -20,9 +20,23 @@
     <AssemblyName>ByteBridge.Core</AssemblyName>
   </PropertyGroup>
 
+  <!--
+    Every engine's client ships with the app, so the publish grows by
+    the size of each driver. Measured, self-contained linux-x64:
+
+      Firebird only            85 MB
+      plus Npgsql (PostgreSQL) 86 MB
+
+    PostgreSQL therefore costs about 1 MB, which is not what was
+    guessed before measuring. The next engine is a measured choice
+    rather than a surprise; a driver that does not get trimmed (a
+    platform-specific native client, say) will cost far more than
+    this, so measure rather than extrapolate from here.
+  -->
   <ItemGroup>
     <PackageReference Include="FirebirdSql.Data.FirebirdClient" Version="10.3.4" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.11" />
+    <PackageReference Include="Npgsql" Version="9.0.3" />
     <!--
       Windows-only API behind a runtime guard in DpapiSecretProtector.
       Restores fine on Linux (the tests never call it there); calling it
