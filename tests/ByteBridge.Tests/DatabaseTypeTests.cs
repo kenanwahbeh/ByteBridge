@@ -177,7 +177,6 @@ public class DatabaseTypeTests
     [InlineData("SELECT * FROM Orders")]
     [InlineData("SELECT * FROM Orders;")]
     [InlineData("  -- note" + "\n" + "SELECT Id FROM Orders WHERE Id = @id")]
-    [InlineData("SELECT 1;; ")]
     [InlineData("SELECT 'DELETE FROM Orders; DROP TABLE Orders' AS note")]
     [InlineData("SELECT /* ; */ Id FROM Orders")]
     [InlineData("SELECT \"weird;name\" FROM Orders")]
@@ -186,6 +185,24 @@ public class DatabaseTypeTests
     public void PostgreSQL_lets_one_select_through(string sql)
     {
         Assert.Null(PostgreSqlProvider.Instance.RejectQuery(sql));
+    }
+
+    /*
+     * One trailing semicolon is allowed, because a driver may add one.
+     * Two are two: the rule reads as "exactly one" and has to be.
+     * TrimEnd(';') used to strip every trailing one, so this was let
+     * through while the comment said otherwise -- harmless, since the
+     * extra statements are empty and cannot write, but a documented
+     * rule that is not the enforced one is a trap for whoever quotes it.
+     */
+    [Fact]
+    public void PostgreSQL_allows_one_trailing_semicolon_and_no_more()
+    {
+        Assert.Null(
+            PostgreSqlProvider.Instance.RejectQuery("SELECT 1;"));
+
+        Assert.NotNull(
+            PostgreSqlProvider.Instance.RejectQuery("SELECT 1;;"));
     }
 
     /*

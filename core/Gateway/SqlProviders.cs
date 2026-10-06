@@ -416,6 +416,12 @@ internal sealed class PostgreSqlProvider : SqlProvider
      *
      * A single trailing semicolon is allowed; the alternative is
      * refusing a query a client sent with the semicolon a driver adds.
+     *
+     * Exactly one, not TrimEnd(';') -- that strips every trailing
+     * semicolon, so "SELECT 1;;" was let through while the comment
+     * promised otherwise. The extras are empty statements and cannot
+     * write, but a rule that reads as "one" and is "one or more" is
+     * the kind of gap that gets quoted back later.
      */
     public override string? RejectQuery(string sql)
     {
@@ -424,7 +430,12 @@ internal sealed class PostgreSqlProvider : SqlProvider
             blankBracketNames: true,
             dollarQuoted: true).Trim();
 
-        text = text.TrimEnd(';', ' ', '\t', '\r', '\n');
+        text = text.TrimEnd(' ', '\t', '\r', '\n');
+
+        if (text.EndsWith(';'))
+        {
+            text = text[..^1].TrimEnd(' ', '\t', '\r', '\n');
+        }
 
         if (text.Contains(';'))
         {

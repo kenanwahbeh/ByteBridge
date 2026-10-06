@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Microsoft.Data.Sqlite;
 using Xunit;
 using ByteBridge.Configuration;
@@ -328,7 +329,78 @@ public class EngineAndSecretsTests
     }
 
     /*
- * The status the gateway, /health and the panel all derive. An
+ * Four surfaces report whether a connection is online: the panel card,
+ * /health's count, /databases, and ByteBalanceTech's companion agent
+ * reading /health. They drifted apart once already -- IsOnline was added
+ * to stop it, and the panel then derived the same answer beside it,
+ * which is exactly what the review caught.
+ *
+ * So this reads the panel's own source. It is not a substitute for the
+ * behaviour tests above, which do check the values; it is here because
+ * those only cover two surfaces, and a fourth derivation compiles and
+ * passes them all.
+ */
+    [Fact]
+    public void No_surface_derives_online_status_beside_IsOnline()
+    {
+        var root = FindRepositoryRoot();
+
+        // app/ is the panel; the core files are where a second
+        // derivation of the same answer would go.
+        var files = new[]
+        {
+            "app/MainWindow.xaml.cs",
+            "core/Gateway/GatewayServer.cs",
+            "core/Gateway/ConnectionHealthMonitor.cs",
+            "core/Admin/Cli.cs"
+        };
+
+        foreach (var relative in files)
+        {
+            var text = File.ReadAllText(
+                Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar)));
+
+            var usesIsOnline = text.Contains("IsOnline");
+
+            // The panel is the one that presents a status, so it has to
+            // use it. The others must not derive the answer at all.
+            var derivesIt =
+                Regex.IsMatch(
+                    text,
+                    @"Enabled\s*&&\s*[\w.]*LastTestSuccessful");
+
+            Assert.True(
+                !derivesIt,
+                $"{relative} derives online status from Enabled and " +
+                "LastTestSuccessful instead of IsOnline.");
+
+            if (relative != "app/MainWindow.xaml.cs")
+            {
+                Assert.True(
+                    !usesIsOnline || !derivesIt,
+                    $"{relative} should read IsOnline rather than derive it.");
+            }
+        }
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+
+        while (directory != null &&
+               !File.Exists(
+                   Path.Combine(directory.FullName, "ByteBridge.slnx")))
+        {
+            directory = directory.Parent;
+        }
+
+        Assert.NotNull(directory);
+
+        return directory!.FullName;
+    }
+
+    /*
+     * The status the gateway, /health and the panel all derive. An
  * unsupported engine is neither online nor offline: requests for it are
  * refused and the probe skips it, so counting it would report a
  * connection that answers nothing -- and its stored LastTestSuccessful
