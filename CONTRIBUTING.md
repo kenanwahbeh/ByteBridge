@@ -95,6 +95,30 @@ The repo's conventions, in short:
    user would notice. It is the single source of truth for what shipped.
 4. Open a pull request.
 
+## Decisions, and when one needs writing
+
+Some choices are not visible in the code. Why `HttpListener` and not
+Kestrel, why secrets are encrypted and where the key lives, why an
+engine was taken back out — those are answers to a question nobody can
+answer by reading the implementation, and they are the first thing lost
+when a file is rewritten.
+
+If your change settles something a future contributor would reasonably
+have asked about, write it down in `docs/decisions/` before the code.
+One file, numbered, following `0001-standalone-product.md`:
+
+- **Context** — the situation, and the question it raised
+- **Decision** — what was chosen, in the present tense
+- **Consequences** — what this makes important, what it costs, and what
+  it deliberately does not do
+- **Alternatives considered** — and why each was rejected. This is the
+  part that saves the next person the argument.
+
+Write the reasoning, not the summary. The *what* is in the code; the
+*why* is the only part that cannot be re-derived from it.
+
+[ROADMAP.md](ROADMAP.md) is what follows from those decisions.
+
 Version numbers are [semantic](https://semver.org/), and the rules for
 what counts as a MAJOR bump are in the README. A pull request that
 removes or renames a response field is a MAJOR change, not a patch.

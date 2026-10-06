@@ -15,6 +15,14 @@ file is the single source of truth for what shipped.
 
 ### Added
 
+- **[ROADMAP.md](https://github.com/kenanwahbeh/ByteBridge/blob/main/ROADMAP.md)
+  and a decision record per significant choice.** Why `HttpListener`
+  rather than Kestrel, why the secrets are encrypted and where the key
+  lives, and why SQL Server was written and then taken back out, are
+  answers no one can get by reading the code — and the first thing lost
+  when a file is rewritten. The records say what was rejected and why,
+  which is the part that saves the next contributor the argument.
+
 - **PostgreSQL next to Firebird.** Each connection now has an engine,
   chosen in the add/edit wizard or with `db add --type`. Both are tested
   against a real server, and both hold `/query` read-only themselves, so
