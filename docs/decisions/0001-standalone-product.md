@@ -86,4 +86,4 @@ use case.
 
 - `docs/developers/architecture.md` — where a change belongs
 - `docs/reference/bytebalance.md` — the optional path
-- ADR 0002 — why the numbering starts at 3.x and what that costs
+- ADR 0002 — why the numbering is meaningful from 3.1.0
