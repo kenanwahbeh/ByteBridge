@@ -100,7 +100,7 @@
                                       FontFamily="Segoe MDL2 Assets" FontSize="16" Content="&#xE7B3;"
                                       Checked="RevealPassword_Changed" Unchecked="RevealPassword_Changed"/>
                         <Grid>
-                            <PasswordBox x:Name="PasswordBox" Padding="10"/>
+                            <PasswordBox x:Name="PasswordBox" Padding="10" PasswordChanged="PasswordBox_PasswordChanged"/>
                             <TextBox x:Name="PasswordRevealBox" Padding="10" Visibility="Collapsed"
                                      TextChanged="PasswordRevealBox_TextChanged"/>
                         </Grid>

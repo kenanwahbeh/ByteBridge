@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -114,6 +115,8 @@ public partial class AddDatabaseWizardWindow : Window
     {
         if (!EngineChosen)
         {
+            // No engine, so no Firebird file to look for either.
+            BrowseButton.Visibility = Visibility.Collapsed;
             return;
         }
 
@@ -178,16 +181,44 @@ public partial class AddDatabaseWizardWindow : Window
         }
     }
 
+    /*
+     * Resolves the name and asks whether any address it gives is one of
+     * this computer's own, so a DNS alias, a fully qualified name or a
+     * loopback address other than 127.0.0.1 count too. A name that does
+     * not resolve is not treated as local: the server would not find it
+     * either.
+     */
     private static bool IsThisComputer(string server)
     {
         var name = server.Trim();
 
-        return name.Length == 0
-            || name == "."
-            || name == "127.0.0.1"
-            || name == "::1"
-            || name.Equals("localhost", StringComparison.OrdinalIgnoreCase)
-            || name.Equals(Environment.MachineName, StringComparison.OrdinalIgnoreCase);
+        if (name.Length == 0 || name == ".")
+        {
+            return true;
+        }
+
+        try
+        {
+            var own = System.Net.NetworkInformation.NetworkInterface
+                .GetAllNetworkInterfaces()
+                .SelectMany(i => i.GetIPProperties().UnicastAddresses)
+                .Select(a => a.Address)
+                .ToList();
+
+            foreach (var address in System.Net.Dns.GetHostAddresses(name))
+            {
+                if (System.Net.IPAddress.IsLoopback(address) || own.Contains(address))
+                {
+                    return true;
+                }
+            }
+        }
+        catch (Exception)
+        {
+            // Unresolvable, or no network information: not provably local.
+        }
+
+        return false;
     }
 
     /*
@@ -216,6 +247,25 @@ public partial class AddDatabaseWizardWindow : Window
         else
         {
             PasswordBox.Focus();
+        }
+    }
+
+    private bool _revealLocked;
+
+    private void LockPasswordReveal()
+    {
+        _revealLocked = true;
+        RevealPasswordButton.IsEnabled = false;
+        RevealPasswordButton.ToolTip = Strings.Get("WizardShowPasswordLocked");
+    }
+
+    private void PasswordBox_PasswordChanged(object sender, RoutedEventArgs e)
+    {
+        if (_revealLocked && PasswordBox.Password.Length == 0)
+        {
+            _revealLocked = false;
+            RevealPasswordButton.IsEnabled = true;
+            RevealPasswordButton.ToolTip = Strings.Get("WizardShowPassword");
         }
     }
 
@@ -258,6 +308,14 @@ public partial class AddDatabaseWizardWindow : Window
         PortTextBox.Text = existing.Port.ToString();
         UsernameTextBox.Text = existing.Username;
         PasswordBox.Password = existing.Password;
+
+        // The eye must not read a saved password back. It stays off until
+        // the box has been emptied, so what it shows is only what is typed.
+        if (existing.Password.Length > 0)
+        {
+            LockPasswordReveal();
+        }
+
         DatabaseTextBox.Text = existing.Database;
 
         _lastTestSuccessful = existing.LastTestSuccessful;
