@@ -120,7 +120,7 @@ try {
     Result 'A5' ($refused -and -not (Row 'zz-verify-bad')) 'an unknown --type is refused and saves nothing'
 
     # An unsupported engine, left by an older build: set one row to SqlServer.
-    Add-TestRow '--name', 'zz-verify-repair', '--server', '127.0.0.1', '--path', 'C:\verify\none.fdb', '--user', 'SYSDBA', '--password', 'x'
+    Add-TestRow '--name', 'zz-verify-repair', '--server', '127.0.0.1', '--path', 'C:\verify\repair.fdb', '--user', 'SYSDBA', '--password', 'x'
     if ($serviceWasRunning) { Stop-Service ByteBridge }
     $flip = Join-Path $env:TEMP 'bb-flip.py'
     @'
