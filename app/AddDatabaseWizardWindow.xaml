@@ -80,7 +80,10 @@
                     <TextBox x:Name="PortTextBox" Text="3050" Margin="0,8,0,18" Padding="10" GotKeyboardFocus="TextBox_GotKeyboardFocus"/>
 
                     <TextBlock x:Name="DatabaseLabel" FontSize="15" FontWeight="SemiBold"/>
-                    <TextBox x:Name="DatabaseTextBox" Margin="0,8,0,8" Padding="10" GotKeyboardFocus="TextBox_GotKeyboardFocus"/>
+                    <DockPanel Margin="0,8,0,8" LastChildFill="True">
+                        <Button x:Name="BrowseButton" DockPanel.Dock="Right" Margin="8,0,0,0" Padding="16,0" Click="Browse_Click"/>
+                        <TextBox x:Name="DatabaseTextBox" Padding="10" GotKeyboardFocus="TextBox_GotKeyboardFocus"/>
+                    </DockPanel>
                     <TextBlock x:Name="DatabaseHint" FontSize="12" Foreground="Gray" TextWrapping="Wrap"/>
                 </StackPanel>
 
@@ -92,7 +95,16 @@
                     <TextBox x:Name="UsernameTextBox" Text="SYSDBA" Margin="0,8,0,18" Padding="10" GotKeyboardFocus="TextBox_GotKeyboardFocus"/>
 
                     <TextBlock x:Name="PasswordLabel" FontSize="15" FontWeight="SemiBold"/>
-                    <PasswordBox x:Name="PasswordBox" Margin="0,8,0,8" Padding="10"/>
+                    <DockPanel Margin="0,8,0,8" LastChildFill="True">
+                        <ToggleButton x:Name="RevealPasswordButton" DockPanel.Dock="Right" Margin="8,0,0,0" Width="42"
+                                      FontFamily="Segoe MDL2 Assets" FontSize="16" Content="&#xE7B3;"
+                                      Checked="RevealPassword_Changed" Unchecked="RevealPassword_Changed"/>
+                        <Grid>
+                            <PasswordBox x:Name="PasswordBox" Padding="10"/>
+                            <TextBox x:Name="PasswordRevealBox" Padding="10" Visibility="Collapsed"
+                                     TextChanged="PasswordRevealBox_TextChanged"/>
+                        </Grid>
+                    </DockPanel>
                     <TextBlock x:Name="PasswordHint" FontSize="12" Foreground="Gray" TextWrapping="Wrap"/>
                 </StackPanel>
 
