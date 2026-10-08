@@ -13,15 +13,15 @@ Ordered by what it unblocks, not by what is easiest.
 PostgreSQL support, secrets-at-rest and release attestation merged as
 one pull request. What they left behind:
 
-- [ ] **Cover the wizard's repair and localisation decisions with
+- [x] **Cover the wizard's repair and localisation decisions with
   tests** — #35. The last decisions in the project no test can reach:
   both were logic inversions in WPF code, and both shipped.
-- [ ] **Tighten the dollar-quote tag to PostgreSQL's own rule** — #36.
+- [x] **Tighten the dollar-quote tag to PostgreSQL's own rule** — #36.
   The scanner accepts a tag starting with a digit, which PostgreSQL
   does not. Not a bypass; a guard that reads more than the engine does.
 - [ ] **Verify the control panel by hand on Windows** — #37. WPF builds
   nowhere but Windows, so this is the only place it is observable.
-  Blocked on #35 and #36: measure the covered code.
+  The covered code is measured; this is what is left. Script: scripts/verify-panel.ps1.
 - [ ] **Cut the release** — #38. `3.1.0`: adding an engine is MINOR,
   and [ADR 0002](docs/decisions/0002-meaningful-versioning.md) records why not `4.0.0`.
 
@@ -31,7 +31,7 @@ A standalone open-source tool has users who are not on Windows, and
 the gateway has been portable since before it was called that. What is
 missing is that **CI never exercises it**.
 
-- [ ] **Exercise the Linux publish in CI.** Build
+- [x] **Exercise the Linux publish in CI.** Build
   `service/ByteBridge.Service.csproj` for `linux-x64`, check the
   bundle carries `bytebridge.unit` and `install.sh`, and start it once.
   The promise is in the changelog and in the systemd files; nothing
