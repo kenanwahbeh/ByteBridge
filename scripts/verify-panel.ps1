@@ -1,5 +1,9 @@
 # Issue #37: verify the control panel and the engine column by hand on Windows.
 #
+# Needs: an elevated PowerShell, and Python 3 on the PATH (Part A reads and
+# edits the settings database with its sqlite3 module; pass -Python to point
+# at a python.exe that is not on the PATH).
+#
 # Run from an ELEVATED PowerShell, after installing a build of main:
 #   powershell -ExecutionPolicy Bypass -File scripts\verify-panel.ps1
 #
@@ -19,6 +23,9 @@ $ErrorActionPreference = 'Stop'
 $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
     ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $admin) { throw 'Run this from an elevated PowerShell (Run as administrator).' }
+if (-not (Get-Command $Python -ErrorAction SilentlyContinue)) {
+    throw "Python 3 is needed for Part A and was not found ('$Python'). Install it, or pass -Python <path to python.exe>. Nothing has been changed."
+}
 if (-not (Test-Path $Cli)) { throw "Not found: $Cli. Install the build first, or pass -Cli." }
 
 "ByteBridge panel verification, $(Get-Date -Format s)" | Set-Content $Report -Encoding utf8
@@ -47,7 +54,7 @@ rows = c.execute("select Name, Port, Username, DatabaseType from Databases where
 print(json.dumps(rows))
 '@ | Set-Content $py -Encoding utf8
 
-function Rows { ConvertFrom-Json (& python $py $Db) }
+function Rows { ConvertFrom-Json (& $Python $py $Db) }
 
 function Row($name) {
     foreach ($r in (Rows)) { if ($r[0] -eq $name) { return $r } }
@@ -100,7 +107,7 @@ c = sqlite3.connect(sys.argv[1])
 c.execute("update Databases set DatabaseType='SqlServer' where Name='zz-verify-repair'")
 c.commit()
 '@ | Set-Content (Join-Path $env:TEMP 'bb-flip.py') -Encoding utf8
-& python (Join-Path $env:TEMP 'bb-flip.py') $Db
+& $Python (Join-Path $env:TEMP 'bb-flip.py') $Db
 $r = Row 'zz-verify-repair'
 Result 'A6' ($r -and $r[3] -eq 'SqlServer') 'one row now holds the unsupported engine SqlServer'
 
