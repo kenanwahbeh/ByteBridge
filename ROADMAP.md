@@ -22,8 +22,8 @@ one pull request. What they left behind:
 - [ ] **Verify the control panel by hand on Windows** — #37. WPF builds
   nowhere but Windows, so this is the only place it is observable.
   Blocked on #35 and #36: measure the covered code.
-- [ ] **Cut the release** — #38. `4.0.0`, not `3.1.0`, and
-  [ADR 0002](docs/decisions/0002-meaningful-versioning.md) says why.
+- [ ] **Cut the release** — #38. `3.1.0`: adding an engine is MINOR,
+  and [ADR 0002](docs/decisions/0002-meaningful-versioning.md) records why not `4.0.0`.
 
 ## Next — standalone means Linux
 

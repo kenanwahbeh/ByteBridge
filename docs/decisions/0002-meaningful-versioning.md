@@ -1,8 +1,8 @@
-# ADR 0002 — Version numbers are meaningful from here, and this costs a major bump
+# ADR 0002 — Version numbers are meaningful from here
 
 - **Status:** accepted
 - **Date:** 2026-10-06
-- **Decides:** whether `3.1.0` is the next version, or `4.0.0`
+- **Decides:** that `3.1.0` is the next version, not `4.0.0`
 
 ## Context
 
@@ -28,45 +28,40 @@ describe a moving target is a promise already broken.
 
 ## Decision
 
-**From the next release onward, the numbers are meaningful, and getting
-there costs one more major bump: `4.0.0`.**
+**The next release is `3.1.0`. From there the numbers are meaningful.**
 
-- `4.0.0` carries PostgreSQL support, the secrets-at-rest work, the
+- `3.1.0` carries PostgreSQL support, the secrets-at-rest work, the
   release attestation, and this decision.
-- It is not a MAJOR bump because of PostgreSQL. Adding an engine is
-  MINOR under the policy in the README, and nothing in `4.0.0` removes
-  or renames a response field: `/health`, `/databases`, `/query` and
-  `/execute` keep their shapes. The bump is for the **numbering itself**,
-  which is a real change to what a version means and therefore to what a
-  reader can assume.
-- After that, every release follows the README's policy as written.
-- The `3.x` line is **not** supported for security fixes. Fixes go to
-  `4.x`. `SECURITY.md` will say so.
+- Adding an engine is MINOR under the policy in the README, and nothing
+  in it removes or renames a response field: `/health`, `/databases`,
+  `/query` and `/execute` keep their shapes.
+- From `3.1.0` on, every release follows the README's policy as written.
+- The `3.x` line stays supported for security fixes, as `SECURITY.md`
+  says.
+
+This ADR first proposed `4.0.0`, a major bump for the numbering itself.
+The owner chose `3.1.0` instead on 2026-10-07.
 
 ## Consequences
 
 **Costs, stated plainly:**
 
-- A second consecutive major bump, on a project a month old, looks
-  worse than the alternative. It is also the honest description: the
-  meaning of the number changed.
-- Anyone who wrote `v3` into a script has to change it. There is one
-  release and no announced users, so the cost is theoretical today and
-  would not be later.
+- The history still holds three majors in three weeks. The README's
+  policy is true from `3.1.0` onward, not before; the changelog says so
+  rather than hiding it.
 
 **Buys:**
 
-- After `4.0.0`, the MAJOR/MINOR/PATCH rules in the README become
-  enforceable rather than aspirational. A caller can decide whether to
-  pin a version by reading the changelog.
-- The changelog stops needing an asterisk.
+- No second consecutive major bump, and nobody who wrote `v3` into a
+  script has to change it.
+- A caller can decide whether to pin a version by reading the changelog
+  from here on.
 
 ## Alternatives considered
 
-**Ship `3.1.0` and carry on.** Rejected. It leaves the numbering
-permanently symbolic: the README states a policy the history visibly
-contradicts, and every future MAJOR bump looks like version inflation
-rather than a signal.
+**Ship `4.0.0` to mark the new meaning of the numbers.** Rejected by the
+owner. Nothing breaks for a caller, so a major bump would signal a break
+that is not there.
 
 **Renumber the existing tags to match.** Rejected. It rewrites published
 history and breaks every existing clone and reference, to fix a
