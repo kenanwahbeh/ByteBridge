@@ -206,7 +206,9 @@ jobs:
       - name: The command line answers
         run: |
           export BYTEBRIDGE_DATA="$RUNNER_TEMP/bb"
-          ./publish/ByteBridge.Service status
+          out=$(./publish/ByteBridge.Service status)
+          echo "$out"
+          echo "$out" | grep -q "^listening"
           key=$(./publish/ByteBridge.Service key show)
           test -n "$key"
 
