@@ -174,3 +174,46 @@ jobs:
           name: postgresql-test-results
           path: artifacts/tests/*.trx
           if-no-files-found: warn
+
+  # The Linux bundle and what the changelog promises about it. The three
+  # jobs above exercise the libraries; nothing else builds the bundle a
+  # headless install ships, or runs its command line on Linux. This runs
+  # the admin surface against a throwaway data folder. It deliberately
+  # does not install a systemd unit: that would test the runner, not us.
+  linux-publish:
+    name: Linux publish (Linux)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish
+        run: >
+          dotnet publish service/ByteBridge.Service.csproj
+          -c Release -r linux-x64 --self-contained true -o publish
+
+      - name: The bundle carries the systemd unit and the installer
+        run: |
+          test -f publish/bytebridge.unit
+          test -f publish/install.sh
+
+      - name: The command line answers
+        run: |
+          export BYTEBRIDGE_DATA="$RUNNER_TEMP/bb"
+          out=$(./publish/ByteBridge.Service status)
+          echo "$out"
+          echo "$out" | grep -q "^listening"
+          key=$(./publish/ByteBridge.Service key show)
+          test -n "$key"
+
+      - name: The data folder is the one asked for, and owner-only
+        run: |
+          export BYTEBRIDGE_DATA="$RUNNER_TEMP/bb"
+          test -d "$BYTEBRIDGE_DATA"
+          test "$(stat -c '%a' "$BYTEBRIDGE_DATA")" = "700"
