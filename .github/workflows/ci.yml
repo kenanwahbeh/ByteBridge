@@ -217,3 +217,29 @@ jobs:
           export BYTEBRIDGE_DATA="$RUNNER_TEMP/bb"
           test -d "$BYTEBRIDGE_DATA"
           test "$(stat -c '%a' "$BYTEBRIDGE_DATA")" = "700"
+
+      # The .deb is what `apt install bytebridge` will serve, so it is
+      # built, installed and started here, for real, on every change.
+      - name: Build the .deb
+        run: scripts/linux/build-deb.sh 0.0.0-ci publish debs
+
+      - name: The .deb installs and the service answers
+        run: |
+          deb=$(ls debs/bytebridge_*_amd64.deb)
+          dpkg-deb -I "$deb"
+          sudo apt-get install -y "$deb"
+          systemctl is-active bytebridge
+          sudo bytebridge status | grep -q "^listening"
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            curl -fsS http://127.0.0.1:8080/health && break
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:8080/health
+          test "$(sudo stat -c '%a %U' /var/lib/bytebridge)" = "700 bytebridge"
+
+      - name: The .deb removes cleanly and keeps the data
+        run: |
+          sudo apt-get remove -y bytebridge
+          ! systemctl is-active --quiet bytebridge
+          test ! -e /opt/bytebridge/ByteBridge.Service
+          sudo test -d /var/lib/bytebridge
