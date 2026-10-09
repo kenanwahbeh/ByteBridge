@@ -2,28 +2,32 @@
 
 <a href="#support-the-project"><img src="docs/assets/sponsor-button.svg" alt="Sponsor this project" width="224" height="38"></a>
 
-A Windows desktop app that puts a small, authenticated HTTP API in
-front of your databases, so they can be reached from outside
-the machine through a tunnel such as Cloudflare Tunnel — without
-exposing the database port or touching the router.
+A small, authenticated HTTP API in front of your databases, so they
+can be reached from outside the machine through a tunnel such as
+Cloudflare Tunnel — without exposing the database port or touching the
+router.
 
-You add your database connections in the window, turn the ones you
-want Online, and the app serves them as JSON over `127.0.0.1`.
-`cloudflared` runs on the same machine and forwards to it.
+It runs on **Windows**, as a service with a desktop control panel, and
+on **Linux**, as a systemd service you set up from the terminal. You add
+your database connections (in the window, or with the `bytebridge`
+command), turn the ones you want Online, and the gateway serves them as
+JSON over `127.0.0.1`. `cloudflared` runs on the same machine and
+forwards to it.
 
 ```mermaid
 flowchart LR
     C["Your app<br/>or browser"] -->|"HTTPS + X-API-Key"| E["Cloudflare<br/>edge"]
-    E -->|"outbound tunnel"| D["cloudflared<br/>(your PC)"]
+    E -->|"outbound tunnel"| D["cloudflared<br/>(your machine)"]
     D -->|"http://127.0.0.1:8080"| G["ByteBridge"]
-    G -->|"port 3050"| F[("Database")]
+    G -->|"database port"| F[("Database")]
 ```
 
 Nothing listens on your LAN and no inbound port is opened: `cloudflared`
 dials out to Cloudflare, and the gateway itself only ever binds to
 loopback.
 
-**Requirements:** a database server — Firebird 4 (default port 3050) or
+**Requirements:** 64-bit Windows 8.1 or later, or a 64-bit Linux with
+systemd; and a database server — Firebird 4 (default port 3050) or
 PostgreSQL (5432). Both are tested against a real server, and both hold
 `/query` read-only themselves. See
 [Database engines](docs/reference/database-engines.md).
@@ -33,7 +37,7 @@ through setting ByteBridge up step by step, with no technical
 background needed — also [in Arabic](docs/ar/README.md). In the app,
 **Help → User Guide** (or **F1**) opens it.
 
-## Install
+## Install on Windows
 
 Grab an installer from the
 [latest release](https://github.com/kenanwahbeh/ByteBridge/releases/latest).
@@ -85,12 +89,35 @@ In silent mode, missing prerequisites (the .NET Desktop Runtime,
 prompting — there is nobody to answer a prompt during an unattended
 rollout.
 
+## Install on Linux
+
+On Debian and Ubuntu, add the signed apt repository once; after that
+`apt install` and `apt upgrade` do the rest:
+
+```
+sudo install -d -m 0755 /etc/apt/keyrings
+curl -fsSL https://kenanwahbeh.github.io/ByteBridge/bytebridge.asc | sudo tee /etc/apt/keyrings/bytebridge.asc >/dev/null
+echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/bytebridge.asc] https://kenanwahbeh.github.io/ByteBridge stable main" | sudo tee /etc/apt/sources.list.d/bytebridge.list
+sudo apt update
+sudo apt install bytebridge
+```
+
+The key's fingerprint is on
+[the repository's page](https://kenanwahbeh.github.io/ByteBridge/).
+Each release also carries the `.deb` itself and a `linux-x64` tarball
+with an `install.sh` for other distributions, with checksums in
+`SHA256SUMS-linux.txt` and the same build attestation as the Windows
+files. The package starts a systemd service, `bytebridge`, and installs
+the `bytebridge` command to configure it. There is no control panel on
+Linux. The [Linux guide](docs/getting-started/linux.md) has the details.
+
 ## It runs as a service
 
 The gateway is a Windows service, `ByteBridge`, installed and started
-for you. It starts with the machine and serves with nobody signed in,
-so an unattended server is a supported target and closing the window
-does not take the gateway down with it.
+for you (on Linux, a systemd service, `bytebridge`). It starts with the
+machine and serves with nobody signed in, so an unattended server is a
+supported target and closing the window does not take the gateway down
+with it.
 
 The window is a control panel for that service. It shows two things
 separately, because they are not the same: whether Windows is running
@@ -106,6 +133,22 @@ and those databases. The secrets are encrypted at rest with a key that
 never leaves the machine, but on the running machine any administrator
 can still read them, so the folder is restricted to Administrators and
 the service account, and no other account on the machine can read it.
+
+### Linux
+
+There is no window, so everything is done with the `bytebridge`
+command, which runs as the service account:
+
+```
+bytebridge status
+bytebridge db add --name Sales --server 127.0.0.1 --path /data/sales.fdb --user SYSDBA --password secret
+bytebridge key show
+bytebridge port 8080
+```
+
+Data lives in `/var/lib/bytebridge`, readable by the service account
+only. Changes apply within a few seconds, without a restart.
+`bytebridge --help` lists everything.
 
 ### Windows Server Core
 
@@ -128,19 +171,26 @@ machine with a desktop you never need any of this.
 
 1. **Add a database.** Choose **File → New Database…**, fill in the
    database server, port, user, password and database path or alias,
-   and use **Test Connection** before saving.
+   and use **Test Connection** before saving. (On Linux:
+   `bytebridge db add`, as above.)
 2. **Check it is Online.** A connection saved after a successful test
    is Online straight away, and only Online connections answer
    requests. The button on its card takes it **Offline** and back; going
    Online tests the connection first and stays Offline if that fails.
 3. **Check the gateway.** The status line under the menu bar should
    read *● Answering — http://127.0.0.1:8080 · Service: running*. Open
-   **Web Server** from the menu bar and press **Copy API Key**.
+   **Web Server** from the menu bar and press **Copy API Key**. (On
+   Linux: `bytebridge status`, and `bytebridge key show` for the key.)
 4. **Start the tunnel.**
 
    ```
    cloudflared tunnel --url http://127.0.0.1:8080
    ```
+
+   Or let ByteBalance make the tunnel for you: **Connect to ByteBalance**
+   in the window, or `enroll --email you@example.com` on the command
+   line (Windows and Linux). See
+   [Connecting to ByteBalance](docs/reference/bytebalance.md).
 
 5. **Confirm the whole path.** `/health` needs no key, so it is the
    first thing to try:
@@ -169,6 +219,7 @@ machine with a desktop you never need any of this.
 | GET | `/health` | no |
 | GET | `/databases` | yes |
 | POST | `/query` | yes — `SELECT` / `WITH` only |
+| POST | `/execute` | yes — only while **Allow writing** is on, otherwise `403` |
 
 [**GATEWAY.md**](GATEWAY.md) has the request and response shapes, the
 Firebird-to-JSON type mapping, the status codes, a named-tunnel
@@ -189,16 +240,18 @@ API key as a database credential.
 - **New Key** rotates it without restarting the gateway. The running
   gateway picks the new key up within a few seconds, and from then on
   every client still sending the old one is refused.
+- A caller that sends too many wrong keys is refused with `429` and a
+  `Retry-After` for a while, before its key is even compared.
 - Send values in `parameters`, never concatenated into `sql`; they are
-  bound as Firebird parameters, so a value cannot become SQL.
+  bound as database parameters, so a value cannot become SQL.
 - ByteBridge only reads until an administrator ticks **Options → Allow
   writing**. `/query` refuses anything that is not a `SELECT` or `WITH`
-  either way, and runs what it accepts in a transaction that Firebird
-  itself holds read-only, so a statement sent to it cannot change rows.
-  Generators change outside transactions, so `GEN_ID` with a step other
-  than 0 and `NEXT VALUE FOR` are refused as well; a procedure that
-  moves one inside its own body can only be stopped by limiting the
-  Firebird user. While writing is off, `/execute` answers `403`. While
+  either way, and runs what it accepts in a transaction that the
+  database engine itself holds read-only, so a statement sent to it
+  cannot change rows. Firebird generators change outside transactions,
+  so `GEN_ID` with a step other than 0 and `NEXT VALUE FOR` are refused
+  as well; a procedure that moves one inside its own body can only be
+  stopped by limiting the database user. While writing is off, `/execute` answers `403`. While
   it is on, anyone holding the API key, or signed in through ByteBridge's
   Cloudflare login, can run any statement: change and delete data and
   change the structure of your databases. Cloudflare Access in front of
@@ -206,18 +259,20 @@ API key as a database credential.
   writing off unless you need it, and turn it off again afterwards.
 - The listener binds to `127.0.0.1` only, and a request body over 1 MB
   is refused.
-- Anything holding the key can read whatever the Firebird user of an
+- Anything holding the key can read whatever the database user of an
   Online connection can read. If the data is sensitive, put
   [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/)
   in front of the hostname as well, so callers are authenticated at
   Cloudflare's edge before a request reaches the machine at all.
   [GATEWAY.md](GATEWAY.md#locking-the-tunnel-to-just-you) has the setup.
 - Every request, served or rejected, is appended to
-  `C:\ProgramData\ByteBridge\logs\`. Bound parameter values are never
+  `C:\ProgramData\ByteBridge\logs\` (on Linux,
+  `/var/lib/bytebridge/logs/`). Bound parameter values are never
   written; the statement is.
 
 Connections are stored in
-`C:\ProgramData\ByteBridge\bytebridge.db`. Firebird passwords and the
+`C:\ProgramData\ByteBridge\bytebridge.db` (on Linux,
+`/var/lib/bytebridge/bytebridge.db`). Database passwords and the
 API key are encrypted with a key that never leaves the machine and is
 kept *outside* the data folder — DPAPI on Windows; on Linux an
 owner-only key file in `/var/lib/bytebridge-keys`, a sibling of the
@@ -242,6 +297,13 @@ dotnet run --project app/ByteBridge.csproj
 
 **How the projects fit together**, and where a change belongs, is in
 [docs/developers/architecture.md](docs/developers/architecture.md).
+
+The gateway service alone also builds and runs on Linux:
+
+```
+dotnet publish service/ByteBridge.Service.csproj -c Release -r linux-x64 --self-contained -o publish
+sudo ./publish/install.sh
+```
 
 To produce the installers the way the release does, see
 [`.github/workflows/release.yml`](.github/workflows/release.yml). WiX
@@ -285,6 +347,14 @@ connections of whoever is running it.
 | `EngineAndSecretsTests` | The engine column and secret protection together: a PostgreSQL password still wrapped, a pre-engine file migrating both, and a row naming an engine this build lacks still reading. |
 | `PostgreSqlIntegrationTests` | PostgreSQL end to end against a real server: types, NULLs, parameter binding, the row cap, the engine refusing an INSERT and a second statement, sequences untouched, and `/execute` both ways. |
 | `CliTests` | The Server Core commands: status, on and off, the port, showing and replacing the key, and adding, enabling, disabling and removing a database. |
+| `EnrollmentApiTests`, `EnrollmentFlowTests`, `EnrollmentCommandsTests`, `EnrollmentAddressTests` | Connecting to ByteBalance: the control plane's endpoints and status codes, the flow from request to approval, the commands, and which addresses are accepted. |
+| `EnrollmentConnectorTests` | Installing and removing the `cloudflared` connector on both systems: `sc.exe` on Windows, `systemctl` and a root-only token file on Linux, and the token never appearing in an error. |
+| `CloudflareSettingsTests`, `CloudflareAccessValidatorTests`, `OAuthLoginTests`, `EdgeAccessTests` | Cloudflare login and Access: the settings, validating the token against Cloudflare's real key format, the login redirects, and "only requests that came through Access". |
+| `SecretProtectionTests` | The passwords and API key wrapped at rest: round trip, files from before the wrapping, no double wrapping. |
+| `WritingSwitchTests` | Read-only by default, and `/execute` refused until an administrator turns writing on. |
+| `SecurityHardeningTests`, `AdversarialInputTests` | The failed-key limiter against a clock the test moves, and hostile input thrown at every endpoint. |
+| `ConnectionHealthMonitorTests`, `GatewayStatsTests` | `/databases` reporting a connection as online only when it is, and the per-connection request counts. |
+| `WizardDecisionTests`, `WindowsLayerTests` | The add/edit wizard's decisions and the Windows-specific layer, both reached from `core` so the suite can test them. |
 | `RequestLogTests` | The log file itself: one JSON line per request, parameter values kept out, long statements truncated, concurrent writes, and pruning old files. |
 | `RequestLoggingTests` | The log as the running gateway fills it: served and refused requests, the statement and connection, the forwarded client address, and every request landing exactly once under load. |
 | `SharedDatabaseTests` | The settings file open in two processes at once: WAL mode, one seeing what the other wrote, a write waiting for a lock, and both writing together. |
@@ -307,12 +377,18 @@ $env:BYTEBRIDGE_TEST_POSTGRES = "127.0.0.1:5432:postgres:password:shop"
 dotnet test tests/ByteBridge.Tests --filter Category=PostgreSql
 ```
 
-[CI](.github/workflows/ci.yml) runs on every push and pull request, in
-three jobs: the build and the whole suite on `windows-latest`, where the
-live tests skip for want of a server, and — on `ubuntu-latest` — the
-Firebird tests and the PostgreSQL tests against each engine in a service
-container. The test project targets plain `net10.0`, so it runs on Linux
-unchanged even though the app itself is Windows-only.
+[CI](.github/workflows/ci.yml) runs on every push and pull request: the
+build and the whole suite on `windows-latest`, where the live tests skip
+for want of a server, and — on `ubuntu-latest` — the Firebird tests and
+the PostgreSQL tests against each engine in a service container, and a
+Linux publish job that builds the `.deb`, installs it with `apt`, and
+checks the service starts under systemd and answers `/health`. CodeQL
+scans every change. The test project targets plain `net10.0`, so it runs
+on Linux unchanged even though the control panel is Windows-only.
+
+Changes to the Linux packaging also run the
+[apt repository workflow](.github/workflows/apt-repo.yml), which builds
+the signed repository and installs from it, without publishing.
 
 ## Versioning
 
@@ -322,7 +398,7 @@ For this app that means:
 | Bump | When |
 | ---- | ---- |
 | **MAJOR** | Something that breaks an existing caller: an endpoint or response field removed or renamed, a response shape changed, the authentication scheme changed, or a settings file an older version can no longer read. |
-| **MINOR** | New behaviour an existing caller can ignore: a new endpoint, an extra response field, a new option in the window. |
+| **MINOR** | New behaviour an existing caller can ignore: a new endpoint, an extra response field, a new option in the window, a new database engine. |
 | **PATCH** | Fixes and internal work with no visible change to the API or the UI. |
 
 Anything worth mentioning goes into [CHANGELOG.md](CHANGELOG.md) under
@@ -331,35 +407,47 @@ remembering exercise.
 
 ## Releasing
 
+`main` is protected, so a release goes through a pull request like any
+other change. The full procedure is in
+[docs/contributing/versioning-and-releasing.md](docs/contributing/versioning-and-releasing.md);
+in short:
+
 1. Check that the **Unreleased** section of
    [CHANGELOG.md](CHANGELOG.md) describes what is about to ship.
-2. Cut the release:
+2. Promote it without committing, then open a pull request:
 
    ```
-   pwsh scripts/new-release.ps1 -Version 1.0.0
+   scripts/new-release.ps1 -Version x.y.z -NoCommit
    ```
 
-   That promotes Unreleased to `## [1.0.0]` with today's date, opens a
-   fresh Unreleased section, rewrites the comparison links, commits the
-   changelog and creates the `v1.0.0` tag. It refuses to run on an
-   empty Unreleased section, an existing tag, or a version that is not
-   semantic, and it pushes nothing.
-3. Publish:
+   That turns Unreleased into `## [x.y.z]` with today's date, opens a
+   fresh Unreleased section and rewrites the comparison links. It
+   refuses to run on an empty Unreleased section, an existing tag, or a
+   version that is not semantic, and it pushes nothing. Commit the
+   changelog as `Release x.y.z`, open the pull request and merge it.
+3. Tag the merge commit and push the tag:
 
    ```
-   git push origin HEAD --follow-tags
+   git tag vx.y.z <merge-commit>
+   git push origin vx.y.z
    ```
 
-   The tag starts the release workflow, which builds all four
-   installers on Windows, copies that version's changelog section into
-   the release body, writes `SHA256SUMS.txt`, and attaches everything
-   to a GitHub Release. A tag whose version has no changelog section
-   fails the build rather than publishing a release with no notes.
+   The tag starts the release workflow. One job builds the four
+   installers on Windows; the next builds the Linux `.deb` and tarball.
+   Between them they copy that version's changelog section into the
+   release body, write `SHA256SUMS.txt` and `SHA256SUMS-linux.txt`,
+   attest every file, and attach everything to a GitHub Release. A tag
+   whose version has no changelog section fails the build rather than
+   publishing a release with no notes.
+4. When the release succeeds, the apt repository workflow rebuilds the
+   signed repository from the `.deb` files of the last five releases,
+   refusing any whose attestation does not name this repository's
+   release workflow and its own tag, and publishes it on GitHub Pages.
 
 To test the packaging without publishing anything, run the **Release**
-workflow manually from the Actions tab. It builds the same four
-installers, prints the release body it would have used, and leaves the
-files as workflow artifacts — no tag, no release.
+workflow manually from the Actions tab. It builds the same installers
+and Linux packages, prints the release body it would have used, and
+leaves the files as workflow artifacts — no tag, no release.
 
 ## Support the project
 
