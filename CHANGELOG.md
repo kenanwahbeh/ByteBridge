@@ -13,6 +13,8 @@ file is the single source of truth for what shipped.
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-10-09
+
 ### Added
 
 - **[ROADMAP.md](https://github.com/kenanwahbeh/ByteBridge/blob/main/ROADMAP.md)
@@ -51,6 +53,12 @@ file is the single source of truth for what shipped.
   makes a request that arrives through Cloudflare carry a valid Access token in
   addition to the API key; enrolment turns it on. Local requests are not asked
   for one, and it does not switch the Access login on.
+- **Browse for the database file, and an eye on the password.** The add
+  wizard's second page has a **Browse** button for a Firebird database on
+  this computer (`.fdb`, `.gdb` and Sahlisoft's `.tcbfile`), and its third
+  page an eye that shows the password as it is typed. A saved password is
+  never shown: editing a connection leaves the eye off until the box has
+  been emptied and a new password typed.
 - **The service runs on Linux under systemd.** A Linux publish carries
   `bytebridge.unit` and `install.sh`; data lives in `/var/lib/bytebridge`
   (or `BYTEBRIDGE_DATA`) with owner-only permissions, and logs go to the
@@ -482,7 +490,8 @@ file is the single source of truth for what shipped.
 
 - Settings live in `C:\ProgramData\ByteBridge\bytebridge.db`.
 
-[Unreleased]: https://github.com/kenanwahbeh/ByteBridge/compare/v3.0.0...HEAD
+[Unreleased]: https://github.com/kenanwahbeh/ByteBridge/compare/v3.1.0...HEAD
+[3.1.0]: https://github.com/kenanwahbeh/ByteBridge/compare/v3.0.0...v3.1.0
 [3.0.0]: https://github.com/kenanwahbeh/ByteBridge/compare/v2.0.0...v3.0.0
 [2.0.0]: https://github.com/kenanwahbeh/ByteBridge/compare/v1.2.0...v2.0.0
 [1.2.0]: https://github.com/kenanwahbeh/ByteBridge/compare/v1.1.0...v1.2.0
