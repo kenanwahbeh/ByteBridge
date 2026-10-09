@@ -101,3 +101,8 @@ on the same machine and point it at `http://127.0.0.1:8080`; see
 - The `.exe` and `.msi` installers (the `.deb` and `.tar.gz` replace them).
 - The Windows service and DPAPI. The systemd unit and the key file
   take their places.
+- `enroll` and `claim`, the commands that ask ByteBalance for a tunnel
+  and install its connector. The connector is installed as a Windows
+  service, so these work on Windows only. On Linux, run `cloudflared`
+  yourself (see [Reaching it from outside](#reaching-it-from-outside))
+  and share the API key from `bytebridge key show` by hand.
