@@ -130,6 +130,12 @@ public sealed class UpdateChecker
                 "Could not reach GitHub: " + error.Message,
                 error);
         }
+        catch (IOException error)
+        {
+            throw new UpdateException(
+                "The answer from GitHub was cut off: " + error.Message,
+                error);
+        }
     }
 
     internal static UpdateInfo Parse(byte[] body)

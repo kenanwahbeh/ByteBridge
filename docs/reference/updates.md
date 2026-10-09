@@ -50,13 +50,14 @@ sent unless you ask with `update check` or **Check now**.
 
 Press **Update now** in the banner. The control panel:
 
-1. downloads the installer that matches how this machine was set up —
+1. asks for your agreement;
+2. downloads the installer that matches how this machine was set up —
    the Setup program or the MSI, with or without the bundled .NET — so
    an MSI is never "upgraded" by a Setup program that would register a
    second copy beside it;
-2. checks it against `SHA256SUMS.txt` published with the release, and
+3. checks it against `SHA256SUMS.txt` published with the release, and
    throws it away if it does not match;
-3. asks for your agreement, starts the installer and closes itself.
+4. starts the installer and closes itself.
 
 The installer then does what it always does on an upgrade: it stops the
 service, replaces the files, and starts the service again. Your

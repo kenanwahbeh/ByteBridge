@@ -62,12 +62,18 @@ internal sealed class AppUpdates
      */
     internal static InstallerKind InstalledFrom()
     {
+        var running = Normalize(AppContext.BaseDirectory);
+
         foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
         {
             using var hive = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view);
             using var key = hive.OpenSubKey(SetupUninstallKey);
 
-            if (key != null)
+            // An entry only counts when it is for the copy that is
+            // running; a Setup install elsewhere says nothing about an
+            // MSI install here.
+            if (key?.GetValue("InstallLocation") is string location
+                && Normalize(location) == running)
             {
                 return InstallerKind.Setup;
             }
@@ -75,6 +81,9 @@ internal sealed class AppUpdates
 
         return InstallerKind.Msi;
     }
+
+    private static string Normalize(string path) =>
+        Path.GetFullPath(path).TrimEnd('\\', '/').ToUpperInvariant();
 
     /*
      * Inside the settings folder, which only SYSTEM and administrators
@@ -95,9 +104,24 @@ internal sealed class AppUpdates
         IProgress<double> progress,
         CancellationToken cancellationToken = default)
     {
+        // The folder is only safe if securing the data directory worked.
+        // Otherwise another account might replace the file between the
+        // checksum and the run.
+        if (_database.PermissionsError != null)
+        {
+            throw new UpdateException(
+                "The settings folder could not be restricted to administrators, "
+                + "so an installer will not be saved there.");
+        }
+
         var release = Service.LastInfo;
 
-        if (release == null || release.Version <= Service.Current)
+        // What was announced is what gets installed: details left over
+        // from an older check in this process are not trusted when
+        // another check has since found a different release.
+        if (release == null
+            || release.Version <= Service.Current
+            || release.Version != Service.Cached().Latest)
         {
             var status = await Service.CheckAsync(true, cancellationToken);
 
@@ -109,7 +133,9 @@ internal sealed class AppUpdates
             release = Service.LastInfo;
         }
 
-        if (release == null || release.Version <= Service.Current)
+        if (release == null
+            || release.Version <= Service.Current
+            || release.Version != Service.Cached().Latest)
         {
             return null;
         }

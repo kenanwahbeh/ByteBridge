@@ -633,9 +633,11 @@ public partial class MainWindow : Window
 
             return status;
         }
-        catch (Exception)
+        catch (Exception error)
         {
-            return null;
+            // Nothing is shown for a background check; a forced one is a
+            // person waiting for an answer, and gets the reason.
+            return _updates.Service.Cached(error.Message);
         }
     }
 

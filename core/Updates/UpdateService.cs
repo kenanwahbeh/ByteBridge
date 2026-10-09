@@ -172,6 +172,8 @@ public sealed class UpdateService
             }
         }
 
+        var started = _clock.Now;
+
         UpdateInfo info;
 
         try
@@ -181,6 +183,21 @@ public sealed class UpdateService
         catch (UpdateException error)
         {
             return Cached(error.Message);
+        }
+
+        // Another check (the service, the panel, the command line) may
+        // have finished while this one was waiting on the network. Its
+        // answer is newer than the question this one asked, so keep it.
+        if (Cached().CheckedAt is { } committed && committed > started)
+        {
+            var kept = Cached();
+
+            if (kept.Latest == info.Version)
+            {
+                LastInfo = info;
+            }
+
+            return kept;
         }
 
         _database.SetSetting(LatestKey, info.Version.ToString());

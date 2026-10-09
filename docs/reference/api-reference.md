@@ -85,7 +85,8 @@ side, the version and the last update check:
 
 `update` repeats what the service last found out; the request itself
 never goes to GitHub. `latest` and `checkedAtUtc` are `null` until the
-first check has run, or when checks are turned off. See
+first successful check. Turning checks off keeps the last answer, so
+`checkedAtUtc` shows how old it is. See
 [Updates](updates.md).
 
 ## Examples
