@@ -11,22 +11,28 @@ name: APT repository
 # releases. Nothing is kept between runs: the releases are the source
 # of truth, and Pages is only a copy of them.
 #
-# Running it by hand builds and tests the repository without publishing
-# it unless it runs on main. When no release carries a .deb yet, it
-# builds one from the checked-out commit, so the whole path can be
-# tested before the first release that has one.
+# A pull request that touches this workflow or the Linux packaging, and
+# a manual run off main, build and test the repository without
+# publishing it. When no release carries a .deb yet, one is built from
+# the checked-out commit, so the whole path is tested before the first
+# release that has one.
 
 on:
   workflow_run:
     workflows: [Release]
     types: [completed]
   workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/apt-repo.yml
+      - scripts/linux/**
+      - service/**
 
 permissions:
   contents: read
 
 concurrency:
-  group: apt-repository
+  group: apt-repository-${{ github.event_name == 'pull_request' && github.ref || 'publish' }}
   cancel-in-progress: false
 
 jobs:
@@ -36,6 +42,7 @@ jobs:
     # only a tag-pushed one that succeeded rebuilds the repository.
     if: >
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'pull_request' ||
       (github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
