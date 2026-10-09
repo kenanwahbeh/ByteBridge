@@ -61,9 +61,22 @@ requires it in the `X-API-Key` header.
 See [GATEWAY.md](https://github.com/kenanwahbeh/ByteBridge/blob/{{TAG}}/GATEWAY.md)
 for the endpoints and the tunnel configuration.
 
+### Linux
+
+The gateway also runs on Linux, under systemd, with no control panel
+(see the [Linux guide](https://github.com/kenanwahbeh/ByteBridge/blob/{{TAG}}/docs/getting-started/linux.md)).
+
+| File | Use it when |
+| ---- | ----------- |
+| `bytebridge_{{VERSION}}_amd64.deb` | Debian or Ubuntu: `sudo apt install ./bytebridge_{{VERSION}}_amd64.deb` |
+| `ByteBridge-{{VERSION}}-linux-x64.tar.gz` | Any other distribution: `tar -xzf` it, `cd ByteBridge-{{VERSION}}-linux-x64`, then `sudo ./install.sh`. |
+
+Their checksums are in `SHA256SUMS-linux.txt`.
+
 ### Verifying the download
 
-`SHA256SUMS.txt` lists the SHA-256 checksum of each file.
+`SHA256SUMS.txt` lists the SHA-256 checksum of each Windows file, and
+`SHA256SUMS-linux.txt` of each Linux file.
 
 Each file also carries a **build-provenance attestation**: signed proof
 that it was built by this repository's release workflow, from the tag's

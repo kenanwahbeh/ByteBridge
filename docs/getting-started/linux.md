@@ -11,7 +11,7 @@ checks the data folder is owner-only.
 
 | | Windows | Linux |
 | - | ------- | ----- |
-| Installer | `.exe` / `.msi` from the release | Build the bundle yourself (see below) |
+| Installer | `.exe` / `.msi` from the release | `.deb` or `.tar.gz` from the release |
 | Control panel | WPF window | None; use the `bytebridge` command |
 | Run by | Windows service `ByteBridge` | systemd unit `bytebridge` |
 | Data folder | `C:\ProgramData\ByteBridge` | `/var/lib/bytebridge`, mode `0700` |
@@ -22,20 +22,37 @@ checks the data folder is owner-only.
 
 The databases it reaches are the same: Firebird and PostgreSQL.
 
-## There is no Linux download yet
+## Installing
 
-The release publishes the four Windows installers only. On Linux you
-build the bundle from source. You need the .NET 10 SDK on the build
-machine; the target machine needs nothing, because the bundle is
-self-contained.
+Both files are on the [latest release](https://github.com/kenanwahbeh/ByteBridge/releases/latest).
+The bundle is self-contained, so the machine needs no .NET.
+
+**Debian or Ubuntu** — the `.deb`:
+
+```
+sudo apt install ./bytebridge_<version>_amd64.deb
+```
+
+It creates the `bytebridge` account, puts the service in
+`/opt/bytebridge`, installs the systemd unit and the `bytebridge`
+command, and starts it. Removing the package stops the service and
+keeps the data folder and the key.
+
+**Any other distribution** — the tarball:
+
+```
+tar -xzf ByteBridge-<version>-linux-x64.tar.gz
+cd ByteBridge-<version>-linux-x64
+sudo ./install.sh
+```
+
+Checksums are in `SHA256SUMS-linux.txt`, and both files carry a build
+attestation: `gh attestation verify <file> --repo kenanwahbeh/ByteBridge`.
+
+**From source** — needs the .NET 10 SDK on the build machine:
 
 ```
 dotnet publish service/ByteBridge.Service.csproj -c Release -r linux-x64 --self-contained -o publish
-```
-
-Copy the `publish` folder to the server, then:
-
-```
 sudo ./publish/install.sh
 ```
 
@@ -81,7 +98,7 @@ on the same machine and point it at `http://127.0.0.1:8080`; see
 ## Not available on Linux
 
 - The control panel (WPF is Windows-only).
-- The `.exe` and `.msi` installers.
+- The `.exe` and `.msi` installers (the `.deb` and `.tar.gz` replace them).
 - The Windows service and DPAPI. The systemd unit and the key file
   take their places.
 - `enroll` and `claim`, the commands that ask ByteBalance for a tunnel
