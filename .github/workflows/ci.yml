@@ -227,7 +227,7 @@ jobs:
         run: |
           deb=$(ls debs/bytebridge_*_amd64.deb)
           dpkg-deb -I "$deb"
-          sudo apt-get install -y "$deb"
+          sudo apt-get install -y "./$deb"
           systemctl is-active bytebridge
           sudo bytebridge status | grep -q "^listening"
           for i in 1 2 3 4 5 6 7 8 9 10; do
