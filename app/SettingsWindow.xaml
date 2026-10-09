@@ -164,6 +164,56 @@
 
             </Border>
 
+            <!-- Updates -->
+            <Border Padding="16"
+                    CornerRadius="8"
+                    BorderThickness="1"
+                    BorderBrush="#DCDCDC"
+                    Margin="0,12,0,0">
+
+                <StackPanel>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0">
+                            <TextBlock x:Name="UpdatesTextBlock"
+                                       Text="Check for updates"
+                                       FontSize="15"
+                                       FontWeight="SemiBold"/>
+                            <TextBlock x:Name="UpdatesHintTextBlock"
+                                       FontSize="12"
+                                       Foreground="Gray"
+                                       TextWrapping="Wrap"
+                                       Margin="0,4,0,0"/>
+                        </StackPanel>
+
+                        <CheckBox x:Name="UpdatesCheckBox"
+                                  Grid.Column="1"
+                                  VerticalAlignment="Center"
+                                  Checked="UpdatesCheckBox_Changed"
+                                  Unchecked="UpdatesCheckBox_Changed"/>
+                    </Grid>
+
+                    <StackPanel Orientation="Horizontal"
+                                Margin="0,12,0,0">
+                        <Button x:Name="UpdatesCheckNowButton"
+                                Padding="14,5"
+                                Click="UpdatesCheckNowButton_Click"/>
+                        <TextBlock x:Name="UpdatesResultTextBlock"
+                                   VerticalAlignment="Center"
+                                   TextWrapping="Wrap"
+                                   FontSize="12"
+                                   Margin="12,0,0,0"/>
+                    </StackPanel>
+
+                </StackPanel>
+
+            </Border>
+
         </StackPanel>
 
         <Button x:Name="DoneButton"

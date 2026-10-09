@@ -20,6 +20,11 @@
     have dragged in WPF and stopped these tests running on Linux; the
     library targets net10.0, so that problem is gone.
   -->
+  <!-- A recorded GitHub release response; see UpdateCheckerTests. -->
+  <ItemGroup>
+    <None Include="Fixtures/**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="../../core/ByteBridge.Core.csproj" />
   </ItemGroup>

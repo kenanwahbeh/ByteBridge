@@ -90,9 +90,11 @@ public class GatewayStatsTests
 
         var (_, body) = await GatewayHarness.Read(gateway.Get("/stats"));
 
+        // The counts are what is under test; /stats carries other fields too.
         Assert.Equal(
-            $"{{\"requests\":{{\"{gateway.Offline.Id}\":1}}}}",
-            body);
+            $"{{\"{gateway.Offline.Id}\":1}}",
+            JsonDocument.Parse(body).RootElement
+                .GetProperty("requests").GetRawText());
     }
 
     [Fact]
@@ -178,6 +180,9 @@ public class GatewayStatsTests
 
         var (_, body) = await GatewayHarness.Read(gateway.Get("/stats"));
 
-        Assert.Equal("{\"requests\":{}}", body);
+        Assert.Equal(
+            "{}",
+            JsonDocument.Parse(body).RootElement
+                .GetProperty("requests").GetRawText());
     }
 }

@@ -7,6 +7,7 @@ using ByteBridge.Configuration;
 using ByteBridge.Data;
 using ByteBridge.Gateway;
 using ByteBridge.Localization;
+using ByteBridge.Updates;
 
 namespace ByteBridge;
 
@@ -71,6 +72,63 @@ public partial class SettingsWindow : Window
         AllowWritingCheckBox.IsChecked = _database.GetAllowWrites();
         AllowWritingCheckBox.IsEnabled = IsAdministrator();
         _loadingSettings = false;
+
+        _loadingSettings = true;
+        UpdatesCheckBox.IsChecked = UpdateService.IsEnabled(_database);
+        _loadingSettings = false;
+    }
+
+    private void UpdatesCheckBox_Changed(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (_loadingSettings)
+        {
+            return;
+        }
+
+        _database.SetSetting(
+            "Updates.Check",
+            UpdatesCheckBox.IsChecked == true ? "1" : "0");
+    }
+
+    /*
+     * Asked for, so it goes whatever the box above says: someone who
+     * pressed the button has said what they want. The banner on the main
+     * window picks the answer up when this one closes.
+     */
+    private async void UpdatesCheckNowButton_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        UpdatesCheckNowButton.IsEnabled = false;
+        UpdatesResultTextBlock.Text = Strings.Get("UpdatesChecking");
+
+        try
+        {
+            var status = await new AppUpdates(_database)
+                .Service
+                .CheckAsync(force: true);
+
+            UpdatesResultTextBlock.Text =
+                status.Error != null
+                    ? Strings.Format("UpdateCheckFailed", status.Error)
+                    : status.Available
+                        ? Strings.Format(
+                            "UpdateAvailable",
+                            status.Latest!.Value,
+                            status.Current)
+                        : Strings.Format("UpdateUpToDate", status.Current);
+        }
+        catch (Exception error)
+        {
+            UpdatesResultTextBlock.Text =
+                Strings.Format("UpdateCheckFailed", error.Message);
+        }
+        finally
+        {
+            UpdatesCheckNowButton.IsEnabled = true;
+        }
     }
 
     private static bool IsAdministrator()
@@ -200,6 +258,9 @@ public partial class SettingsWindow : Window
         AskCloseHintTextBlock.Text = Strings.Get("AskBeforeClosingHint");
         AllowWritingTextBlock.Text = Strings.Get("AllowWriting");
         AllowWritingHintTextBlock.Text = Strings.Get("AllowWritingHint");
+        UpdatesTextBlock.Text = Strings.Get("UpdatesCheck");
+        UpdatesHintTextBlock.Text = Strings.Get("UpdatesCheckHint");
+        UpdatesCheckNowButton.Content = Strings.Get("UpdatesCheckNow");
         DoneButton.Content = Strings.Get("Done");
     }
 

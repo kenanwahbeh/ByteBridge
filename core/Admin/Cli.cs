@@ -1,6 +1,7 @@
 using ByteBridge.Configuration;
 using ByteBridge.Data;
 using ByteBridge.Enrollment;
+using ByteBridge.Updates;
 
 namespace ByteBridge.Admin;
 
@@ -65,6 +66,12 @@ public static class Cli
           sync-key               Send the current API key to ByteBalance again
           unenroll               Forget the enrolment and remove its connector
 
+          update [check]         Look for a newer release now
+          update status          Show what the last check found
+          update on | off        Whether the service looks for one by itself,
+                                 about once a day (on by default). It only
+                                 checks; it never installs anything.
+
         Changes apply within a few seconds; the service does not need
         restarting.
         """;
@@ -124,7 +131,8 @@ public static class Cli
     internal static int? Run(
         string[] args,
         SqliteDatabase? database,
-        EnrollmentServices? enrollment)
+        EnrollmentServices? enrollment,
+        UpdateService? updates = null)
     {
         if (args.Length == 0)
         {
@@ -139,7 +147,7 @@ public static class Cli
 
         try
         {
-            return Dispatch(args, database ?? Open(), enrollment);
+            return Dispatch(args, database ?? Open(), enrollment, updates);
         }
         catch (Exception error)
         {
@@ -171,7 +179,8 @@ public static class Cli
     private static int Dispatch(
         string[] args,
         SqliteDatabase database,
-        EnrollmentServices? enrollment) =>
+        EnrollmentServices? enrollment,
+        UpdateService? updates) =>
         args[0].ToLowerInvariant() switch
         {
             "status" => Status(database),
@@ -183,6 +192,8 @@ public static class Cli
             "writes" => Writes(database, args),
             "db" => Db(database, args),
             "oauth" => OAuth(database, args),
+            var verb when UpdateCommands.Handles(verb) =>
+                UpdateCommands.Run(args, database, updates),
             var verb when EnrollmentCommands.Handles(verb) =>
                 EnrollmentCommands.Run(args, database, enrollment),
             _ => Unknown(args[0])

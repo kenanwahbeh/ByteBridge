@@ -30,6 +30,7 @@
 * [Database engines](reference/database-engines.md)
 * [Security](reference/security.md)
 * [The request log](reference/request-log.md)
+* [Updates](reference/updates.md)
 * [Troubleshooting](reference/troubleshooting.md)
 
 ## For developers
