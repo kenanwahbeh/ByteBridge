@@ -420,8 +420,13 @@ jobs:
           version='${{ steps.version.outputs.version }}'
           deb=$(ls artifacts/bytebridge_*_amd64.deb)
           dpkg-deb -I "$deb" | grep -E "Package|Version|Architecture"
-          dpkg-deb -c "$deb" | grep -q "opt/bytebridge/ByteBridge.Service"
-          tar -tzf "artifacts/ByteBridge-$version-linux-x64.tar.gz" | grep -q "install.sh"
+
+          # Whole listings go to files first, so a damaged archive fails
+          # here instead of hiding behind a grep that stopped early.
+          dpkg-deb -c "$deb" > deb.list
+          tar -tzf "artifacts/ByteBridge-$version-linux-x64.tar.gz" > tar.list
+          grep -q "opt/bytebridge/ByteBridge.Service" deb.list
+          grep -q "install.sh" tar.list
 
           # An empty package would be a tiny one; the bundle is tens of MB.
           for f in artifacts/*; do

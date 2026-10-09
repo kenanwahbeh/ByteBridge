@@ -69,7 +69,7 @@ The gateway also runs on Linux, under systemd, with no control panel
 | File | Use it when |
 | ---- | ----------- |
 | `bytebridge_{{VERSION}}_amd64.deb` | Debian or Ubuntu: `sudo apt install ./bytebridge_{{VERSION}}_amd64.deb` |
-| `ByteBridge-{{VERSION}}-linux-x64.tar.gz` | Any other distribution: unpack it and run `sudo ./install.sh`. |
+| `ByteBridge-{{VERSION}}-linux-x64.tar.gz` | Any other distribution: `tar -xzf` it, `cd ByteBridge-{{VERSION}}-linux-x64`, then `sudo ./install.sh`. |
 
 Their checksums are in `SHA256SUMS-linux.txt`.
 
