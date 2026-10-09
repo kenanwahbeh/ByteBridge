@@ -19,7 +19,7 @@ one pull request. What they left behind:
 - [x] **Tighten the dollar-quote tag to PostgreSQL's own rule** — #36.
   The scanner accepts a tag starting with a digit, which PostgreSQL
   does not. Not a bypass; a guard that reads more than the engine does.
-- [ ] **Verify the control panel by hand on Windows** — #37. WPF builds
+- [x] **Verify the control panel by hand on Windows** — #37. WPF builds
   nowhere but Windows, so this is the only place it is observable.
   The covered code is measured; this is what is left. Script: scripts/verify-panel.ps1.
 - [ ] **Cut the release** — #38. `3.1.0`: adding an engine is MINOR,
@@ -37,7 +37,7 @@ missing is that **CI never exercises it**.
   The promise is in the changelog and in the systemd files; nothing
   tests it. *Highest-value item here: it converts a documented promise
   into a measured one.*
-- [ ] **Document Linux as a supported target.** What it means, how to
+- [x] **Document Linux as a supported target.** What it means, how to
   install it, and what differs from Windows — the data directory, the
   key file beside it, and the absence of the control panel.
 
