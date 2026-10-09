@@ -249,3 +249,7 @@ jobs:
         run: |
           systemctl status bytebridge --no-pager || true
           sudo journalctl -u bytebridge --no-pager -n 80 || true
+          sudo systemctl stop bytebridge || true
+          sudo ss -ltnp | grep ':8080' || echo "nothing listens on 8080"
+          sudo -u bytebridge env BYTEBRIDGE_DATA=/var/lib/bytebridge \
+            timeout 20 /opt/bytebridge/ByteBridge.Service || echo "exit $?"
