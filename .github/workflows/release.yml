@@ -7,6 +7,8 @@ name: Release
 # That builds the app on Windows and attaches four installers to a
 # GitHub Release: an .msi and an .exe that bundle .NET, and an .msi
 # and an .exe that expect the .NET Desktop Runtime on the machine.
+# A second job builds the Linux service and attaches a .deb and a
+# .tar.gz to the same release.
 #
 # Running this workflow manually instead builds the same installers
 # and leaves them as workflow artifacts without publishing a release,
@@ -356,3 +358,98 @@ jobs:
               --title "ByteBridge $tag" `
               --notes-file release-notes.md
           }
+
+  # The Linux service as a .deb and a tarball. It waits for the Windows
+  # job because that job creates the GitHub Release; this one only adds
+  # files to it. The checksums go in their own file for the same reason:
+  # SHA256SUMS.txt is attested by the Windows job and must not change.
+  linux:
+    name: Build Linux packages
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version='${{ inputs.version }}'
+          fi
+
+          case "$version" in
+            [0-9]*) ;;
+            *) echo "Version '$version' does not begin with a number." >&2; exit 1 ;;
+          esac
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Building $version"
+
+      - name: Publish
+        run: >
+          dotnet publish service/ByteBridge.Service.csproj
+          -c Release -r linux-x64 --self-contained true
+          -p:Version=${{ steps.version.outputs.version }}
+          -o publish
+
+      - name: Build the .deb and the tarball
+        run: |
+          version='${{ steps.version.outputs.version }}'
+          mkdir -p artifacts
+
+          scripts/linux/build-deb.sh "$version" publish artifacts
+
+          # The unpacked bundle for machines that are not Debian-based:
+          # the executable, the unit and install.sh, side by side.
+          top="ByteBridge-$version-linux-x64"
+          mkdir "$top"
+          cp -r publish/. "$top/"
+          tar -czf "artifacts/$top.tar.gz" "$top"
+
+      - name: Check what was built
+        run: |
+          version='${{ steps.version.outputs.version }}'
+          deb=$(ls artifacts/bytebridge_*_amd64.deb)
+          dpkg-deb -I "$deb" | grep -E "Package|Version|Architecture"
+          dpkg-deb -c "$deb" | grep -q "opt/bytebridge/ByteBridge.Service"
+          tar -tzf "artifacts/ByteBridge-$version-linux-x64.tar.gz" | grep -q "install.sh"
+
+          # An empty package would be a tiny one; the bundle is tens of MB.
+          for f in artifacts/*; do
+            size=$(stat -c %s "$f")
+            echo "$f $size bytes"
+            [ "$size" -gt 10000000 ] || { echo "$f is suspiciously small" >&2; exit 1; }
+          done
+
+      - name: Checksums
+        run: |
+          cd artifacts
+          sha256sum * | tee ../SHA256SUMS-linux.txt
+          mv ../SHA256SUMS-linux.txt .
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v4.2.2
+        with:
+          subject-path: artifacts/*
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-packages
+          path: artifacts/*
+          if-no-files-found: error
+
+      - name: Add to the GitHub Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" artifacts/* --clobber
