@@ -126,6 +126,12 @@ connector, which on Linux is the `cloudflared` systemd unit. `claim`
 and `unenroll` work the same way, and `bytebridge enrollment` shows the
 state.
 
+ByteBridge writes that unit itself and keeps the tunnel token in
+`/etc/cloudflared/token`, readable by root only, with the unit pointing
+at it through `--token-file`. The token is never on a command line,
+where any local user could read it, and not in a world-readable unit
+file either.
+
 These three commands install or remove a systemd unit, so the
 `bytebridge` command runs them as root (through `sudo`) and hands the
 data folder back to the service account afterwards. Everything else

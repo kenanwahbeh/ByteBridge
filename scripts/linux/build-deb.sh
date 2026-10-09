@@ -47,11 +47,20 @@ BIN=/opt/bytebridge/ByteBridge.Service
 case "${1:-}" in
   enroll|claim|unenroll)
     [ "$(id -u)" -eq 0 ] || exec sudo "$0" "$@"
+    # An approval can take minutes, and the service keeps running and
+    # reading its files meanwhile. So what root creates must be usable by
+    # the service from the start (the folders are owner-only, which is
+    # what keeps everyone else out), and the hand-back below runs however
+    # this ends, Ctrl+C included. The exit status stays the command's own.
+    umask 000
+    repair() {
+      chown -R bytebridge:bytebridge "$DATA"
+      [ ! -d "$DATA-keys" ] || chown -R bytebridge:bytebridge "$DATA-keys"
+    }
+    trap repair EXIT
+    trap 'exit 130' INT TERM HUP
     env BYTEBRIDGE_DATA="$DATA" "$BIN" "$@"
-    status=$?
-    chown -R bytebridge:bytebridge "$DATA"
-    [ ! -d "$DATA-keys" ] || chown -R bytebridge:bytebridge "$DATA-keys"
-    exit "$status"
+    exit $?
     ;;
 esac
 

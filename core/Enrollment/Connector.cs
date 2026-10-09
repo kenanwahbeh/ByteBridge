@@ -99,18 +99,69 @@ public sealed class SystemProcessRunner : IProcessRunner
 }
 
 /*
- * Hands the tunnel token to cloudflared, the way Cloudflare documents it
- * for a remotely managed tunnel: `cloudflared service install <token>`
- * makes a service that starts with the machine and needs no config
- * file, which is what a gateway that runs with nobody logged in needs.
- * On Windows that is a Windows service; on Linux it is the systemd unit
- * cloudflared writes itself, so the same command serves both and only
- * the question "is it there, is it running" is asked differently.
+ * Hands the tunnel token to cloudflared. On Windows that is the way
+ * Cloudflare documents it for a remotely managed tunnel:
+ * `cloudflared service install <token>` makes a Windows service that
+ * starts with the machine and needs no config file, which is what a
+ * gateway that runs with nobody logged in needs.
+ *
+ * On Linux the token is NOT given to cloudflared as an argument. An
+ * argument is readable by every local user through /proc while it runs,
+ * and `service install` copies it into a unit file anyone can read. The
+ * token goes into a root-only file instead, and the unit points at it
+ * with --token-file.
  *
  * It refuses to replace a connector that is already there. A machine
  * that had a tunnel set up by hand would lose it silently otherwise, and
  * that tunnel may be the one somebody's storefront depends on today.
  */
+public interface IConnectorFiles
+{
+    /* Creates the file readable by its owner only, from the first byte. */
+    void WriteSecret(string path, string content);
+
+    void WriteText(string path, string content);
+
+    void Delete(string path);
+}
+
+public sealed class DiskConnectorFiles : IConnectorFiles
+{
+    public void WriteSecret(string path, string content)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+
+        /*
+         * Created with the restrictive mode, never created open and
+         * tightened afterwards, which would leave a window in which the
+         * token is readable.
+         */
+        using var stream = new FileStream(path, new FileStreamOptions
+        {
+            Mode = FileMode.Create,
+            Access = FileAccess.Write,
+            UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite
+        });
+
+        using var writer = new StreamWriter(stream);
+        writer.Write(content);
+    }
+
+    public void WriteText(string path, string content)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, content);
+    }
+
+    public void Delete(string path)
+    {
+        if (File.Exists(path))
+        {
+            File.Delete(path);
+        }
+    }
+}
+
 public sealed class CloudflaredConnector : IConnector
 {
     /*
@@ -119,22 +170,27 @@ public sealed class CloudflaredConnector : IConnector
      */
     private const string ServiceName = "Cloudflared";
     private const string UnitName = "cloudflared.service";
+    private const string TokenPath = "/etc/cloudflared/token";
+    private const string UnitPath = "/etc/systemd/system/cloudflared.service";
 
     private readonly IProcessRunner _runner;
     private readonly Func<string?> _locate;
     private readonly IClock _clock;
     private readonly bool _windows;
+    private readonly IConnectorFiles _files;
 
     public CloudflaredConnector(
         IProcessRunner runner,
         IClock clock,
         Func<string?>? locate = null,
-        bool? windows = null)
+        bool? windows = null,
+        IConnectorFiles? files = null)
     {
         _runner = runner;
         _clock = clock;
         _locate = locate ?? Locate;
         _windows = windows ?? OperatingSystem.IsWindows();
+        _files = files ?? new DiskConnectorFiles();
     }
 
     public ConnectorState Inspect()
@@ -171,26 +227,10 @@ public sealed class CloudflaredConnector : IConnector
                     + "--replace-connector.");
             }
 
-            var removal = await _runner.RunAsync(
-                exe,
-                ["service", "uninstall"],
-                cancellationToken);
-
-            if (removal.ExitCode != 0)
-            {
-                throw Failure("remove the existing connector", removal, tunnelToken);
-            }
+            await RemoveServiceAsync(exe, tunnelToken, cancellationToken);
         }
 
-        var install = await _runner.RunAsync(
-            exe,
-            ["service", "install", tunnelToken],
-            cancellationToken);
-
-        if (install.ExitCode != 0)
-        {
-            throw Failure("install the connector", install, tunnelToken);
-        }
+        await InstallServiceAsync(exe, tunnelToken, cancellationToken);
 
         /*
          * The installer returning is not the tunnel being up. A service
@@ -226,16 +266,112 @@ public sealed class CloudflaredConnector : IConnector
             return;
         }
 
-        var result = await _runner.RunAsync(
-            exe,
-            ["service", "uninstall"],
-            cancellationToken);
+        await RemoveServiceAsync(exe, string.Empty, cancellationToken);
+    }
 
-        if (result.ExitCode != 0)
+    private async Task InstallServiceAsync(
+        string exe,
+        string tunnelToken,
+        CancellationToken cancellationToken)
+    {
+        if (_windows)
         {
-            throw Failure("remove the connector", result, string.Empty);
+            var install = await _runner.RunAsync(
+                exe,
+                ["service", "install", tunnelToken],
+                cancellationToken);
+
+            if (install.ExitCode != 0)
+            {
+                throw Failure("install the connector", install, tunnelToken);
+            }
+
+            return;
+        }
+
+        /*
+         * The token is written before the unit that names it, and
+         * nothing here puts it on a command line.
+         */
+        _files.WriteSecret(TokenPath, tunnelToken);
+        _files.WriteText(UnitPath, Unit(exe));
+
+        foreach (var step in new[]
+        {
+            new[] { "daemon-reload" },
+            new[] { "enable", "--now", UnitName }
+        })
+        {
+            var result = await _runner.RunAsync(
+                "systemctl", step, cancellationToken);
+
+            if (result.ExitCode != 0)
+            {
+                throw Failure("install the connector", result, tunnelToken);
+            }
         }
     }
+
+    /*
+     * On Linux, stopping the unit and deleting its files takes away a
+     * connector that cloudflared wrote and one written by hand alike,
+     * which is the case a replace is for. `service uninstall` would only
+     * know the first.
+     */
+    private async Task RemoveServiceAsync(
+        string exe,
+        string tunnelToken,
+        CancellationToken cancellationToken)
+    {
+        if (_windows)
+        {
+            var result = await _runner.RunAsync(
+                exe,
+                ["service", "uninstall"],
+                cancellationToken);
+
+            if (result.ExitCode != 0)
+            {
+                throw Failure("remove the connector", result, tunnelToken);
+            }
+
+            return;
+        }
+
+        var stop = await _runner.RunAsync(
+            "systemctl",
+            ["disable", "--now", UnitName],
+            cancellationToken);
+
+        if (stop.ExitCode != 0)
+        {
+            throw Failure("remove the connector", stop, tunnelToken);
+        }
+
+        _files.Delete(UnitPath);
+        _files.Delete(TokenPath);
+
+        await _runner.RunAsync(
+            "systemctl", ["daemon-reload"], cancellationToken);
+    }
+
+    private static string Unit(string exe) =>
+        string.Join('\n',
+            "[Unit]",
+            "Description=Cloudflare Tunnel client (installed by ByteBridge)",
+            "After=network-online.target",
+            "Wants=network-online.target",
+            "",
+            "[Service]",
+            "TimeoutStartSec=15",
+            "Type=notify",
+            $"ExecStart={exe} --no-autoupdate tunnel run --token-file {TokenPath}",
+            "Restart=on-failure",
+            "RestartSec=5s",
+            "",
+            "[Install]",
+            "WantedBy=multi-user.target",
+            "");
 
     private Task<ConnectorState> QueryService(
         CancellationToken cancellationToken) =>

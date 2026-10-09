@@ -26,8 +26,11 @@ file is the single source of truth for what shipped.
 
 - **`enroll`, `claim` and `unenroll` work on Linux.** The connector is
   the `cloudflared` systemd unit instead of a Windows service, found
-  with `systemctl`; the `bytebridge` command runs these three as root
-  and gives the data folder back to the service account afterwards.
+  with `systemctl`. The tunnel token goes in a root-only file
+  (`/etc/cloudflared/token`) that the unit reads with `--token-file`,
+  never on a command line. The `bytebridge` command runs these three
+  as root and gives the data folder back to the service account
+  afterwards.
 
 ### Fixed
 
