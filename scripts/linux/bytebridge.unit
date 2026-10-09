@@ -7,6 +7,7 @@ Wants=network-online.target
 Type=notify
 User=bytebridge
 Group=bytebridge
+WorkingDirectory=/opt/bytebridge
 ExecStart=/opt/bytebridge/ByteBridge.Service
 Restart=on-failure
 RestartSec=5
