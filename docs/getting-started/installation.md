@@ -21,7 +21,7 @@ offer when it is already present. That gets you the connector; pointing
 it at a tunnel still needs your own token, which is the whole point —
 see [Cloudflare Tunnel](../reference/cloudflare-tunnel.md).
 
-Requires 64-bit Windows 8.1 or later. All installers are per-machine
+Requires 64-bit Windows 8.1 or later. For Linux, see [Linux](linux.md). All installers are per-machine
 and ask for administrator rights once.
 
 ## Silent install
