@@ -10,6 +10,7 @@ using ByteBridge.Configuration;
 using ByteBridge.Data;
 using ByteBridge.Gateway;
 using ByteBridge.Localization;
+using ByteBridge.Updates;
 
 namespace ByteBridge;
 
@@ -58,6 +59,24 @@ public partial class MainWindow : Window
 
     private bool _isClosing = false;
 
+    private readonly AppUpdates _updates;
+
+    /*
+     * Asks again every few hours, because this window can stay open (in
+     * the tray) for weeks. UpdateService decides whether GitHub is really
+     * asked: once a day, and not at all if checks are turned off.
+     */
+    private readonly DispatcherTimer _updateTimer = new()
+    {
+        Interval = TimeSpan.FromHours(6)
+    };
+
+    // The release "Later" was pressed for; quiet until a newer one.
+    private ReleaseVersion? _dismissedUpdate;
+
+    // True while the installer is downloading, so nothing starts twice.
+    private bool _updating;
+
     /*
      * Created once, at launch, and left in the notification area for as
      * long as the app runs, so the app can be found there whether its
@@ -80,6 +99,8 @@ public partial class MainWindow : Window
 
         _switch = new GatewaySwitch(_database, _service);
 
+        _updates = new AppUpdates(_database);
+
         // Load saved language
         var savedLanguage = _database.GetSetting("App.Language");
         if (!string.IsNullOrEmpty(savedLanguage))
@@ -99,6 +120,9 @@ public partial class MainWindow : Window
         _ = UpdateStatusAsync();
 
         _refresh.Start();
+
+        _updateTimer.Tick += async (_, _) => await RefreshUpdatesAsync(false);
+        _updateTimer.Start();
     }
 
     /*
@@ -114,6 +138,12 @@ public partial class MainWindow : Window
         await UpdateStatusAsync();
 
         await CheckServiceAtLaunchAsync();
+
+        // What an earlier check (the service's, this window's) already
+        // found shows at once; the network comes after.
+        ShowUpdateBanner(_updates.Service.Cached());
+
+        await RefreshUpdatesAsync(false);
     }
 
     /*
@@ -290,6 +320,7 @@ public partial class MainWindow : Window
                 // Actually close
                 _isClosing = true;
                 _refresh.Stop();
+        _updateTimer.Stop();
                 _service.Dispose();
                 break;
 
@@ -309,6 +340,7 @@ public partial class MainWindow : Window
          * when someone tidied up their desktop.
          */
         _refresh.Stop();
+        _updateTimer.Stop();
 
         _service.Dispose();
 
@@ -453,6 +485,9 @@ public partial class MainWindow : Window
 
         // Refresh UI after settings change
         _ = UpdateStatusAsync();
+
+        // "Check now" there may have found something.
+        ShowUpdateBanner(_updates.Service.Cached());
     }
 
     // ---- Menu bar --------------------------------------------------
@@ -578,6 +613,216 @@ public partial class MainWindow : Window
     private void WebsiteMenuItem_Click(object sender, RoutedEventArgs e)
     {
         OpenInBrowser(WebsiteUrl);
+    }
+
+    // ---- Updates ---------------------------------------------------
+
+    /*
+     * Checks (or, unless forced, does what is due) and shows the result.
+     * Never throws: an update check is a convenience, and a window that
+     * failed to open over one would be a worse trade than a missing
+     * banner.
+     */
+    private async Task<UpdateStatus?> RefreshUpdatesAsync(bool force)
+    {
+        try
+        {
+            var status = await _updates.Service.CheckAsync(force);
+
+            ShowUpdateBanner(status);
+
+            return status;
+        }
+        catch (Exception error)
+        {
+            // Nothing is shown for a background check; a forced one is a
+            // person waiting for an answer, and gets the reason.
+            return _updates.Service.Cached(error.Message);
+        }
+    }
+
+    private void ShowUpdateBanner(UpdateStatus status)
+    {
+        if (_updating)
+        {
+            return;
+        }
+
+        if (!status.Available || status.Latest == _dismissedUpdate)
+        {
+            UpdateBanner.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        UpdateBannerTextBlock.Text = Strings.Format(
+            "UpdateAvailable",
+            status.Latest!.Value,
+            status.Current);
+
+        UpdateNowButton.IsEnabled = true;
+        UpdateLaterButton.IsEnabled = true;
+        UpdateNotesButton.IsEnabled = true;
+
+        UpdateBanner.Visibility = Visibility.Visible;
+    }
+
+    private async void UpdatesMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        _dismissedUpdate = null;
+
+        var status = await RefreshUpdatesAsync(true);
+
+        if (status == null)
+        {
+            return;
+        }
+
+        if (status.Error != null)
+        {
+            MessageBox.Show(
+                this,
+                Strings.Format("UpdateCheckFailed", status.Error),
+                Strings.Get("UpdatesTitle"),
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+        else if (status.Available)
+        {
+            await StartUpdateAsync();
+        }
+        else
+        {
+            MessageBox.Show(
+                this,
+                Strings.Format("UpdateUpToDate", status.Current),
+                Strings.Get("UpdatesTitle"),
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        }
+    }
+
+    private async void UpdateNowButton_Click(object sender, RoutedEventArgs e)
+    {
+        await StartUpdateAsync();
+    }
+
+    private void UpdateNotesButton_Click(object sender, RoutedEventArgs e)
+    {
+        OpenInBrowser(ReleasePage());
+    }
+
+    private void UpdateLaterButton_Click(object sender, RoutedEventArgs e)
+    {
+        _dismissedUpdate = _updates.Service.Cached().Latest;
+
+        UpdateBanner.Visibility = Visibility.Collapsed;
+    }
+
+    private string ReleasePage() =>
+        _updates.Service.Cached().Url
+        ?? UpdateChecker.RepositoryUrl + "releases/latest";
+
+    /*
+     * Asks first, because it ends with this window closing and an
+     * installer asking for administrator rights, and neither should be a
+     * surprise. Nothing is run unless the download matched its published
+     * checksum; AppUpdates.DownloadAsync does not return one that did
+     * not.
+     */
+    private async Task StartUpdateAsync()
+    {
+        var latest = _updates.Service.Cached().Latest;
+
+        if (_updating || latest is not { } version)
+        {
+            return;
+        }
+
+        var answer = MessageBox.Show(
+            this,
+            Strings.Format("UpdateConfirm", version),
+            Strings.Get("UpdatesTitle"),
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question,
+            MessageBoxResult.No);
+
+        if (answer != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        _updating = true;
+
+        UpdateBanner.Visibility = Visibility.Visible;
+        UpdateNowButton.IsEnabled = false;
+        UpdateLaterButton.IsEnabled = false;
+        UpdateNotesButton.IsEnabled = false;
+
+        UpdateBannerTextBlock.Text =
+            Strings.Format("UpdateDownloading", version, 0);
+
+        var progress = new Progress<double>(fraction =>
+            UpdateBannerTextBlock.Text = Strings.Format(
+                "UpdateDownloading",
+                version,
+                (int)(fraction * 100)));
+
+        string? installer;
+
+        try
+        {
+            installer = await _updates.DownloadAsync(progress);
+        }
+        catch (Exception error)
+        {
+            _updating = false;
+            ShowUpdateBanner(_updates.Service.Cached());
+
+            MessageBox.Show(
+                this,
+                Strings.Format("UpdateDownloadFailed", error.Message),
+                Strings.Get("UpdatesTitle"),
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+
+            return;
+        }
+
+        _updating = false;
+        ShowUpdateBanner(_updates.Service.Cached());
+
+        if (installer == null)
+        {
+            MessageBox.Show(
+                this,
+                Strings.Get("UpdateNoInstaller"),
+                Strings.Get("UpdatesTitle"),
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+
+            OpenInBrowser(ReleasePage());
+
+            return;
+        }
+
+        try
+        {
+            AppUpdates.Start(installer);
+        }
+        catch (Exception error)
+        {
+            MessageBox.Show(
+                this,
+                Strings.Format("UpdateStartFailed", error.Message),
+                Strings.Get("UpdatesTitle"),
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+
+            return;
+        }
+
+        // Out of the installer's way; it replaces this program's files.
+        ExitFromTray();
     }
 
     protected override void OnPreviewKeyDown(KeyEventArgs e)
@@ -1147,12 +1392,19 @@ public partial class MainWindow : Window
         HelpMenuItem.Header = Strings.Get("MenuHelp");
         UserGuideMenuItem.Header = Strings.Get("MenuHelpGuide");
         WebsiteMenuItem.Header = Strings.Get("MenuHelpWebsite");
+        UpdatesMenuItem.Header = Strings.Get("MenuHelpUpdates");
         AboutMenuItem.Header = Strings.Get("MenuHelpAbout");
 
         FlowDirection =
             Strings.IsRightToLeft
                 ? FlowDirection.RightToLeft
                 : FlowDirection.LeftToRight;
+
+        UpdateNowButton.Content = Strings.Get("UpdateNow");
+        UpdateNotesButton.Content = Strings.Get("UpdateNotes");
+        UpdateLaterButton.Content = Strings.Get("UpdateLater");
+
+        ShowUpdateBanner(_updates.Service.Cached());
 
         UpdateTrayText();
 

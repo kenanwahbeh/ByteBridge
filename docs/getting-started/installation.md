@@ -43,6 +43,14 @@ In silent mode, missing prerequisites (the .NET Desktop Runtime,
 prompting — there is nobody to answer a prompt during an unattended
 rollout.
 
+## Updating
+
+ByteBridge looks for a newer release about once a day, and the control
+panel shows a banner when there is one. **Update now** downloads the
+matching installer, checks it against the release's checksums, and runs
+it once you agree; your settings are kept. Nothing is installed without
+that. The check can be turned off. See [Updates](../reference/updates.md).
+
 ## It runs as a service
 
 The gateway is a Windows service, `ByteBridge`, installed and started

@@ -18,6 +18,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
@@ -47,6 +48,7 @@
             <MenuItem x:Name="HelpMenuItem">
                 <MenuItem x:Name="UserGuideMenuItem" InputGestureText="F1" Click="UserGuideMenuItem_Click"/>
                 <MenuItem x:Name="WebsiteMenuItem" Click="WebsiteMenuItem_Click"/>
+                <MenuItem x:Name="UpdatesMenuItem" Click="UpdatesMenuItem_Click"/>
                 <Separator/>
                 <MenuItem x:Name="AboutMenuItem" Click="AboutMenuItem_Click"/>
             </MenuItem>
@@ -81,8 +83,52 @@
 
         </Border>
 
+        <!-- A newer release exists. Hidden until a check says so. -->
+        <Border x:Name="UpdateBanner"
+                Grid.Row="2"
+                Padding="20,10"
+                Visibility="Collapsed"
+                Background="#E8F1FB"
+                BorderThickness="0,0,0,1"
+                BorderBrush="#B6D4F2">
+
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock x:Name="UpdateBannerTextBlock"
+                           Grid.Column="0"
+                           VerticalAlignment="Center"
+                           TextWrapping="Wrap"
+                           FontSize="13"
+                           Foreground="#1B3A57"/>
+
+                <StackPanel Grid.Column="1"
+                            Orientation="Horizontal">
+
+                    <Button x:Name="UpdateNowButton"
+                            Margin="16,0,0,0"
+                            Padding="14,5"
+                            Click="UpdateNowButton_Click"/>
+
+                    <Button x:Name="UpdateNotesButton"
+                            Margin="8,0,0,0"
+                            Padding="14,5"
+                            Click="UpdateNotesButton_Click"/>
+
+                    <Button x:Name="UpdateLaterButton"
+                            Margin="8,0,0,0"
+                            Padding="14,5"
+                            Click="UpdateLaterButton_Click"/>
+                </StackPanel>
+            </Grid>
+
+        </Border>
+
         <!-- Connections -->
-        <ScrollViewer Grid.Row="2"
+        <ScrollViewer Grid.Row="3"
                       Margin="20"
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled">

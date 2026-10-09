@@ -89,6 +89,16 @@ which is why the folder stays restricted.
   until re-entered and the API key is re-minted on next start; no data
   is lost, only the stored secrets are.
 
+## Updates
+
+The service asks GitHub once a day whether a newer release exists, and
+records the answer. Apart from the tunnel, it is the only connection the
+service starts on its own. It carries nothing but the installed version,
+and `update off` stops it. It never downloads or installs a build: the
+Windows installer is fetched only when someone presses **Update now**,
+and it is checked against the release's published checksum first. See
+[Updates](updates.md).
+
 ## Failed-key lockout
 
 A caller that sends too many wrong API keys is refused with

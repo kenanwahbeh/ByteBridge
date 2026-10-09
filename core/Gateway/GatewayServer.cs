@@ -14,6 +14,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using ByteBridge.Configuration;
 using ByteBridge.Data;
+using ByteBridge.Updates;
 
 namespace ByteBridge.Gateway;
 
@@ -1140,12 +1141,30 @@ public sealed class GatewayServer : IDisposable
     private async Task WriteStatsAsync(
         HttpListenerContext context)
     {
+        /*
+         * Read from the settings file, never fetched: the service's
+         * update worker is what asks GitHub, and this only repeats its
+         * last answer. Here and not on /health, which anyone may call;
+         * a gateway announcing that it is out of date is for the key
+         * holder to see.
+         */
+        var update = UpdateService.Read(
+            _database,
+            UpdateService.CurrentVersion());
+
         await WriteJsonAsync(
             context,
             200,
             new
             {
-                Requests = new Dictionary<string, long>(_requestCounts)
+                Requests = new Dictionary<string, long>(_requestCounts),
+                Version = update.Current.ToString(),
+                Update = new
+                {
+                    Available = update.Available,
+                    Latest = update.Latest?.ToString(),
+                    CheckedAtUtc = update.CheckedAt?.UtcDateTime
+                }
             });
     }
 

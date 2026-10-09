@@ -4,6 +4,8 @@ using Microsoft.Extensions.Logging;
 using ByteBridge.Data;
 using ByteBridge.Gateway;
 using ByteBridge.Admin;
+using ByteBridge.Enrollment;
+using ByteBridge.Updates;
 
 namespace ByteBridge.Service;
 
@@ -111,6 +113,23 @@ public static class Program
         builder.Services.AddSingleton(provider =>
             new ConnectionHealthMonitor(
                 provider.GetRequiredService<SqliteDatabase>()));
+
+        /*
+         * Looks for a newer release once a day and records it; it never
+         * installs one. See UpdateWorker.
+         */
+        builder.Services.AddSingleton(provider =>
+        {
+            var current = UpdateService.CurrentVersion();
+
+            return new UpdateService(
+                provider.GetRequiredService<SqliteDatabase>(),
+                new UpdateChecker(UpdateChecker.CreateHttpClient(), current),
+                new SystemClock(),
+                current);
+        });
+
+        builder.Services.AddHostedService<UpdateWorker>();
 
         builder.Services.AddHostedService<GatewayWorker>();
 

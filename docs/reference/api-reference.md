@@ -15,6 +15,7 @@ up whether or not that window is open.
 | ------ | ------------ | ---- | ---------------------------------------- |
 | GET    | `/health`    | no   | Liveness. Use it to test the tunnel.     |
 | GET    | `/databases` | yes  | List the configured connections.         |
+| GET    | `/stats`     | key only | Request counts per connection, the running `version`, and whether a newer release exists (`update`). |
 | POST   | `/query`     | yes  | Run a `SELECT` / `WITH` and get rows.    |
 | POST   | `/execute`   | yes  | Run a statement that changes data or structure. Only while **Allow writing** is on. |
 
@@ -62,7 +63,31 @@ the tunnel is a separate layer: it decides who reaches the machine, and
 it does not replace the gateway's own check.
 
 `/health` is deliberately open so the tunnel can be verified before
-any key is involved. It returns no data from any database.
+any key is involved. It returns no data from any database, and says
+nothing about the version or about updates: a gateway that announced
+there that it was out of date would be telling strangers which ones to
+try.
+
+`/stats` answers with the request counts and, from the key holder's
+side, the version and the last update check:
+
+```json
+{
+  "requests": { "<connection id>": 12 },
+  "version": "3.2.0",
+  "update": {
+    "available": true,
+    "latest": "3.3.0",
+    "checkedAtUtc": "2026-10-09T12:00:00Z"
+  }
+}
+```
+
+`update` repeats what the service last found out; the request itself
+never goes to GitHub. `latest` and `checkedAtUtc` are `null` until the
+first successful check. Turning checks off keeps the last answer, so
+`checkedAtUtc` shows how old it is. See
+[Updates](updates.md).
 
 ## Examples
 

@@ -13,6 +13,25 @@ file is the single source of truth for what shipped.
 
 ## [Unreleased]
 
+### Added
+
+- **ByteBridge tells you when a newer release exists.** The service
+  asks GitHub about once a day and records the answer; the control panel
+  shows a banner with **Update now**, **What's new** and **Later**,
+  **Help → Check for Updates** asks straight away, and **Options →
+  Check for updates** turns the daily check off. On the command line:
+  `update` (check now), `update status`, `update on|off`. `GET /stats`
+  gains `version` and `update`. Only a stable release is ever offered,
+  and `/health` still says nothing about versions.
+
+  On Windows, **Update now** downloads the installer that matches how
+  this machine was set up (Setup or MSI, with or without the bundled
+  .NET), checks it against the release's `SHA256SUMS.txt`, and starts it
+  once you agree. Nothing is ever installed without that agreement, and
+  the service never downloads or runs a build on its own. On Linux,
+  `apt` keeps doing the updating. See
+  [Updates](docs/reference/updates.md).
+
 ## [3.2.0] - 2026-10-09
 
 ### Added

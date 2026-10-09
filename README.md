@@ -89,6 +89,16 @@ In silent mode, missing prerequisites (the .NET Desktop Runtime,
 prompting — there is nobody to answer a prompt during an unattended
 rollout.
 
+### Updating
+
+ByteBridge checks GitHub for a newer release about once a day and shows
+a banner in the control panel when there is one. **Update now** downloads
+the installer that matches your install, checks it against the release's
+checksums, and starts it once you agree. It never installs anything by
+itself. Linux uses `apt` as usual. The daily check can be turned off
+(`update off`), and `update check` asks on demand. See
+[Updates](docs/reference/updates.md).
+
 ## Install on Linux
 
 On Debian and Ubuntu, add the signed apt repository once; after that

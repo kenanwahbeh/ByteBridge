@@ -67,7 +67,8 @@ substitute for it.
 
 - Requests that did not come through Cloudflare, such as a local report calling
   `127.0.0.1`, are not asked for a token; they still need the key.
-- `/health` and `/stats` stay open, as before.
+- `/health` stays open, as before. `/stats` is not open: it needs the API key,
+  and the Access token as well when it arrives through Cloudflare.
 - It is separate from the Cloudflare Access *login* (`oauth on`). Enrolment never
   switches login on, and leaves alone login you set up for another application.
 - `oauth edge on | off` turns it on or off by hand; `oauth show` says which.
