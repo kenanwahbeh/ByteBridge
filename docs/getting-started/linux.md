@@ -65,6 +65,10 @@ cd ByteBridge-<version>-linux-x64
 sudo ./install.sh
 ```
 
+The tarball needs the ICU library, which the `.deb` installs for you.
+`install.sh` checks for it first and says what to install if it is
+missing (on Debian and Ubuntu: `sudo apt install 'libicu[0-9]*'`).
+
 Checksums are in `SHA256SUMS-linux.txt`, and both files carry a build
 attestation: `gh attestation verify <file> --repo kenanwahbeh/ByteBridge`.
 
@@ -114,14 +118,31 @@ The gateway binds to loopback only, as on Windows. Run `cloudflared`
 on the same machine and point it at `http://127.0.0.1:8080`; see
 [Cloudflare Tunnel](../reference/cloudflare-tunnel.md).
 
+## Connecting to ByteBalance
+
+`bytebridge enroll --email you@example.com` works as on Windows: it asks
+ByteBalance for a tunnel, waits for approval, then installs the
+connector, which on Linux is the `cloudflared` systemd unit. `claim`
+and `unenroll` work the same way, and `bytebridge enrollment` shows the
+state.
+
+ByteBridge writes that unit itself and keeps the tunnel token in
+`/etc/cloudflared/token`, readable by root only, with the unit pointing
+at it through `--token-file`. The token is never on a command line,
+where any local user could read it, and not in a world-readable unit
+file either.
+
+These three commands install or remove a systemd unit, so the
+`bytebridge` command runs them as root (through `sudo`) and hands the
+data folder back to the service account afterwards. Everything else
+runs as the service account.
+
+If `cloudflared` is already running a tunnel here, `enroll` stops
+rather than replace it; pass `--replace-connector` once you are sure.
+
 ## Not available on Linux
 
 - The control panel (WPF is Windows-only).
 - The `.exe` and `.msi` installers (the `.deb` and `.tar.gz` replace them).
 - The Windows service and DPAPI. The systemd unit and the key file
   take their places.
-- `enroll` and `claim`, the commands that ask ByteBalance for a tunnel
-  and install its connector. The connector is installed as a Windows
-  service, so these work on Windows only. On Linux, run `cloudflared`
-  yourself (see [Reaching it from outside](#reaching-it-from-outside))
-  and share the API key from `bytebridge key show` by hand.

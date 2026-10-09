@@ -34,13 +34,40 @@ install -m 644 "$HERE/bytebridge.unit" "$PKG/lib/systemd/system/bytebridge.servi
 # The admin commands must run as the service account, or the settings
 # file would end up owned by root and unreadable by the service. root
 # can drop to it directly; anyone else goes through sudo.
+#
+# enroll, claim and unenroll are the exception: they install or remove
+# the cloudflared systemd unit, which only root may do. They run as root,
+# and the data they touched is handed back to the service account after,
+# for the same reason.
 cat > "$PKG/usr/bin/bytebridge" <<'WRAP'
 #!/bin/sh
-export BYTEBRIDGE_DATA=/var/lib/bytebridge
+DATA=/var/lib/bytebridge
+BIN=/opt/bytebridge/ByteBridge.Service
+
+case "${1:-}" in
+  enroll|claim|unenroll)
+    [ "$(id -u)" -eq 0 ] || exec sudo "$0" "$@"
+    # An approval can take minutes, and the service keeps running and
+    # reading its files meanwhile. So what root creates must be usable by
+    # the service from the start (the folders are owner-only, which is
+    # what keeps everyone else out), and the hand-back below runs however
+    # this ends, Ctrl+C included. The exit status stays the command's own.
+    umask 000
+    repair() {
+      chown -R bytebridge:bytebridge "$DATA"
+      [ ! -d "$DATA-keys" ] || chown -R bytebridge:bytebridge "$DATA-keys"
+    }
+    trap repair EXIT
+    trap 'exit 130' INT TERM HUP
+    env BYTEBRIDGE_DATA="$DATA" "$BIN" "$@"
+    exit $?
+    ;;
+esac
+
 if [ "$(id -u)" -eq 0 ]; then
-  exec runuser -u bytebridge -- env BYTEBRIDGE_DATA=/var/lib/bytebridge /opt/bytebridge/ByteBridge.Service "$@"
+  exec runuser -u bytebridge -- env BYTEBRIDGE_DATA="$DATA" "$BIN" "$@"
 fi
-exec sudo -u bytebridge env BYTEBRIDGE_DATA=/var/lib/bytebridge /opt/bytebridge/ByteBridge.Service "$@"
+exec sudo -u bytebridge env BYTEBRIDGE_DATA="$DATA" "$BIN" "$@"
 WRAP
 chmod 755 "$PKG/usr/bin/bytebridge"
 
