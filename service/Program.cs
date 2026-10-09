@@ -25,7 +25,21 @@ public static class Program
             return handled.Value;
         }
 
-        var builder = Host.CreateApplicationBuilder();
+        /*
+         * The content root is where the host looks for appsettings.json
+         * and watches it for changes, and it defaults to the working
+         * directory. systemd starts a service in /, and the watcher
+         * walks everything under its root: on a real machine that is the
+         * whole disk, which keeps start-up busy long past systemd's
+         * timeout and the service never reports ready. Anchor it to the
+         * folder the program lives in, which is small and ours.
+         */
+        var builder = Host.CreateApplicationBuilder(
+            new HostApplicationBuilderSettings
+            {
+                Args = args,
+                ContentRootPath = AppContext.BaseDirectory,
+            });
 
         /*
          * Makes this a real service: the SCM is told when startup has
