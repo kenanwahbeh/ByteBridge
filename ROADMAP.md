@@ -22,7 +22,7 @@ one pull request. What they left behind:
 - [x] **Verify the control panel by hand on Windows** — #37. WPF builds
   nowhere but Windows, so this is the only place it is observable.
   The covered code is measured; this is what is left. Script: scripts/verify-panel.ps1.
-- [ ] **Cut the release** — #38. `3.1.0`: adding an engine is MINOR,
+- [x] **Cut the release** — #38. `3.1.0`: adding an engine is MINOR,
   and [ADR 0002](docs/decisions/0002-meaningful-versioning.md) records why not `4.0.0`.
 
 ## Next — standalone means Linux
