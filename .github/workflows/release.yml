@@ -360,7 +360,17 @@ jobs:
             Write-Host "Release $tag already exists; replacing its assets."
             gh release upload $tag $files --clobber
           } else {
-            gh release create $tag $files `
+            # A version with a suffix (3.3.0-beta.1) is a pre-release:
+            # GitHub keeps it out of "latest", so the update check and
+            # the apt repository, which both skip pre-releases, never
+            # offer it to anyone who did not ask for it.
+            $flags = @()
+
+            if ($tag -match '^v[0-9]+\.[0-9]+\.[0-9]+-') {
+              $flags += '--prerelease'
+            }
+
+            gh release create $tag $files @flags `
               --title "ByteBridge $tag" `
               --notes-file release-notes.md
           }
