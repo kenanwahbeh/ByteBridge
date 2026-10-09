@@ -88,7 +88,11 @@ jobs:
 
               gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
                 --pattern "$name" --dir debs
-              gh attestation verify "debs/$name" --repo "$GITHUB_REPOSITORY"
+              # From the release workflow, run for this very tag: any
+              # other workflow in the repository can attest too.
+              gh attestation verify "debs/$name" --repo "$GITHUB_REPOSITORY" \
+                --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+                --source-ref "refs/tags/$tag"
               echo "$tag: $name"
             done
           done
