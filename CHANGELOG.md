@@ -15,6 +15,9 @@ file is the single source of truth for what shipped.
 
 ### Added
 
+- Linux troubleshooting steps for service startup, missing ICU, data and
+  key directory ownership, and the `bytebridge` command wrapper.
+
 - **ByteBridge tells you when a newer release exists.** The service
   asks GitHub about once a day and records the answer; the control panel
   shows a banner with **Update now**, **What's new** and **Later**,
