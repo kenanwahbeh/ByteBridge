@@ -71,7 +71,9 @@ The gateway also runs on Linux, under systemd, with no control panel
 | `bytebridge_{{VERSION}}_amd64.deb` | Debian or Ubuntu: `sudo apt install ./bytebridge_{{VERSION}}_amd64.deb` |
 | `ByteBridge-{{VERSION}}-linux-x64.tar.gz` | Any other distribution: `tar -xzf` it, `cd ByteBridge-{{VERSION}}-linux-x64`, then `sudo ./install.sh`. |
 
-Their checksums are in `SHA256SUMS-linux.txt`.
+Their checksums are in `SHA256SUMS-linux.txt`. On Debian or Ubuntu
+the [apt repository](https://kenanwahbeh.github.io/ByteBridge/) is
+easier: add it once and `apt upgrade` brings each new version.
 
 ### Verifying the download
 

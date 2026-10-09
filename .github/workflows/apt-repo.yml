@@ -1,0 +1,188 @@
+name: APT repository
+
+# Publishes the signed apt repository on GitHub Pages, so a Debian or
+# Ubuntu machine can run `apt install bytebridge` and get updates with
+# `apt upgrade`:
+#
+#   https://kenanwahbeh.github.io/ByteBridge/
+#
+# It runs after every successful Release from a tag, and rebuilds the
+# whole repository from the .deb files attached to the most recent
+# releases. Nothing is kept between runs: the releases are the source
+# of truth, and Pages is only a copy of them.
+#
+# Running it by hand builds and tests the repository without publishing
+# it unless it runs on main. When no release carries a .deb yet, it
+# builds one from the checked-out commit, so the whole path can be
+# tested before the first release that has one.
+
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apt-repository
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and test the repository
+    # A manual Release run is a packaging test and publishes nothing, so
+    # only a tag-pushed one that succeeded rebuilds the repository.
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      attestations: read
+    outputs:
+      preview: ${{ steps.collect.outputs.preview }}
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Install the repository tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq dpkg-dev apt-utils
+
+      # Only packages this repository's release workflow built are
+      # signed into the repository: each one is checked against its
+      # build attestation first, so a file swapped into a release by
+      # hand is refused rather than signed.
+      - name: Collect the .deb files of recent releases
+        id: collect
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir debs
+
+          tags=$(gh release list --repo "$GITHUB_REPOSITORY" \
+            --exclude-drafts --exclude-pre-releases --limit 5 \
+            --json tagName --jq '.[].tagName')
+
+          for tag in $tags; do
+            names=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" \
+              --json assets --jq '.assets[].name')
+
+            for name in $names; do
+              case "$name" in
+                bytebridge_*_amd64.deb) ;;
+                *) continue ;;
+              esac
+
+              gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
+                --pattern "$name" --dir debs
+              gh attestation verify "debs/$name" --repo "$GITHUB_REPOSITORY"
+              echo "$tag: $name"
+            done
+          done
+
+          if ls debs/*.deb >/dev/null 2>&1; then
+            echo "preview=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "No release carries a .deb yet."
+            echo "preview=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up .NET
+        if: steps.collect.outputs.preview == 'true'
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: With no released .deb yet, build one from this commit
+        if: steps.collect.outputs.preview == 'true'
+        run: |
+          dotnet publish service/ByteBridge.Service.csproj \
+            -c Release -r linux-x64 --self-contained true -o publish
+          scripts/linux/build-deb.sh 0.0.0-preview publish debs
+
+      - name: Import the signing key
+        id: key
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+        run: |
+          if [ -z "$APT_GPG_PRIVATE_KEY" ]; then
+            echo "The APT_GPG_PRIVATE_KEY secret is not set." >&2
+            exit 1
+          fi
+
+          printf '%s\n' "$APT_GPG_PRIVATE_KEY" | gpg --batch --import
+
+          fpr=$(gpg --list-secret-keys --with-colons |
+            awk -F: '/^fpr:/ { print $10; exit }')
+          [ -n "$fpr" ] || { echo "The secret holds no private key." >&2; exit 1; }
+
+          echo "fingerprint=$fpr" >> "$GITHUB_OUTPUT"
+          echo "Signing with $fpr"
+
+      - name: Build the repository
+        env:
+          FINGERPRINT: ${{ steps.key.outputs.fingerprint }}
+        run: |
+          scripts/linux/build-apt-repo.sh debs site "$FINGERPRINT"
+
+          # The page a browser lands on, with the commands to add the
+          # repository and the fingerprint to check the key against.
+          sed "s/{{FINGERPRINT}}/$FINGERPRINT/" scripts/linux/apt-index.html > site/index.html
+
+          find site -type f | sort
+          cat site/dists/stable/main/binary-amd64/Packages
+
+      # The repository is served exactly as Pages will serve it, from a
+      # local web server, and a clean apt installs from it. A broken
+      # signature, a wrong path in Packages or a package that does not
+      # start fails here, before anything is published.
+      - name: apt installs from it
+        run: |
+          (cd site && python3 -m http.server 8000 >/dev/null 2>&1 &)
+          sleep 2
+
+          sudo install -d -m 0755 /etc/apt/keyrings
+          sudo install -m 0644 site/bytebridge.asc /etc/apt/keyrings/bytebridge.asc
+          echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/bytebridge.asc] http://127.0.0.1:8000 stable main" |
+            sudo tee /etc/apt/sources.list.d/bytebridge.list
+
+          sudo apt-get update -o Dir::Etc::sourcelist=sources.list.d/bytebridge.list \
+            -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0
+          apt-cache policy bytebridge
+          sudo apt-get install -y bytebridge
+
+          for i in $(seq 1 15); do
+            curl -fsS http://127.0.0.1:8080/health && break
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:8080/health
+
+      - name: Upload the site
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+  deploy:
+    name: Publish on GitHub Pages
+    needs: build
+    # A preview package is never published, and a branch never replaces
+    # what main published.
+    if: needs.build.outputs.preview == 'false' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v5
