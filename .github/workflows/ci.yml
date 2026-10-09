@@ -243,3 +243,9 @@ jobs:
           ! systemctl is-active --quiet bytebridge
           test ! -e /opt/bytebridge/ByteBridge.Service
           sudo test -d /var/lib/bytebridge
+
+      - name: What the service said
+        if: failure()
+        run: |
+          systemctl status bytebridge --no-pager || true
+          sudo journalctl -u bytebridge --no-pager -n 80 || true
