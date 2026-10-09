@@ -429,6 +429,9 @@ public class UpdateServiceTests
     [Fact]
     public async Task A_check_finishing_late_does_not_overwrite_a_newer_answer()
     {
+        const string NewerUrl =
+            "https://github.com/kenanwahbeh/ByteBridge/releases/tag/v3.4.0";
+
         using var rig = new Rig();
 
         // While this check waits on GitHub, another process records 3.4.0.
@@ -437,6 +440,7 @@ public class UpdateServiceTests
             rig.Clock.Now = rig.Clock.Now.AddMinutes(1);
 
             rig.Database.SetSetting(UpdateService.LatestKey, "3.4.0");
+            rig.Database.SetSetting(UpdateService.UrlKey, NewerUrl);
             rig.Database.SetSetting(
                 UpdateService.CheckedAtKey,
                 rig.Clock.Now.ToString("O", System.Globalization.CultureInfo.InvariantCulture));
@@ -445,6 +449,8 @@ public class UpdateServiceTests
         var status = await rig.Service.CheckAsync(force: true);
 
         Assert.Equal(new ReleaseVersion(3, 4, 0), status.Latest);
+        Assert.Equal(NewerUrl, status.Url);
+        Assert.Equal(NewerUrl, rig.Service.Cached().Url);
         Assert.Equal(
             new ReleaseVersion(3, 4, 0),
             rig.Service.Cached().Latest);
