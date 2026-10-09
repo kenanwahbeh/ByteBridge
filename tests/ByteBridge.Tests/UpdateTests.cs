@@ -395,15 +395,22 @@ public class UpdateServiceTests
 
         public HttpStatusCode Status { get; set; } = HttpStatusCode.OK;
 
+        // Runs while a request is "on the wire", to play another process.
+        public Action? DuringRequest { get; set; }
+
         public Rig(ReleaseVersion? current = null)
         {
             Database = _root.OpenDatabase();
 
             Handler = new EnrollmentFakes.Handler(_ =>
-                new HttpResponseMessage(Status)
+            {
+                DuringRequest?.Invoke();
+
+                return new HttpResponseMessage(Status)
                 {
                     Content = new StringContent(Reply)
-                });
+                };
+            });
 
             var version = current ?? new ReleaseVersion(3, 2, 0);
 
@@ -417,6 +424,36 @@ public class UpdateServiceTests
         public int Calls => Handler.Requests.Count;
 
         public void Dispose() => _root.Dispose();
+    }
+
+    [Fact]
+    public async Task A_check_finishing_late_does_not_overwrite_a_newer_answer()
+    {
+        const string NewerUrl =
+            "https://github.com/kenanwahbeh/ByteBridge/releases/tag/v3.4.0";
+
+        using var rig = new Rig();
+
+        // While this check waits on GitHub, another process records 3.4.0.
+        rig.DuringRequest = () =>
+        {
+            rig.Clock.Now = rig.Clock.Now.AddMinutes(1);
+
+            rig.Database.SetSetting(UpdateService.LatestKey, "3.4.0");
+            rig.Database.SetSetting(UpdateService.UrlKey, NewerUrl);
+            rig.Database.SetSetting(
+                UpdateService.CheckedAtKey,
+                rig.Clock.Now.ToString("O", System.Globalization.CultureInfo.InvariantCulture));
+        };
+
+        var status = await rig.Service.CheckAsync(force: true);
+
+        Assert.Equal(new ReleaseVersion(3, 4, 0), status.Latest);
+        Assert.Equal(NewerUrl, status.Url);
+        Assert.Equal(NewerUrl, rig.Service.Cached().Url);
+        Assert.Equal(
+            new ReleaseVersion(3, 4, 0),
+            rig.Service.Cached().Latest);
     }
 
     [Fact]
