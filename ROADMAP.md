@@ -43,15 +43,11 @@ missing is that **CI never exercises it**.
 
 ## Then — making it pleasant to contribute
 
-- [ ] **Arabic command line.** `--help`, `db add`, and the error
-  messages. The documentation is fully bilingual; the tool a contributor
-  types into is not. Small, and the first thing an Arabic-speaking
-  contributor meets.
-- [ ] **Seed issues.** Five to eight, small, labelled
+- [x] **Seed issues.** Five to eight, small, labelled
   `good first issue`. There is one contributor so far; a labelled
   project with nothing behind the labels is a project that looks open
   and is not.
-- [ ] **`CODE_OF_CONDUCT.md`.** Missing from a project asking for
+- [x] **`CODE_OF_CONDUCT.md`.** Missing from a project asking for
   contributions.
 
 ## Later — operations, once someone asks
