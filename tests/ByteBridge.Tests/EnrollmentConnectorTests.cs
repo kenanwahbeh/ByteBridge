@@ -13,7 +13,21 @@ public class EnrollmentConnectorTests
     private readonly Clock _clock = new();
 
     private CloudflaredConnector Connector(string? exe = Exe) =>
-        new(_runner, _clock, () => exe);
+        new(_runner, _clock, () => exe, windows: true);
+
+    private CloudflaredConnector LinuxConnector(string? exe = LinuxExe) =>
+        new(_runner, _clock, () => exe, windows: false);
+
+    private const string LinuxExe = "/usr/local/bin/cloudflared";
+
+    private static ProcessResult UnitActive() =>
+        new(0, "LoadState=loaded\nActiveState=active");
+
+    private static ProcessResult UnitInactive() =>
+        new(0, "LoadState=loaded\nActiveState=inactive");
+
+    private static ProcessResult UnitAbsent() =>
+        new(0, "LoadState=not-found\nActiveState=inactive");
 
     private static ProcessResult Running() =>
         new(0, "SERVICE_NAME: Cloudflared\r\n        STATE              : 4  RUNNING");
@@ -189,5 +203,160 @@ public class EnrollmentConnectorTests
             () => Connector().UninstallAsync(default));
 
         Assert.Contains("elevated", error.Message);
+    }
+
+    /* ---- Linux: the same flow, asked of systemd instead of sc.exe ---- */
+
+    [Fact]
+    public void Linux_inspect_reads_the_systemd_unit()
+    {
+        _runner.Handler = (_, _) => UnitAbsent();
+        Assert.Equal(ConnectorState.NoService, LinuxConnector().Inspect());
+
+        _runner.Handler = (_, _) => UnitInactive();
+        Assert.Equal(ConnectorState.Stopped, LinuxConnector().Inspect());
+
+        _runner.Handler = (_, _) => UnitActive();
+        Assert.Equal(ConnectorState.Running, LinuxConnector().Inspect());
+
+        Assert.All(_runner.Calls, c =>
+        {
+            Assert.Equal("systemctl", c.File);
+            Assert.Equal("show", c.Arguments[0]);
+            Assert.Equal("cloudflared.service", c.Arguments[1]);
+        });
+    }
+
+    [Fact]
+    public void Linux_without_cloudflared_is_not_installed_and_asks_nothing()
+    {
+        Assert.Equal(ConnectorState.NotInstalled, LinuxConnector(exe: null).Inspect());
+        Assert.Empty(_runner.Calls);
+    }
+
+    [Fact]
+    public void Linux_a_systemctl_failure_is_an_error_not_an_absent_unit()
+    {
+        _runner.Handler = (_, _) => new ProcessResult(1, "Failed to connect to bus");
+
+        Assert.Throws<EnrollmentException>(() => LinuxConnector().Inspect());
+    }
+
+    [Fact]
+    public async Task Linux_installs_with_the_token_as_one_argument_and_waits_for_the_unit()
+    {
+        var installed = false;
+
+        _runner.Handler = (file, args) =>
+        {
+            if (file == "systemctl")
+            {
+                return installed ? UnitActive() : UnitAbsent();
+            }
+
+            installed = true;
+            return new ProcessResult(0, string.Empty);
+        };
+
+        await LinuxConnector().InstallAsync(Token, replaceExisting: false, default);
+
+        var install = _runner.Calls.Single(c => c.File == LinuxExe);
+
+        Assert.Equal(["service", "install", Token], install.Arguments);
+        Assert.DoesNotContain(_runner.Calls, c => c.File == "sc.exe");
+    }
+
+    [Fact]
+    public async Task Linux_refuses_to_replace_a_connector_that_is_already_there()
+    {
+        _runner.Handler = (file, _) =>
+            file == "systemctl" ? UnitActive() : new ProcessResult(0, "");
+
+        var error = await Assert.ThrowsAsync<EnrollmentException>(
+            () => LinuxConnector().InstallAsync(Token, replaceExisting: false, default));
+
+        Assert.Contains("--replace-connector", error.Message);
+        Assert.DoesNotContain(_runner.Calls, c => c.File == LinuxExe);
+    }
+
+    [Fact]
+    public async Task Linux_replaces_it_when_told_to_uninstalling_first()
+    {
+        var installed = true;
+
+        _runner.Handler = (file, args) =>
+        {
+            if (file == "systemctl")
+            {
+                return installed ? UnitActive() : UnitAbsent();
+            }
+
+            installed = args[1] == "install";
+            return new ProcessResult(0, "");
+        };
+
+        await LinuxConnector().InstallAsync(Token, replaceExisting: true, default);
+
+        var verbs = _runner.Calls
+            .Where(c => c.File == LinuxExe)
+            .Select(c => c.Arguments[1])
+            .ToArray();
+
+        Assert.Equal(["uninstall", "install"], verbs);
+    }
+
+    [Fact]
+    public async Task Linux_reports_a_unit_that_installed_but_did_not_start_and_where_to_look()
+    {
+        var installed = false;
+
+        _runner.Handler = (file, _) =>
+        {
+            if (file == "systemctl")
+            {
+                return installed ? UnitInactive() : UnitAbsent();
+            }
+
+            installed = true;
+            return new ProcessResult(0, "");
+        };
+
+        var error = await Assert.ThrowsAsync<EnrollmentException>(
+            () => LinuxConnector().InstallAsync(Token, false, default));
+
+        Assert.Contains("journalctl -u cloudflared", error.Message);
+        Assert.DoesNotContain("Windows", error.Message);
+    }
+
+    [Fact]
+    public async Task Linux_a_failed_install_never_shows_the_token()
+    {
+        _runner.Handler = (file, _) => file == "systemctl"
+            ? UnitAbsent()
+            : new ProcessResult(1, $"failed: cloudflared service install {Token}");
+
+        var error = await Assert.ThrowsAsync<EnrollmentException>(
+            () => LinuxConnector().InstallAsync(Token, false, default));
+
+        Assert.DoesNotContain(Token, error.Message);
+        Assert.Contains("***", error.Message);
+    }
+
+    [Fact]
+    public async Task Linux_uninstall_removes_the_unit_when_there_is_one_and_does_nothing_otherwise()
+    {
+        _runner.Handler = (file, _) =>
+            file == "systemctl" ? UnitActive() : new ProcessResult(0, "");
+
+        await LinuxConnector().UninstallAsync(default);
+
+        Assert.Contains(_runner.Calls, c => c.File == LinuxExe && c.Arguments is ["service", "uninstall"]);
+
+        _runner.Calls.Clear();
+        _runner.Handler = (_, _) => UnitAbsent();
+
+        await LinuxConnector().UninstallAsync(default);
+
+        Assert.DoesNotContain(_runner.Calls, c => c.File == LinuxExe);
     }
 }

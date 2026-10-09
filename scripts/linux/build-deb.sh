@@ -34,13 +34,31 @@ install -m 644 "$HERE/bytebridge.unit" "$PKG/lib/systemd/system/bytebridge.servi
 # The admin commands must run as the service account, or the settings
 # file would end up owned by root and unreadable by the service. root
 # can drop to it directly; anyone else goes through sudo.
+#
+# enroll, claim and unenroll are the exception: they install or remove
+# the cloudflared systemd unit, which only root may do. They run as root,
+# and the data they touched is handed back to the service account after,
+# for the same reason.
 cat > "$PKG/usr/bin/bytebridge" <<'WRAP'
 #!/bin/sh
-export BYTEBRIDGE_DATA=/var/lib/bytebridge
+DATA=/var/lib/bytebridge
+BIN=/opt/bytebridge/ByteBridge.Service
+
+case "${1:-}" in
+  enroll|claim|unenroll)
+    [ "$(id -u)" -eq 0 ] || exec sudo "$0" "$@"
+    env BYTEBRIDGE_DATA="$DATA" "$BIN" "$@"
+    status=$?
+    chown -R bytebridge:bytebridge "$DATA"
+    [ ! -d "$DATA-keys" ] || chown -R bytebridge:bytebridge "$DATA-keys"
+    exit "$status"
+    ;;
+esac
+
 if [ "$(id -u)" -eq 0 ]; then
-  exec runuser -u bytebridge -- env BYTEBRIDGE_DATA=/var/lib/bytebridge /opt/bytebridge/ByteBridge.Service "$@"
+  exec runuser -u bytebridge -- env BYTEBRIDGE_DATA="$DATA" "$BIN" "$@"
 fi
-exec sudo -u bytebridge env BYTEBRIDGE_DATA=/var/lib/bytebridge /opt/bytebridge/ByteBridge.Service "$@"
+exec sudo -u bytebridge env BYTEBRIDGE_DATA="$DATA" "$BIN" "$@"
 WRAP
 chmod 755 "$PKG/usr/bin/bytebridge"
 

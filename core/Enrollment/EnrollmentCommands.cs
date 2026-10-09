@@ -206,8 +206,11 @@ public static partial class EnrollmentCommands
         if (!services.IsElevated())
         {
             throw new EnrollmentException(
-                "This needs administrator rights (it installs a Windows "
-                + "service). Open an elevated terminal and run it again.");
+                OperatingSystem.IsWindows()
+                    ? "This needs administrator rights (it installs a Windows "
+                        + "service). Open an elevated terminal and run it again."
+                    : "This needs root (it installs a systemd service). Run it "
+                        + "as root, for example with sudo.");
         }
     }
 
