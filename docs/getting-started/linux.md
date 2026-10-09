@@ -24,10 +24,29 @@ The databases it reaches are the same: Firebird and PostgreSQL.
 
 ## Installing
 
-Both files are on the [latest release](https://github.com/kenanwahbeh/ByteBridge/releases/latest).
 The bundle is self-contained, so the machine needs no .NET.
 
-**Debian or Ubuntu** — the `.deb`:
+**Debian or Ubuntu, from the apt repository** — recommended, because
+`apt upgrade` then brings new versions:
+
+```
+sudo install -d -m 0755 /etc/apt/keyrings
+curl -fsSL https://kenanwahbeh.github.io/ByteBridge/bytebridge.asc | sudo tee /etc/apt/keyrings/bytebridge.asc >/dev/null
+echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/bytebridge.asc] https://kenanwahbeh.github.io/ByteBridge stable main" | sudo tee /etc/apt/sources.list.d/bytebridge.list
+sudo apt update
+sudo apt install bytebridge
+```
+
+The repository is rebuilt after every release from the `.deb` files
+attached to it, and only after each one's build attestation checks
+out. The key's fingerprint is on
+[the repository's page](https://kenanwahbeh.github.io/ByteBridge/);
+compare it with `gpg --show-keys /etc/apt/keyrings/bytebridge.asc`.
+
+The `.deb` and the tarball below are also on the
+[latest release](https://github.com/kenanwahbeh/ByteBridge/releases/latest).
+
+**Debian or Ubuntu, one file** — the `.deb`:
 
 ```
 sudo apt install ./bytebridge_<version>_amd64.deb

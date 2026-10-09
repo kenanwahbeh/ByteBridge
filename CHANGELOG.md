@@ -13,6 +13,24 @@ file is the single source of truth for what shipped.
 
 ## [Unreleased]
 
+### Added
+
+- **Linux packages and an apt repository.** Each release now carries
+  `bytebridge_<version>_amd64.deb`, a `linux-x64` tarball with
+  `install.sh`, and `SHA256SUMS-linux.txt`, all with build attestations.
+  On Debian and Ubuntu, add the signed repository at
+  <https://kenanwahbeh.github.io/ByteBridge/> once and
+  `apt install bytebridge` / `apt upgrade` do the rest. The repository
+  only signs packages whose attestation checks out. See the
+  [Linux guide](docs/getting-started/linux.md).
+
+### Fixed
+
+- **The service started under systemd only on small machines.** The host
+  watched its working directory for configuration changes, and systemd
+  starts a service in `/`, so start-up walked the whole disk and could
+  outlast systemd's timeout. It now watches its own install folder.
+
 ## [3.1.0] - 2026-10-09
 
 ### Added
