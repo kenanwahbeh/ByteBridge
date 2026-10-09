@@ -1,5 +1,52 @@
 # Troubleshooting
 
+## Linux
+
+**The service is stopped or exits as soon as it starts** — check the
+service state and its recent log first:
+
+```
+sudo systemctl status bytebridge
+sudo journalctl -u bytebridge -n 100 --no-pager
+```
+
+If the log mentions ICU, the machine is missing a runtime library. Install
+it and start the service again. The `.deb` installs ICU automatically; for
+a tarball install, use the package command for your distribution:
+
+```
+sudo apt install 'libicu[0-9]*'   # Debian or Ubuntu
+sudo dnf install libicu           # Fedora or RHEL
+sudo apk add icu-libs             # Alpine
+sudo systemctl restart bytebridge
+```
+
+**The service cannot read its settings or secrets** — the service account
+must own its data and key directories. Check their owner and permissions:
+
+```
+sudo ls -ld /var/lib/bytebridge /var/lib/bytebridge-keys
+sudo stat -c '%U:%G %a %n' /var/lib/bytebridge /var/lib/bytebridge-keys
+```
+
+Both directories should be owned by `bytebridge`; the data directory is
+owner-only (`0700`). The key directory is beside the data directory, not
+inside it. Do not make either directory readable by other users.
+
+**To check or administer the Linux service**, use the `bytebridge`
+wrapper, which runs ordinary commands as the service account:
+
+```
+bytebridge status
+bytebridge --help
+bytebridge key show
+```
+
+For connector commands (`enroll`, `claim` and `unenroll`), the wrapper
+uses `sudo` because they manage a systemd unit. See the
+[Linux getting-started guide](../getting-started/linux.md) for installation
+and command details.
+
 **502 from the tunnel, or Cloudflare error 1033** — nothing is
 listening on the port `cloudflared` forwards to. Check the status line in
 the window says **Answering**, and that its port matches the tunnel's
