@@ -15,6 +15,19 @@ for f in ByteBridge.Service bytebridge.unit; do
   [ -f "$SRC/$f" ] || { echo "$SRC/$f not found; run this from the published Linux bundle" >&2; exit 1; }
 done
 
+# .NET needs the ICU library to start, and without it the service dies
+# at once with an error that does not say how to fix it. The .deb pulls
+# it in by itself; this installer cannot know the package manager, so it
+# says what to install before changing anything.
+if ! ldconfig -p 2>/dev/null | grep -q 'libicuuc\.so'; then
+  echo "ByteBridge needs the ICU library (libicu), which is not installed." >&2
+  echo "  Debian, Ubuntu:  sudo apt install 'libicu[0-9]*'" >&2
+  echo "  Fedora, RHEL:    sudo dnf install libicu" >&2
+  echo "  Alpine:          sudo apk add icu-libs" >&2
+  echo "Install it, then run this again." >&2
+  exit 1
+fi
+
 id bytebridge >/dev/null 2>&1 ||
   useradd --system --home-dir /var/lib/bytebridge --shell /usr/sbin/nologin bytebridge
 

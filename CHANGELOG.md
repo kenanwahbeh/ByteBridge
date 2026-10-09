@@ -24,8 +24,16 @@ file is the single source of truth for what shipped.
   only signs packages whose attestation checks out. See the
   [Linux guide](docs/getting-started/linux.md).
 
+- **`enroll`, `claim` and `unenroll` work on Linux.** The connector is
+  the `cloudflared` systemd unit instead of a Windows service, found
+  with `systemctl`; the `bytebridge` command runs these three as root
+  and gives the data folder back to the service account afterwards.
+
 ### Fixed
 
+- **`install.sh` now says what is missing.** Without the ICU library the
+  service crashed at start with a message that did not say how to fix
+  it; the installer checks first and names the package.
 - **The service started under systemd only on small machines.** The host
   watched its working directory for configuration changes, and systemd
   starts a service in `/`, so start-up walked the whole disk and could
