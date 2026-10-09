@@ -13,6 +13,8 @@ file is the single source of truth for what shipped.
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-10-09
+
 ### Added
 
 - **Linux packages and an apt repository.** Each release now carries
@@ -519,7 +521,8 @@ file is the single source of truth for what shipped.
 
 - Settings live in `C:\ProgramData\ByteBridge\bytebridge.db`.
 
-[Unreleased]: https://github.com/kenanwahbeh/ByteBridge/compare/v3.1.0...HEAD
+[Unreleased]: https://github.com/kenanwahbeh/ByteBridge/compare/v3.2.0...HEAD
+[3.2.0]: https://github.com/kenanwahbeh/ByteBridge/compare/v3.1.0...v3.2.0
 [3.1.0]: https://github.com/kenanwahbeh/ByteBridge/compare/v3.0.0...v3.1.0
 [3.0.0]: https://github.com/kenanwahbeh/ByteBridge/compare/v2.0.0...v3.0.0
 [2.0.0]: https://github.com/kenanwahbeh/ByteBridge/compare/v1.2.0...v2.0.0
