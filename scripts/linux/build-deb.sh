@@ -53,7 +53,7 @@ Priority: optional
 Architecture: amd64
 Maintainer: Kenan Wahbeh <kenanwahbeh@users.noreply.github.com>
 Installed-Size: $SIZE
-Depends: systemd, util-linux, sudo, libc6, libgcc-s1, libstdc++6, zlib1g, libicu76 | libicu74 | libicu72 | libicu70 | libicu67
+Depends: systemd, util-linux, sudo, libc6, libgcc-s1, libstdc++6, zlib1g, libicu78 | libicu76 | libicu74 | libicu72 | libicu70 | libicu67
 Homepage: https://github.com/kenanwahbeh/ByteBridge
 Description: HTTP gateway for Firebird and PostgreSQL databases
  ByteBridge exposes a database through a read-only-by-default HTTP API,
@@ -67,10 +67,36 @@ set -e
 if [ "$1" = configure ]; then
   id bytebridge >/dev/null 2>&1 ||
     useradd --system --home-dir /var/lib/bytebridge --shell /usr/sbin/nologin bytebridge
-  systemctl daemon-reload || true
-  systemctl enable bytebridge || true
-  # restart, not start: an upgrade has the old binary running.
-  systemctl restart bytebridge || true
+
+  # A machine that used scripts/linux/install.sh has its own copies of
+  # the unit and the command in /etc and /usr/local, which take
+  # precedence over the package's and nothing would ever remove. This
+  # package replaces them.
+  if grep -qs '^Description=ByteBridge gateway' /etc/systemd/system/bytebridge.service; then
+    rm -f /etc/systemd/system/bytebridge.service
+  fi
+  if grep -qs '/opt/bytebridge/ByteBridge.Service' /usr/local/bin/bytebridge; then
+    rm -f /usr/local/bin/bytebridge
+  fi
+
+  if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload
+    if [ -z "$2" ]; then
+      # First install: enable and start it.
+      systemctl enable bytebridge
+      systemctl restart bytebridge || true
+    elif systemctl is-active --quiet bytebridge; then
+      # Upgrade: the new binary replaces the running one. A service the
+      # administrator disabled or stopped stays that way.
+      systemctl restart bytebridge || true
+    fi
+    if [ -n "$(systemctl is-enabled bytebridge 2>/dev/null | grep -x enabled)" ] &&
+       ! systemctl is-active --quiet bytebridge; then
+      echo "ByteBridge is installed, but the service is not running." >&2
+      echo "See why with: journalctl -u bytebridge -n 50" >&2
+      exit 0
+    fi
+  fi
   echo "ByteBridge installed. Try: bytebridge status"
 fi
 exit 0
