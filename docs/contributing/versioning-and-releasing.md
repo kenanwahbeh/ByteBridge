@@ -52,6 +52,10 @@ a release does too. The tag, not the pull request, is what publishes.
    Releases are immutable: a tag that exists is never moved, so a
    mistake is fixed by the next version.
 
+   A version with a suffix, such as `3.3.0-beta.1`, is published as a
+   GitHub pre-release: it is not "latest", so neither the update check
+   nor the apt repository offers it to anyone.
+
 ## What the tag does
 
 The tag starts the **Release** workflow, then the **APT repository**

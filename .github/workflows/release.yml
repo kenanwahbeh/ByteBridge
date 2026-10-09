@@ -354,13 +354,25 @@ jobs:
           $tag = $env:GITHUB_REF_NAME
           $files = (Get-ChildItem artifacts -File).FullName
 
+          # Any suffix (3.3.0-beta.1, 3.3.0.1-rc.2) makes a pre-release.
+          # GitHub keeps it out of "latest", so the update check and the
+          # apt repository, which both skip pre-releases, never offer it
+          # to anyone who did not ask for it.
+          $pre = $tag.Contains('-')
+
           gh release view $tag *> $null
 
           if ($LASTEXITCODE -eq 0) {
             Write-Host "Release $tag already exists; replacing its assets."
             gh release upload $tag $files --clobber
+
+            if ($pre) { gh release edit $tag --prerelease }
           } else {
-            gh release create $tag $files `
+            $flags = @()
+
+            if ($pre) { $flags += '--prerelease' }
+
+            gh release create $tag $files @flags `
               --title "ByteBridge $tag" `
               --notes-file release-notes.md
           }
