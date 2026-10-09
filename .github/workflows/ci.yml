@@ -254,3 +254,8 @@ jobs:
           cd /
           sudo -u bytebridge env BYTEBRIDGE_DATA=/var/lib/bytebridge \
             timeout 20 /opt/bytebridge/ByteBridge.Service || echo "exit $?"
+          sudo apt-get install -y strace >/dev/null
+          sudo -u bytebridge env BYTEBRIDGE_DATA=/var/lib/bytebridge \
+            timeout 15 strace -f -tt -o /tmp/bb.trace /opt/bytebridge/ByteBridge.Service || true
+          echo "---- last of the trace"
+          tail -40 /tmp/bb.trace | cut -c1-200
