@@ -21,6 +21,15 @@
   #define AppVersion "0.0.0"
 #endif
 
+; The file-version resource takes digits only, so a pre-release suffix
+; ("3.3.0-beta.1") is cut off for it and kept everywhere else.
+#define DashAt Pos("-", AppVersion)
+#if DashAt > 0
+  #define NumericVersion Copy(AppVersion, 1, DashAt - 1)
+#else
+  #define NumericVersion AppVersion
+#endif
+
 #ifndef PublishDir
   #define PublishDir "publish"
 #endif
@@ -62,7 +71,7 @@ AppPublisher={#AppPublisher}
 AppPublisherURL={#AppUrl}
 AppSupportURL={#AppUrl}/issues
 AppUpdatesURL={#AppUrl}/releases
-VersionInfoVersion={#AppVersion}
+VersionInfoVersion={#NumericVersion}
 
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
